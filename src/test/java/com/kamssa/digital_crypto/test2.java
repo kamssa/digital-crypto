@@ -24,7 +24,7 @@ public class AutomationHubClientTest {
     void setUp() {
         MockitoAnnotations.openMocks(this);
     }
-
+  
     @Test
     void testEnrollCertificateSuccess() throws Exception {
         // Arrange
