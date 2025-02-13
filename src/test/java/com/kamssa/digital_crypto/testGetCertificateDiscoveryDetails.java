@@ -1,40 +1,51 @@
-@RunWith(SpringRunner.class)
-@SpringBootTest
-public class CertificateServiceTest {
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.Mockito;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.junit.jupiter.api.extension.ExtendWith;
+
+@ExtendWith(MockitoExtension.class)
+class CertificateServiceImplTest {
 
     @Mock
-    private CertificateRepository certificateRepository; // Remplacez avec le bon repository ou service dépendant.
+    private CertificateRepository certificateRepository; 
+    // ou le service qui contient vraiment getCertificateById si c’est ailleurs
 
     @InjectMocks
-    private CertificateService certificateService; // Remplacez avec le service réel que vous testez.
+    private CertificateServiceImpl certificateService;
 
     @Test
-    public void testGetCertificateDiscoveryDetails() throws FailedToGetCertificateException {
-        // Préparation des mocks
-        String certificateId = "12345";
-        AutomationHubCertificateDto mockCertificateDto = new AutomationHubCertificateDto();
-        List<CertificateDiscoveryDataDto> mockDiscoveryDataList = new ArrayList<>();
-        CertificateDiscoveryDataDto mockDiscoveryData = new CertificateDiscoveryDataDto();
-        mockDiscoveryData.setIp("192.168.1.1");
-        mockDiscoveryDataList.add(mockDiscoveryData);
-        mockCertificateDto.setDiscoveryDatas(mockDiscoveryDataList);
+    void testGetCertificateDiscoveryDetails() throws FailedToGetCertificateException {
+        // GIVEN: Préparation de l’objet retourné par getCertificateById(...)
+        AutomationHubCertificateDto mockCertificate = new AutomationHubCertificateDto();
 
-        List<DiscoveryInfoDto> mockDiscoveryInfoList = new ArrayList<>();
-        DiscoveryInfoDto mockDiscoveryInfo = new DiscoveryInfoDto();
-        mockDiscoveryInfo.setLastDiscoveryDate(new Date());
-        mockDiscoveryInfoList.add(mockDiscoveryInfo);
-        mockCertificateDto.setDiscoveryInfos(mockDiscoveryInfoList);
+        // Simulons la liste de DiscoveryDatas
+        List<DiscoveryDataDto> discoveryDatas = new ArrayList<>();
+        DiscoveryDataDto dataDto = new DiscoveryDataDto();
+        discoveryDatas.add(dataDto);
+        mockCertificate.setDiscoveryDatas(discoveryDatas);
 
-        Mockito.when(certificateRepository.getCertificateById(certificateId))
-               .thenReturn(mockCertificateDto);
+        // Simulons la liste de DiscoveryInfos
+        List<DiscoveryInfoDto> discoveryInfos = new ArrayList<>();
+        DiscoveryInfoDto infoDto = new DiscoveryInfoDto();
+        infoDto.setLastDiscoveryDate(1672531200000L); // 01/01/2023 en timestamp
+          .add(infoDto);
+        mockCertificate.setDiscoveryInfos(discoveryInfos);
 
-        // Exécution de la méthode à tester
-        List<DiscoveryDetailDto> result = certificateService.getCertificateDiscoveryDetails(certificateId);
+        // On configure le mock : quand on appelle certificateRepository.findById("testId"),
+        // on renvoie notre objet factice
+        Mockito.when(certificateRepository.findById("testId"))
+               .thenReturn(mockCertificate);
 
-        // Assertions
-        Assert.assertNotNull(result);
-        Assert.assertEquals(1, result.size());
-        Assert.assertEquals("192.168.1.1", result.get(0).getIp());
-        Assert.assertNotNull(result.get(0).getLastDiscoveryDate());
+        // WHEN: Appel de la méthode à tester
+        List<DiscoveryDetailDto> result = certificateService.getCertificateDiscoveryDetails("testId");
+
+        // THEN: Vérifications
+        Assertions.assertNotNull(result, "La liste ne doit pas être nulle");
+        Assertions.assertEquals(1, result.size(), "On attend une seule DiscoveryDetailDto");
+        Assertions.assertNotNull(result.get(0).getDiscoveryDate(), 
+                                 "La date de découverte doit être renseignée");
     }
 }
