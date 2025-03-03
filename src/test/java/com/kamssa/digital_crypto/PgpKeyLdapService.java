@@ -39,3 +39,35 @@ public class PgpKeyLdapController {
         return attributes.get(attributeName) != null ? attributes.get(attributeName).get().toString() : null;
     }
 }
+/*
+méliorations recommandées :
+🔹 Sécuriser la requête LDAP :
+// Utilisation de LdapQueryBuilder pour éviter l'injection LDAP
+LdapQuery query = LdapQueryBuilder.query()
+        .base("ou=pgpkeys")
+        .where("mail").is(email);
+
+return ldapTemplate.search(query, (AttributesMapper<String>) attrs -> getAttributeValue(attrs, "pgpPublicKey"));
+ Schéma de fonctionnement global
+L'utilisateur envoie une requête
+GET /search-pgp-keys?email=john.doe@example.com
+Le contrôleur interroge LDAP
+Recherche (mail=john.doe@example.com) dans ou=pgpkeys.
+Si un résultat est trouvé, il extrait pgpPublicKey et le retourne en JSON.
+*/
+/*Ce code définit un contrôleur Spring Boot qui interagit avec un serveur LDAP pour rechercher des clés PGP associées à une adresse e-mail. Voici quelques points d'amélioration et de sécurité :
+
+🔴 Problèmes potentiels :
+Injection de paramètres LDAP (LDAP Injection)
+
+La concaténation directe "(mail=" + email + ")" peut exposer l'application à des attaques par injection LDAP.
+Solution : Utiliser Filter.escapeFilter() de Spring LDAP pour éviter les injections.
+Gestion des erreurs
+
+Si getAttributeValue() ne trouve pas l'attribut, il renvoie null, ce qui pourrait entraîner des NullPointerException en aval.
+Solution : Gérer explicitement les cas où l'attribut est absent.
+Mauvaise gestion de la connexion LDAP
+
+Le LdapContextSource est instancié directement dans le constructeur, ce qui rend difficile son injection et le test unitaire.
+Solution : Utiliser @Configuration pour configurer LdapTemplate et injecter la dépendance.
+*/
