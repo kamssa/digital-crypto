@@ -1,0 +1,30 @@
+import { Injectable } from '@angular/core';
+import { SearchResult } from './search-result.model';
+
+@Injectable({
+  providedIn: 'root',
+})
+export class SearchPGPKeyService {
+  private mockData: SearchResult[] = [
+    { id: 1, name: 'Document 1', date: new Date('2024-01-15'), expirationDate: new Date('2027-12-31'), apcode: 'AP001', isOwned: false, status: 'Active' },
+    { id: 6, name: 'Document 1', date: new Date('2024-01-15'), expirationDate: new Date('2024-12-31'), apcode: 'AP001', isOwned: false, status: 'Active' },
+    { id: 2, name: 'Report 2024', date: new Date('2024-01-15'), expirationDate: new Date('2024-12-31'), apcode: 'AP002', isOwned: false, status: 'Expired' }
+  ];
+
+  constructor() {}
+
+  search(query: string): SearchResult[] {
+    return this.mockData.filter(item =>
+      item.id.toString().includes(query) ||
+      item.name.toLowerCase().includes(query) ||
+      item.apcode.toLowerCase().includes(query) ||
+      item.status.toLowerCase().includes(query) ||
+      this.formatDate(item.date).includes(query) ||
+      this.formatDate(item.expirationDate).includes(query)
+    );
+  }
+
+  private formatDate(date: Date): string {
+    return date.toISOString().split('T')[0]; // Format YYYY-MM-DD
+  }
+}
