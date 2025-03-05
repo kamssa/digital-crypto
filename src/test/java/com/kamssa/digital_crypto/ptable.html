@@ -1,0 +1,38 @@
+<p-table 
+  #dt
+  [value]="results"
+  [paginator]="true" 
+  [rows]="10" 
+  [rowsPerPageOptions]="[5,10,20]"
+  [sortMode]="'multiple'"
+  class="results-table"
+  *ngIf="results.length > 0"
+>
+  <ng-template pTemplate="header">
+    <tr>
+      <th pSortableColumn="id">ID <p-sortIcon field="id"></p-sortIcon></th>
+      <th pSortableColumn="name">Name <p-sortIcon field="name"></p-sortIcon></th>
+      <th pSortableColumn="date">Date <p-sortIcon field="date"></p-sortIcon></th>
+      <th pSortableColumn="expirationDate">Expiration Date <p-sortIcon field="expirationDate"></p-sortIcon></th>
+      <th pSortableColumn="apcode">API Code <p-sortIcon field="apcode"></p-sortIcon></th>
+      <th pSortableColumn="status">Status <p-sortIcon field="status"></p-sortIcon></th>
+      <th>Owner</th>
+      <th>Actions</th>
+    </tr>
+  </ng-template>
+
+  <ng-template pTemplate="body" let-result>
+    <tr [class.owned]="result.isOwned">
+      <td>{{ result.id }}</td>
+      <td>{{ result.name }}</td>
+      <td>{{ result.date | date:'medium' }}</td>
+      <td>{{ result.expirationDate | date:'medium' }}</td>
+      <td>{{ result.apcode }}</td>
+      <td>
+        <app-status-badge [certificateStatus]="result.status" [expiryDate]="result.expirationDate"></app-status-badge>
+      </td>
+      <td>{{ result.owner }}</td>
+      <td>Actions ici...</td>
+    </tr>
+  </ng-template>
+</p-table>
