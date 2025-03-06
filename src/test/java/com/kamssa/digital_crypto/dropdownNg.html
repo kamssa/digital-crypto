@@ -1,0 +1,94 @@
+<!-- 1. Ajouter la valeur du dropdown dans la fonction de recherche -->
+<!-- Actuellement, tu as un ngModel pour le champ de recherche et pour le dropdown : -->
+<input pInputText type="text" class="search-input"
+       [(ngModel)]="searchTerm" (input)="onSearch()" 
+       placeholder="Search by ID or name...">
+       
+<p-dropdown [options]="options" 
+            placeholder="Select an item" 
+            [(ngModel)]="searchType" 
+            (onChange)="onChange($event)">
+
+</p-dropdown>
+<!-- 2. Mettre à jour la méthode onSearch() -->
+<!-- Tu dois modifier ta méthode onSearch() pour qu'elle prenne en compte la valeur du dropdown : -->
+onSearch() {
+  console.log('Search term:', this.searchTerm);
+  console.log('Search type:', this.searchType);
+  
+  // Exemple d'utilisation pour une requête
+  this.filteredResults = this.results.filter(item => {
+    if (this.searchType === 'id') {
+      return item.id.toString().includes(this.searchTerm);
+    } else if (this.searchType === 'name') {
+      return item.name.toLowerCase().includes(this.searchTerm.toLowerCase());
+    }
+    return false;
+  });
+}
+<!-- 3. Déclencher la recherche au changement du dropdown -->
+<!-- Ajoute l’appel à onSearch() dans onChange() pour actualiser la recherche dès que l'utilisateur change le type : -->
+onChange(event: any) {
+  console.log('Dropdown changed:', this.searchType);
+  this.onSearch();
+}
+///////////////
+<!-- 4. Assurer que options est bien défini -->
+<!-- Dans ton fichier TypeScript (.ts), assure-toi que options est bien défini avec les valeurs correspondantes : -->
+options = [
+  { label: 'ID', value: 'id' },
+  { label: 'Name', value: 'name' }
+];
+
+searchTerm: string = '';
+searchType: string = 'id'; // Valeur par défaut
+results = [ /* tes données ici */ ];
+filteredResults = [...this.results];
+<!-- /*5. Utiliser filteredResults dans ton tableau -->
+<!-- Dans ton HTML, modifie la table pour afficher les résultats filtrés :*/ -->
+///////////////////////////
+<p-table [value]="filteredResults" ... >
+<!-- Dans ton fichier HTML (.html), modifie le bouton de recherche pour appeler search() avec les bonnes valeurs : -->
+
+<!-- html -->
+<!-- Copier -->
+<!-- Modifier -->
+<p-button 
+    styleClass="addButton search-button pull-left" 
+    label="Search" 
+    (click)="search(searchTerm, searchType)">
+</p-button>
+ <!-- Mise à jour du TypeScript -->
+<!-- Dans ton fichier TypeScript (.ts), ajoute la méthode search() qui prendra les valeurs du champ de recherche et du dropdown : -->
+
+<!-- typescript -->
+<!-- Copier -->
+<!-- Modifier -->
+search(term: string, type: string) {
+  console.log('Recherche avec :', term, 'Type :', type);
+
+  if (!term) {
+    console.warn('Veuillez entrer une valeur à rechercher');
+    return;
+  }
+
+  // Filtrer les résultats selon le type sélectionné
+  this.filteredResults = this.results.filter(item => {
+    if (type === 'id') {
+      return item.id.toString().includes(term);
+    } else if (type === 'name') {
+      return item.name.toLowerCase().includes(term.toLowerCase());
+    }
+    return false;
+  });
+}
+<!-- Si tu veux exécuter search() dès que l'utilisateur tape dans le champ de recherche (sans cliquer sur le bouton), ajoute cet événement dans l’input : -->
+
+<!-- html -->
+<!-- Copier -->
+<!-- Modifier -->
+<input pInputText type="text" class="search-input"
+       [(ngModel)]="searchTerm" 
+       (keyup.enter)="search(searchTerm, searchType)" 
+       placeholder="Search by ID or name...">
+

@@ -1,0 +1,49 @@
+<p-table [value]="filteredResults" 
+         [paginator]="true" 
+         [rows]="5" 
+         [rowsPerPageOptions]="[5,10,20]" 
+         (onPage)="onPageChange($event)"
+         responsiveLayout="scroll">
+    
+    <ng-template pTemplate="header">
+        <tr>
+            <th pSortableColumn="id">ID <p-sortIcon field="id"></p-sortIcon></th>
+            <th pSortableColumn="name">Nom <p-sortIcon field="name"></p-sortIcon></th>
+            <th pSortableColumn="apcode">AP Code <p-sortIcon field="apcode"></p-sortIcon></th>
+        </tr>
+    </ng-template>
+
+    <ng-template pTemplate="body" let-item>
+        <tr>
+            <td>{{ item.id }}</td>
+            <td>{{ item.name }}</td>
+            <td>{{ item.apcode }}</td>
+        </tr>
+    </ng-template>
+</p-table>
+
+<!-- Affichage du nombre total de pages -->
+<div class="pagination-info">
+    Page {{ currentPage + 1 }} sur {{ totalPages }}
+</div>
+<!-- Dans ton fichier TypeScript (.ts), ajoute la logique pour gérer le nombre total de pages : -->
+
+<!-- typescript -->
+<!-- Copier -->
+<!-- Modifier -->
+currentPage: number = 0; // Page actuelle (index 0)
+totalPages: number = 1; // Nombre total de pages
+rowsPerPage: number = 5; // Nombre d'éléments par page
+
+onPageChange(event: any) {
+  this.currentPage = event.page;  // Page actuelle (commence à 0)
+  this.rowsPerPage = event.rows;  // Nombre d'éléments par page
+  this.totalPages = Math.ceil(this.filteredResults.length / this.rowsPerPage); // Calcul du total des pages
+}
+<!-- Tu peux ajouter un peu de style pour mieux afficher l'info : -->
+.pagination-info {
+    margin-top: 10px;
+    font-size: 14px;
+    font-weight: bold;
+    color: #555;
+}
