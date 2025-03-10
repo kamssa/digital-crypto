@@ -80,3 +80,12 @@ public class PgpGpgKeyController {
     }
 }
 curl "http://localhost:8080/api/keys/search?identifier=john.doe"
+return ldapTemplate.search(
+    "",
+    "(|(mail=" + identifier + ")(uid=" + identifier + "))",
+    (attributes, name) -> {
+        String pgpKey = attributes.get("pgpKey") != null ? attributes.get("pgpKey").get().toString() : null;
+        String gpgKey = attributes.get("gpgKey") != null ? attributes.get("gpgKey").get().toString() : null;
+        return pgpKey != null ? pgpKey : gpgKey;
+    }
+);
