@@ -89,3 +89,39 @@ return ldapTemplate.search(
         return pgpKey != null ? pgpKey : gpgKey;
     }
 );
+/////////////////////////////////////////////
+@Autowired
+private LdapTemplate ldapTemplate;
+
+@Cacheable(value = "ldapKeysCache", key = "#identifier")
+public List<LdapKeyInfo> searchKeys(String identifier) {
+    try {
+        LdapQuery query = LdapQueryBuilder.query()
+                .where("mail").is(identifier)
+                .or("uid").is(identifier)
+                .and(
+                    LdapQueryBuilder.query().where("pgpKey").isPresent()
+                    .or("gpgKey").isPresent()
+                    .or("pgpCertisID").isPresent()
+                );
+
+        return ldapTemplate.search(query, (attributes, name) -> {
+            String pgpKey = attributes.get("pgpKey") != null ? attributes.get("pgpKey").get().toString() : null;
+            String gpgKey = attributes.get("gpgKey") != null ? attributes.get("gpgKey").get().toString() : null;
+            String pgpCertisID = attributes.get("pgpCertisID") != null ? attributes.get("pgpCertisID").get().toString() : null;
+
+            return new LdapKeyInfo(pgpKey, gpgKey, pgpCertisID);
+        });
+
+    } catch (NameNotFoundException e) {
+        logger.warn("Aucune clé trouvée pour l'identifiant: {}", identifier);
+    } catch (LimitExceededException e) {
+        logger.error("Trop de résultats retournés pour l'identifiant: {}", identifier);
+    } catch (ServiceUnavailableException e) {
+        logger.error("Le serveur LDAP est indisponible.");
+    } catch (Exception e) {
+        logger.error("Erreur lors de la requête LDAP : {}", e.getMessage(), e);
+    }
+
+    return Collections.emptyList(); // Retourne une liste vide en cas d'erreur
+}
