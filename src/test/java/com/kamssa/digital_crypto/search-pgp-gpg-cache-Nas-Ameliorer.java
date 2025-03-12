@@ -120,3 +120,27 @@ public class NasLdapScannerService {
         return Collections.emptyList();
     }
 }
+// Formater la chaîne LDAP avec l'entrée de l'utilisateur
+        String formattedLdap = String.format("CN=%s, OU=Users, DC=example, DC=com", cn);
+
+        // Afficher le résultat formaté
+        System.out.println("La chaîne LDAP formatée : " + formattedLdap);
+		public class LdapFormatter {
+    public static void main(String[] args) {
+        // Créer un objet Scanner pour lire l'entrée de l'utilisateur
+        Scanner scanner = new Scanner(System.in);
+
+        // Demander à l'utilisateur d'entrer le CN
+        System.out.print("Entrez le CN (par exemple 778888) : ");
+        String cn = scanner.nextLine();
+
+        // Formater la chaîne LDAP avec l'entrée de l'utilisateur
+        String formattedLdap = String.format("CN=%s, OU=Users, DC=example, DC=com", cn);
+
+        // Afficher le résultat formaté
+        System.out.println("La chaîne LDAP formatée : " + formattedLdap);
+        
+        // Fermer le scanner
+        scanner.close();
+    }
+}

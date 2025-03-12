@@ -68,3 +68,22 @@ public class NasFileScannerService {
         return null;
     }
 }
+import org.springframework.web.bind.annotation.*;
+import java.util.Optional;
+
+@RestController
+@RequestMapping("/nas-ldap")
+public class NasLdapController {
+
+    private final NasLdapScannerService scannerService;
+
+    public NasLdapController(NasLdapScannerService scannerService) {
+        this.scannerService = scannerService;
+    }
+
+    @GetMapping("/certificate")
+    public Optional<Certificate> getCertificateWithLdap(@RequestParam String ascFilename) {
+        return scannerService.findCertificateWithLdapKey(ascFilename);
+    }
+}
+curl "http://localhost:8080/nas-ldap/certificate?ascFilename=clé_pgp123.asc"
