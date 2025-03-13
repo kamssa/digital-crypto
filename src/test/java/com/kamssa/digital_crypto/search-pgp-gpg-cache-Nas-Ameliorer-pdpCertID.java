@@ -132,3 +132,20 @@ public class CertificateController {
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 }
+////////////////////////////////////////////////////////////////////
+@Query("SELECT c FROM Certificate c WHERE c.pgpCertisID = :pgpCertisID ORDER BY c.id DESC")
+Optional<Certificate> findLatestByPgpCertisID(@Param("pgpCertisID") String pgpCertisID);
+Puis l’appel :
+
+java
+Copier
+Modifier
+Optional<Certificate> certOpt = certificateRepository.findLatestByPgpCertisID(pgpCertisID);
+3️⃣ Avec une Query Native SQL (si nécessaire)
+Si l'ID ne suit pas un ordre strict ou si tu veux filtrer sur une date, une requête SQL directe peut être utilisée :
+
+java
+Copier
+Modifier
+@Query(value = "SELECT * FROM certificate WHERE pgp_certis_id = :pgpCertisID ORDER BY id DESC LIMIT 1", nativeQuery = true)
+Optional<Certificate> findLatestByPgpCertisID(@Param("pgpCertisID") String pgpCertisID);
