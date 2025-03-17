@@ -80,3 +80,20 @@ public class LdapNasService {
         return validRequests;
     }
 }
+@RestController
+@RequestMapping("/api")
+public class RequestController {
+
+    @Autowired
+    private NasRequestScannerService scannerService;
+
+    @GetMapping("/requests/valid-nas")
+    public ResponseEntity<List<Request>> getValidRequestsFromNas() {
+        List<Request> validRequests = scannerService.getAllValidRequestsWithNasFile();
+        if (validRequests.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok(validRequests);
+    }
+}
+
