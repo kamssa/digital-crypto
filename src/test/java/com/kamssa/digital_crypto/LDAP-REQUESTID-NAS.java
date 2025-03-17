@@ -96,4 +96,15 @@ public class RequestController {
         return ResponseEntity.ok(validRequests);
     }
 }
-
+//supplement
+private Path findFileInNas(String filename) {
+    try {
+        return Files.find(Paths.get(NAS_PATH), Integer.MAX_VALUE,
+            (path, attrs) -> path.getFileName().toString().equalsIgnoreCase(filename))
+            .findFirst()
+            .orElse(null);
+    } catch (IOException e) {
+        e.printStackTrace();
+        return null;
+    }
+}
