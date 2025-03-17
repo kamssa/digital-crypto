@@ -20,7 +20,7 @@ public class LdapNasService {
     private RequestRepository requestRepository;
 
     /**
-     * 🔎 Recherche le pgpCertisID via CN dans le LDAP.
+     * 🔎 Recherche pgpCertisID en LDAP via CN.
      */
     public String findPgpCertisIDByCN(String cn) {
         try {
@@ -42,7 +42,7 @@ public class LdapNasService {
     }
 
     /**
-     * 🔍 Vérifie la présence de pgpCertisID.asc dans le NAS.
+     * 🔍 Vérifie si le fichier pgpCertisID.asc existe dans le NAS.
      */
     private boolean isPgpCertisIDInNas(String pgpCertisID) {
         Path filePath = Paths.get(NAS_PATH, pgpCertisID + ".asc");
@@ -50,27 +50,33 @@ public class LdapNasService {
     }
 
     /**
-     * 👇 Process : LDAP -> DB -> NAS -> Résultat.
+     * 🔄 Pour chaque Request, vérifie pgpCertisID.asc dans NAS.
      */
-    public List<Request> processCN(String cn) {
+    public List<Request> getValidRequestsWithNasFile(String cn) {
+        // 1️⃣ LDAP
         String pgpCertisID = findPgpCertisIDByCN(cn);
         if (pgpCertisID == null) {
             System.err.println("🔴 Aucun pgpCertisID trouvé pour CN=" + cn);
             return Collections.emptyList();
         }
 
-        List<Request> requests = requestRepository.findByCnOrderByIdDesc(cn);
-        if (requests.isEmpty()) {
-            System.err.println("🔴 Aucun Request trouvé pour CN=" + cn);
+        // 2️⃣ Récupère les Requests pour ce CN
+        List<Request> allRequests = requestRepository.findByCnOrderByIdDesc(cn);
+        if (allRequests.isEmpty()) {
+            System.err.println("🔴 Aucun Request pour CN=" + cn);
             return Collections.emptyList();
         }
 
-        if (!isPgpCertisIDInNas(pgpCertisID)) {
-            System.err.println("🔴 Fichier NAS non trouvé : " + pgpCertisID + ".asc");
-            return Collections.emptyList();
+        // 3️⃣ Filtrer uniquement ceux dont le pgpCertisID.asc existe
+        List<Request> validRequests = new ArrayList<>();
+        for (Request req : allRequests) {
+            if (req.getPgpCertisID() != null && isPgpCertisIDInNas(req.getPgpCertisID())) {
+                validRequests.add(req);
+            } else {
+                System.out.println("❌ Fichier NAS manquant pour Request ID=" + req.getId());
+            }
         }
 
-        // ✅ Tout est valide, retourne les Request
-        return requests;
+        return validRequests;
     }
 }
