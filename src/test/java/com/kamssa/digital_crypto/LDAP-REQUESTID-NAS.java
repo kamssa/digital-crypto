@@ -108,3 +108,21 @@ private Path findFileInNas(String filename) {
         return null;
     }
 }
+import java.util.regex.*;
+
+public class Main {
+    public static void main(String[] args) {
+        String dn = "CN=John.Doe,OU=Users,DC=example,DC=com";
+
+        // Expression régulière pour capturer la valeur après "CN="
+        Pattern pattern = Pattern.compile("CN=([^,]+)");
+        Matcher matcher = pattern.matcher(dn);
+
+        if (matcher.find()) {
+            String username = matcher.group(1);
+            System.out.println("Nom d'utilisateur : " + username);
+        } else {
+            System.out.println("Nom d'utilisateur introuvable.");
+        }
+    }
+}
