@@ -4,7 +4,7 @@ public class CertificateRestController {
 
     private final RequestRepository requestRepository;
     private final CertificateRepository certificateRepository;
-    private final LdapService ldapService; // Service pour gérer la recherche LDAP
+    private final LdapService ldapService;
     private static final String NAS_PATH = "/mnt/nas/";
 
     public CertificateRestController(RequestRepository requestRepository,
@@ -17,7 +17,7 @@ public class CertificateRestController {
 
     /**
      * 🔍 Endpoint pour récupérer le certificat à partir d'un CN.
-     * Exemple d'appel : GET /api/certificates?cn=user123
+     * Exemple : GET /api/certificates?cn=user123
      */
     @GetMapping
     public ResponseEntity<?> getCertificateByCn(@RequestParam String cn) {
@@ -31,9 +31,9 @@ public class CertificateRestController {
      * 📜 Recherche la première Request valide et retourne le certificat associé.
      */
     private Optional<Certificate> findCertificateFromValidRequest(String cn) {
-        // 1️⃣ Récupérer le pgpCertisID à partir de LDAP
-        String pgpCertisID = ldapService.findPgpCertisIDByCN(cn);
-        if (pgpCertisID == null) {
+        // 1️⃣ Récupérer la Map des pgpCertisID depuis LDAP
+        Map<String, String> pgpCertisMap = ldapService.findPgpCertisIDByCN(cn);
+        if (pgpCertisMap == null || pgpCertisMap.isEmpty()) {
             System.err.println("🔴 Aucun pgpCertisID trouvé pour CN=" + cn);
             return Optional.empty();
         }
@@ -45,14 +45,20 @@ public class CertificateRestController {
             return Optional.empty();
         }
 
-        // 3️⃣ Trouver la première Request valide avec un fichier NAS existant
-        return allRequests.stream()
-                .filter(req -> pgpCertisID.equals(req.getPgpCertisID()) && isPgpCertisIDInNas(req.getPgpCertisID()))
-                .findFirst()
-                .flatMap(req -> {
-                    System.out.println("✅ Request ID=" + req.getId() + " validée. Récupération du certificat.");
-                    return certificateRepository.findById(req.getCertificateID());
-                });
+        // 3️⃣ Parcourir chaque pgpCertisID et valider l'existence du fichier NAS
+        for (String pgpCertisID : pgpCertisMap.values()) {
+            Optional<Request> validRequest = allRequests.stream()
+                    .filter(req -> pgpCertisID.equals(req.getPgpCertisID()) && isPgpCertisIDInNas(pgpCertisID))
+                    .findFirst();
+
+            // 4️⃣ Si une Request valide est trouvée, retourner le certificat
+            if (validRequest.isPresent()) {
+                System.out.println("✅ Request ID=" + validRequest.get().getId() + " validée. Récupération du certificat.");
+                return certificateRepository.findById(validRequest.get().getCertificateID());
+            }
+        }
+
+        return Optional.empty();
     }
 
     /**
