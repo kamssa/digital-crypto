@@ -71,7 +71,7 @@ public class NasLdapScannerService {
             String formattedLdap = String.format("CN=%s, OU=Users, DC=example, DC=com", cn);
 
             LdapQuery query = LdapQueryBuilder.query()
-                    .where("distinguishedName").is(formattedLdap)
+                    .where("pgUserID").is(formattedLdap)
                     .and("pgpCertisID").isPresent();
 
             List<String> results = ldapTemplate.search(query, (attributes, name) -> {
@@ -149,3 +149,35 @@ Copier
 Modifier
 @Query(value = "SELECT * FROM certificate WHERE pgp_certis_id = :pgpCertisID ORDER BY id DESC LIMIT 1", nativeQuery = true)
 Optional<Certificate> findLatestByPgpCertisID(@Param("pgpCertisID") String pgpCertisID);
+////// option1 sans DTO
+public class KeyAttributesMapper implements AttributesMapper<Map<String, String>> {
+
+    @Override
+    public Map<String, String> mapFromAttributes(Attributes attrs) throws NamingException {
+        Map<String, String> result = new HashMap<>();
+        result.put("pgpUserID", attrs.get("pgpUserID") != null ? attrs.get("pgpUserID").get().toString() : null);
+        result.put("pgpCertisID", attrs.get("pgpCertisID") != null ? attrs.get("pgpCertisID").get().toString() : null);
+        return result;
+    }
+}
+public Map<String, String> findLdapCertInfoMapByCN(String cn) {
+    try {
+        String dn = String.format("CN=%s,OU=Users,DC=example,DC=com", cn);
+        LdapQuery query = LdapQueryBuilder.query()
+                .where("pgpUserID").is(dn)
+                .and("pgpCertisID").isPresent();
+
+        List<Map<String, String>> results = ldapTemplate.search(query, new KeyAttributesMapper());
+
+        return results.isEmpty() ? null : results.get(0);
+
+    } catch (Exception e) {
+        e.printStackTrace();
+        return null;
+    }
+}
+Map<String, String> result = ldapNasService.findLdapCertInfoMapByCN("john.doe");
+if (result != null) {
+    System.out.println("pgpUserID = " + result.get("pgpUserID"));
+    System.out.println("pgpCertisID = " + result.get("pgpCertisID"));
+}
