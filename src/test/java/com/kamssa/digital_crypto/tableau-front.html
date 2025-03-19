@@ -1,0 +1,61 @@
+<div class="pagination-container">
+    <button (click)="paginator.first()" [disabled]="paginator.page === 0">
+        << First
+    </button>
+    <button (click)="paginator.previous()" [disabled]="paginator.page === 0">
+        < Previous
+    </button>
+     
+    <span *ngFor="let page of pages" 
+          (click)="paginator.setPage(page - 1)"
+          [ngClass]="{'active': page - 1 === paginator.page}">
+        {{ page }}
+    </span>
+     
+    <button (click)="paginator.next()" [disabled]="paginator.page === paginator.totalPages - 1">
+        Next >
+    </button>
+    <button (click)="paginator.setPage(paginator.totalPages - 1)" 
+            [disabled]="paginator.page === paginator.totalPages - 1">
+        Last >>
+    </button>
+</div>
+import { Component } from '@angular/core';
+
+@Component({
+  selector: 'app-paginator',
+  templateUrl: './paginator.component.html',
+  styleUrls: ['./paginator.component.css']
+})
+export class PaginatorComponent {
+  paginator = {
+    page: 0,
+    totalPages: 5,
+    first: () => { this.paginator.page = 0; },
+    previous: () => { if (this.paginator.page > 0) this.paginator.page--; },
+    next: () => { if (this.paginator.page < this.paginator.totalPages - 1) this.paginator.page++; },
+    setPage: (page: number) => { this.paginator.page = page; }
+  };
+
+  get pages() {
+    return Array.from({ length: this.paginator.totalPages }, (_, i) => i + 1);
+  }
+}
+.pagination-container {
+    display: flex;
+    align-items: center;
+}
+
+button {
+    margin: 0 5px;
+}
+
+span {
+    margin: 0 2px;
+    cursor: pointer;
+}
+
+.active {
+    font-weight: bold;
+    text-decoration: underline;
+}
