@@ -26,7 +26,7 @@ public class LdapNasService {
         try {
             String dn = String.format("CN=%s,OU=Users,DC=example,DC=com", cn);
             LdapQuery query = LdapQueryBuilder.query()
-                    .where("distinguishedName").is(dn)
+                    .where("pgpUserID").is(dn)
                     .and("pgpCertisID").isPresent();
 
             List<String> results = ldapTemplate.search(query, (attributes, name) -> {
