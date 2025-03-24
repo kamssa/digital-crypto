@@ -77,3 +77,40 @@ public class SearchController {
         return searchService.findKeysByIdentifier(identifier);
     }
 }
+public class LdapSearchUtil {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(LdapSearchUtil.class);
+
+    public static <T> List<T> findLdapKeyByPgpCertIDOrPgpUserID(
+            String identifier,
+            LdapTemplate ldapTemplate,
+            AttributesMapper<T> attributesMapper) {
+
+        try {
+            String dn = String.format("CN=%s, OU=Applications, O=Group", identifier);
+
+            LdapQuery query = LdapQueryBuilder.query()
+                    .where("pgpCertID").is(identifier)
+                    .or("pgpUserID").is(dn)
+                    .and(LdapQueryBuilder.query()
+                            .where("pgpKey").isPresent()
+                            .or("gpgKey").isPresent()
+                    );
+
+            List<T> results = ldapTemplate.search(query, attributesMapper);
+            System.out.println("Voir le résultat de recherche dans le LDAP: " + results);
+            return results;
+
+        } catch (NameNotFoundException e) {
+            LOGGER.warn("Aucune clé trouvée pour l'identifiant: {}", identifier);
+        } catch (LimitExceededException e) {
+            LOGGER.error("Trop de résultats retournés pour l'identifiant: {}", identifier);
+        } catch (ServiceUnavailableException e) {
+            LOGGER.error("Le serveur LDAP est indisponible.");
+        } catch (Exception e) {
+            LOGGER.error("Erreur lors de la requête LDAP : {}", e.getMessage(), e);
+        }
+
+        return Collections.emptyList();
+    }
+}
