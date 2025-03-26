@@ -1,0 +1,159 @@
+✅ Mise à jour du pagination.component.html
+Ce code affiche la page actuelle au centre, avec un style pour la page active.
+
+html
+Copier
+Modifier
+<div class="pagination">
+  <!-- Première page -->
+  <a (click)="goToFirst()" [ngClass]="isFirstPage() ? 'disabled' : ''">
+    <i class="fa fa-angle-double-left"></i>
+  </a>
+
+  <!-- Page précédente -->
+  <a (click)="previousPage()" [ngClass]="isFirstPage() ? 'disabled' : ''">
+    <i class="fa fa-angle-left"></i>
+  </a>
+
+  <!-- Numéros de page avec page active au centre -->
+  <ng-container *ngFor="let page of getPageRange(); let i = index">
+    <a (click)="goToPage(page)" [ngClass]="page === paginator.query.page ? 'active' : ''">
+      {{ page + 1 }}
+    </a>
+  </ng-container>
+
+  <!-- Page suivante -->
+  <a (click)="nextPage()" [ngClass]="isLastPage() ? 'disabled' : ''">
+    <i class="fa fa-angle-right"></i>
+  </a>
+
+  <!-- Dernière page -->
+  <a (click)="goToLast()" [ngClass]="isLastPage() ? 'disabled' : ''">
+    <i class="fa fa-angle-double-right"></i>
+  </a>
+</div>
+
+<div class="count">
+  <span>Total : {{ paginator.totalElements }} éléments</span>
+</div>
+📊 Mise à jour du pagination.component.ts
+Ajoute la logique pour gérer les numéros de page et les actions.
+
+typescript
+Copier
+Modifier
+import { Component } from '@angular/core';
+
+@Component({
+  selector: 'app-pagination',
+  templateUrl: './pagination.component.html',
+  styleUrls: ['./pagination.component.css'],
+})
+export class PaginationComponent {
+  paginator = {
+    query: { page: 0 }, // Page actuelle (indexée à partir de 0)
+    totalPages: 10, // Nombre total de pages
+    totalElements: 100, // Nombre total d'éléments
+    pageSize: 10, // Taille de la page
+  };
+
+  /** Aller à la première page */
+  goToFirst() {
+    if (!this.isFirstPage()) {
+      this.paginator.query.page = 0;
+      this.updatePage();
+    }
+  }
+
+  /** Aller à la page précédente */
+  previousPage() {
+    if (!this.isFirstPage()) {
+      this.paginator.query.page--;
+      this.updatePage();
+    }
+  }
+
+  /** Aller à la page suivante */
+  nextPage() {
+    if (!this.isLastPage()) {
+      this.paginator.query.page++;
+      this.updatePage();
+    }
+  }
+
+  /** Aller à la dernière page */
+  goToLast() {
+    if (!this.isLastPage()) {
+      this.paginator.query.page = this.paginator.totalPages - 1;
+      this.updatePage();
+    }
+  }
+
+  /** Aller à une page spécifique */
+  goToPage(page: number) {
+    this.paginator.query.page = page;
+    this.updatePage();
+  }
+
+  /** Vérifie si c'est la première page */
+  isFirstPage(): boolean {
+    return this.paginator.query.page === 0;
+  }
+
+  /** Vérifie si c'est la dernière page */
+  isLastPage(): boolean {
+    return this.paginator.query.page >= this.paginator.totalPages - 1;
+  }
+
+  /** Générer la plage de pages à afficher */
+  getPageRange(): number[] {
+    const maxVisiblePages = 5; // Nombre de pages visibles autour de la page active
+    const currentPage = this.paginator.query.page;
+    const totalPages = this.paginator.totalPages;
+
+    const start = Math.max(0, currentPage - Math.floor(maxVisiblePages / 2));
+    const end = Math.min(totalPages, start + maxVisiblePages);
+
+    return Array.from({ length: end - start }, (_, i) => start + i);
+  }
+
+  /** Met à jour la page (Appeler l'API si nécessaire) */
+  updatePage() {
+    console.log('Page mise à jour :', this.paginator.query.page + 1);
+    // Appel API ou autres actions ici
+  }
+}
+🎨 Ajout du style (pagination.component.css)
+Ajoute ce style pour mettre en évidence la page active.
+
+css
+Copier
+Modifier
+.pagination {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pagination a {
+  padding: 5px 10px;
+  text-decoration: none;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.pagination a.active {
+  background-color: #007bff;
+  color: white;
+  font-weight: bold;
+}
+
+.pagination a.disabled {
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+.count {
+  margin-top: 10px;
+}
