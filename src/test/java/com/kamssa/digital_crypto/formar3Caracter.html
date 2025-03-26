@@ -1,0 +1,34 @@
+Modifie ton input comme ceci :
+
+html
+Copier
+Modifier
+<input pInputText
+       type="text"
+       class="search-input"
+       [(ngModel)]="searchTerm"
+       (onPage)="onPageChange($event)"
+       placeholder="Search by ID or name..."
+       minlength="3"
+       #searchInput="ngModel"
+       required>
+       
+<div *ngIf="searchInput.invalid && searchInput.dirty" class="error-message">
+    <p *ngIf="searchInput.errors?.required">This field is required.</p>
+    <p *ngIf="searchInput.errors?.minlength">Minimum 3 characters required.</p>
+</div>
+Explication :
+minlength="3" → Spécifie que le champ doit contenir au moins 3 caractères.
+
+#searchInput="ngModel" → Récupère le contrôle de l'input pour vérifier son état de validation.
+
+*ngIf="searchInput.invalid && searchInput.dirty" → Affiche un message d'erreur si le champ est invalide et modifié.
+
+searchInput.errors?.minlength → Vérifie si l'erreur vient de la longueur minimale.
+
+Cela forcera l'utilisateur à entrer au moins 3 caractères avant de valider la recherche. Tu peux aussi ajouter une désactivation du bouton si l'input est invalide :
+
+html
+Copier
+Modifier
+<p-button label="Search" (onClick)="onSearch()" [disabled]="searchInput.invalid"></p-button>

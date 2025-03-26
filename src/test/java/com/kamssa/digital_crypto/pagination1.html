@@ -1,0 +1,105 @@
+✅ Mise à jour du pagination.component.html
+Ajoute l'affichage du numéro de page entre les flèches Précédent et Suivant :
+
+html
+Copier
+Modifier
+<div class="pagination">
+  <!-- Première page -->
+  <a (click)="goToFirst()" [ngClass]="isFirstPage() ? 'disabled' : ''">
+    <i class="fa fa-angle-double-left"></i>
+  </a>
+
+  <!-- Page précédente -->
+  <a (click)="previousPage()" [ngClass]="isFirstPage() ? 'disabled' : ''">
+    <i class="fa fa-angle-left"></i>
+  </a>
+
+  <!-- Numéro de page au milieu -->
+  <span class="page-info">Page {{ paginator.query.page + 1 }} sur {{ paginator.totalPages }}</span>
+
+  <!-- Page suivante -->
+  <a (click)="nextPage()" [ngClass]="isLastPage() ? 'disabled' : ''">
+    <i class="fa fa-angle-right"></i>
+  </a>
+
+  <!-- Dernière page -->
+  <a (click)="goToLast()" [ngClass]="isLastPage() ? 'disabled' : ''">
+    <i class="fa fa-angle-double-right"></i>
+  </a>
+</div>
+
+<div class="count">
+  <span>Total : {{ paginator.totalElements }} éléments</span>
+</div>
+📊 Mise à jour du pagination.component.ts
+Assure-toi que paginator.query.page commence bien à 0 (indexé à partir de zéro) et que totalPages est bien renseigné :
+
+typescript
+Copier
+Modifier
+export class PaginationComponent {
+  paginator = {
+    query: { page: 0 },
+    totalPages: 10,
+    totalElements: 100,
+    pageSize: 10
+  };
+
+  goToFirst() {
+    if (!this.isFirstPage()) {
+      this.paginator.query.page = 0;
+      this.updatePage();
+    }
+  }
+
+  previousPage() {
+    if (!this.isFirstPage()) {
+      this.paginator.query.page--;
+      this.updatePage();
+    }
+  }
+
+  nextPage() {
+    if (!this.isLastPage()) {
+      this.paginator.query.page++;
+      this.updatePage();
+    }
+  }
+
+  goToLast() {
+    if (!this.isLastPage()) {
+      this.paginator.query.page = this.paginator.totalPages - 1;
+      this.updatePage();
+    }
+  }
+
+  isFirstPage(): boolean {
+    return this.paginator.query.page === 0;
+  }
+
+  isLastPage(): boolean {
+    return this.paginator.query.page >= this.paginator.totalPages - 1;
+  }
+
+  updatePage() {
+    console.log('Page actuelle :', this.paginator.query.page + 1);
+    // Mets ici l'appel API si nécessaire
+  }
+}
+🎨 Style optionnel (CSS)
+Ajoute ce style pour bien centrer le numéro de page si nécessaire :
+
+css
+Copier
+Modifier
+.pagination {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.page-info {
+  font-weight: bold;
+}
+👉 Résultat attendu : La pagination affiche les flèches de navigation avec l'indication :
