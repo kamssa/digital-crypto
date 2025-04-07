@@ -1,3 +1,54 @@
+
+/////////////////&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
+import { Component } from '@angular/core';
+
+@Component({
+  selector: 'app-search',
+  templateUrl: './search.component.html',
+  styleUrls: ['./search.component.css']
+})
+export class SearchComponent {
+  searchTerm: string = '';
+  selectedFilter: string = 'name'; // Filtre par défaut
+  results: any[] = [];
+  currentPage: number = 1;
+  itemsPerPage: number = 10; // Taille par défaut
+  totalElements: number = 0;
+  totalPages: number = 0;
+  isError: boolean = false; // Pour afficher le message d'erreur
+
+  paginator = {
+    totalElements: 0,
+    pageSize: 10,
+    pageSizes: [10, 20, 50],
+    setPageSize: (size: number) => {
+      this.itemsPerPage = size; // Met à jour la taille de la page
+      this.performSearch(); // Rappelle la recherche avec la nouvelle taille
+    }
+  };
+
+  performSearch() {
+    if (this.searchTerm.length < 3) {
+      this.isError = true; // Active le message d'erreur
+      this.results = [];
+      this.totalElements = 0; // Réinitialise le total des éléments
+      this.currentPage = 1;   // Remet à la première page
+      return;
+    }
+    
+    this.isError = false; // Désactive le message d'erreur
+
+    const allData = this.fetchResults(this.searchTerm, this.selectedFilter);
+    this.totalElements = allData.length; // Met à jour le total d'éléments
+
+    // Applique la pagination
+    this.results = allData.slice((this.currentPage - 1) * this.itemsPerPage, this.currentPage * this.itemsPerPage);
+    this.totalPages = Math.ceil(this.totalElements / this.itemsPerPage); // Calcule le nombre total de pages
+  }
+
+  fetchResults(term: string, filter: string) {
+    const allData = [...]; // Remplacez cela par votre source de données
+//////////////////////&&&&&&&&&&&&&&&&&&&&&&&&&
 /////////////////////////////////////////////////
 
 <div class="pagination">
