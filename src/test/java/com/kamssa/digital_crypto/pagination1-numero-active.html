@@ -1,3 +1,70 @@
+/////////////////////////////////////////////////
+
+<div class="pagination">
+  <div class="count">
+    <label for="paginationSize">Taille des éléments par page:</label>
+    <select id="paginationSize" (change)="paginator.setPageSize($event.target.value)">
+      <option *ngFor="let size of paginator.pageSizes" [value]="size">
+        {{ size }}
+      </option>
+    </select>
+    <span>Total: {{ paginator.totalElements }}</span>
+  </div>
+
+  <div class="navigation">
+    <p-button label="Précédent" (click)="previousPage()" [disabled]="currentPage === 1"></p-button>
+    <span>{{ currentPage }} / {{ totalPages }}</span>
+    <p-button label="Suivant" (click)="nextPage()" [disabled]="currentPage === totalPages"></p-button>
+  </div>
+</div>
+TypeScript (Pagination Logic)
+Assurez-vous que votre TypeScript est correctement configuré :
+
+typescript
+Copy
+// TypeScript pour le paginator
+import { Component } from '@angular/core';
+
+@Component({
+  selector: 'app-search',
+  templateUrl: './search.component.html',
+  styleUrls: ['./search.component.css']
+})
+export class SearchComponent {
+  searchTerm: string = '';
+  results: any[] = [];
+  currentPage: number = 1;
+  itemsPerPage: number = 10; // Taille par défaut
+  totalElements: number = 0; // Nombre total d'éléments
+  paginator = {
+    totalElements: 0,
+    pageSizes: [10, 20, 50],
+    setPageSize: (size: number) => {
+      this.itemsPerPage = size; // Mettez à jour la taille des éléments par page
+      this.performSearch(); // Recherchez à nouveau avec la nouvelle taille
+    }
+  };
+
+  // La méthode performSearch() et d'autres logiques sont ici…
+
+  nextPage() {
+    if (this.currentPage < this.totalPages) {
+      this.currentPage++;
+      this.performSearch();
+    }
+  }
+
+  previousPage() {
+    if (this.currentPage > 1) {
+      this.currentPage--;
+      this.performSearch();
+    }
+  }
+}
+////////////////////////////&&&&&&&&&&&&&&&&&&&&&&&&&&
+
+
+
 ✅ Mise à jour du pagination.component.html
 Ce code affiche la page actuelle au centre, avec un style pour la page active.
 
