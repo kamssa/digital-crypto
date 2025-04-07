@@ -1,0 +1,4 @@
+search(query: string, value: string): Observable<any> {
+  const isExact = value === 'exact' ? 'true' : 'false';
+  return this.http.get<any>(`${Global.WS_SEARCH_BY_KEYWORD}?query=${query}&value=${isExact}`);
+}
