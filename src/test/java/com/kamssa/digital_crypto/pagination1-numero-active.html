@@ -105,7 +105,71 @@ export class PaginationComponent {
     return this.paginator.query.page >= this.paginator.totalPages - 1;
   }
 
-  /** Générer la plage de pages à afficher */
+ 
+
+<div class="search-container">
+  <input
+    type="text"
+    [(ngModel)]="searchTerm"
+    (input)="onSearch()"
+    placeholder="Rechercher..."
+  />
+
+  <div class="results" *ngIf="filteredResults.length > 0">
+    <div *ngFor="let item of filteredResults">
+      {{ item }}
+    </div>
+
+    <div class="pagination">
+      <button (click)="previousPage()" [disabled]="currentPage === 1">Précédent</button>
+      <span>Page {{ currentPage }} sur {{ totalPages }}</span>
+      <button (click)="nextPage()" [disabled]="currentPage === totalPages">Suivant</button>
+    </div>
+  </div>
+  <div *ngIf="filteredResults.length === 0">Aucun résultat trouvé.</div>
+</div>
+TypeScript (search.component.ts)
+typescript
+Copy
+import { Component } from '@angular/core';
+
+@Component({
+  selector: 'app-search',
+  templateUrl: './search.component.html',
+  styleUrls: ['./search.component.css']
+})
+export class SearchComponent {
+  searchTerm: string = '';
+  items: string[] = ['Pomme', 'Banane', 'Orange', 'Mangue', 'Fraise'];
+  filteredResults: string[] = [];
+  currentPage: number = 1;
+  itemsPerPage: number = 2;
+
+  get totalPages(): number {
+    return Math.ceil(this.filteredResults.length / this.itemsPerPage);
+  }
+
+  onSearch() {
+    this.filteredResults = this.items.filter(item =>
+      item.toLowerCase().includes(this.searchTerm.toLowerCase())
+    ).slice((this.currentPage - 1) * this.itemsPerPage, this.currentPage * this.itemsPerPage);
+  }
+
+  nextPage() {
+    if (this.currentPage < this.totalPages) {
+      this.currentPage++;
+      this.onSearch();
+    }
+  }
+
+  previousPage() {
+    if (this.currentPage > 1) {
+      this.currentPage--;
+      this.onSearch();
+    }
+  }
+}
+ /** Générer la plage de pages à afficher */
   getPageRange(): number[] {
     const maxVisiblePages = 5; // Nombre de pages visibles autour de la page active
     const currentPage = this.paginator.query.page;
