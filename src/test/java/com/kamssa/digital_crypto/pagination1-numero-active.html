@@ -1,3 +1,66 @@
+////////////&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&//////////
+import { Component } from '@angular/core';
+
+@Component({
+  selector: 'app-search',
+  templateUrl: './search.component.html',
+})
+export class SearchComponent {
+  currentPage: number = 1; // Page actuelle
+  totalPages: number = 10;  // Total de pages
+
+  // Méthode pour obtenir la plage de pages à afficher
+  getPageRange(): number[] {
+    const range: number[] = [];
+    const start = Math.max(1, this.currentPage - 2);
+    const end = Math.min(this.totalPages, this.currentPage + 2);
+
+    for (let i = start; i <= end; i++) {
+      range.push(i);
+    }
+    return range;
+  }
+
+  // Méthode pour changer de page
+  goToPage(page: number): void {
+    if (page > 0 && page <= this.totalPages) {
+      this.currentPage = page;
+      // Ajoutez ici votre logique pour charger les données de la nouvelle page
+    }
+  }
+
+  isFirstPage(): boolean {
+    return this.currentPage === 1;
+  }
+
+  isLastPage(): boolean {
+    return this.currentPage === this.totalPages;
+  }
+}
+Explication :
+currentPage et totalPages : Ces variables gèrent la page actuelle et le nombre total de pages.
+
+getPageRange : Cette méthode crée une plage de pages à afficher autour de la page actuelle (deux pages avant et deux pages après), tout en s'assurant de ne pas dépasser les limites.
+
+goToPage : Cette méthode change la page actuelle lorsque l'utilisateur clique sur une page. Vous pouvez ajouter la logique pour récupérer les données appropriées pour cette page.
+
+isFirstPage et isLastPage : Méthodes d'aide pour déterminer si vous êtes sur la première ou la dernière page.
+
+Utilisation dans le HTML :
+Voici comment vous pourriez utiliser getPageRange dans votre template :
+
+html
+Copy
+<div class="pagination">
+  <ng-container *ngFor="let page of getPageRange(); let i = index">
+    <button (click)="goToPage(page)" [class.active]="page === currentPage">
+      {{ page }}
+    </button>
+  </ng-container>
+</div>
+
+///////////////&&&&&&&&&&&&&&&&&&&&&&/////////////////////
+
 
 /////////////////&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
 import { Component } from '@angular/core';
