@@ -5,6 +5,37 @@ import { Component } from '@angular/core';
   selector: 'app-search',
   templateUrl: './search.component.html',
 })
+
+///////////////////////////////////////////////////////////
+<label for="pageSize">Taille de page:</label>
+<select id="pageSize" [(ngModel)]="itemsPerPage" (change)="performSearch()">
+    <option *ngFor="let size of availablePageSizes" [value]="size">{{ size }}</option>
+</select>
+TypeScript :
+
+typescript
+Copy
+availablePageSizes: number[] = [5, 10, 20, 50]; // Options disponibles pour l'utilisateur
+itemsPerPage: number = 10; // Valeur par défaut
+3. Stockage persistant
+Vous pouvez également stocker la taille de page choisie dans le localStorage ou un autre mécanisme de stockage, ce qui permet de la conserver entre les différentes sessions de l'utilisateur.
+
+Exemple :
+
+typescript
+Copy
+ngOnInit() {
+    const storedPageSize = localStorage.getItem('pageSize');
+    this.itemsPerPage = storedPageSize ? parseInt(storedPageSize, 10) : 10; // Charger la taille de page stockée ou par défaut
+}
+
+setPageSize(size: number) {
+    this.itemsPerPage = size;
+    localStorage.setItem('pageSize', size.toString()); // Sauvegarder la taille de page sélectionnée
+    this.performSearch(); // Rechercher avec la nouvelle taille
+}
+////////______________________//////////////////////////////
+
 export class SearchComponent {
   currentPage: number = 1; // Page actuelle
   totalPages: number = 10;  // Total de pages
