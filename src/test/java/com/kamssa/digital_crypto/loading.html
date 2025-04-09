@@ -1,3 +1,27 @@
+.tooltip-container {
+    position: relative; /* Pour le positionnement du tooltip */
+    display: inline-block; /* Utilisé pour s'assurer que le tooltip s'affiche correctement */
+}
+
+.tooltip {
+    visibility: hidden; /* Masqué par défaut */
+    width: 200px; /* Largeur du tooltip */
+    background-color: red; /* Couleur de fond */
+    color: white; /* Couleur du texte */
+    text-align: center; /* Centrer le texte */
+    border-radius: 5px; /* Coins arrondis */
+    padding: 5px; /* Espacement intérieur */
+    position: absolute; /* Position absolue */
+    z-index: 1; /* Assurez-vous qu'il soit au-dessus d'autres éléments */
+    bottom: 125%; /* Positionnement en haut du bouton */
+    left: 50%; /* Centre le tooltip */
+    margin-left: -100px; /* Décale vers la gauche pour centrer */
+}
+
+.tooltip-container:hover .tooltip {
+    visibility: visible; /* Afficher le tooltip au survol */
+}
+///////////////////////
 
 import { catchError, finalize } from 'rxjs/operators';
 import { throwError } from 'rxjs';
