@@ -1,3 +1,70 @@
+
+import { catchError, finalize } from 'rxjs/operators';
+import { throwError } from 'rxjs';
+
+search(): void {
+    this.isLoading = true; // Commence le chargement
+    this.error = false; // Réinitialise l'état d'erreur
+
+    this.searchService.search(this.searchTerm, this.searchType).pipe(
+        catchError(err => {
+            this.error = true; // Établit l'état d'erreur
+            console.error('Erreur lors de la recherche', err);
+            return throwError(err); // Renvoie l'erreur pour être gérée ailleurs si nécessaire
+        }),
+        finalize(() => {
+            this.isLoading = false; // Fin du chargement
+        })
+    ).subscribe({
+        next: (results) => {
+            this.data = results.data; // Traitez les résultats
+            this.totalPages = Math.ceil(this.data.length / this.itemsPerPage);
+        }
+    });
+}
+typescript
+Copy
+console.log('Avant la recherche', this.isLoading);
+this.isLoading = true;
+
+this.searchService.search(this.searchTerm, this.searchType).subscribe({
+    next: (results) => {
+        console.log('Résultats reçus:', results);
+        this.data = results.data; // Adaptez selon la structure de votre API
+        this.totalPages = Math.ceil(this.data.length / this.itemsPerPage);
+    },
+    error: (err) => {
+        this.error = true; // Indique qu'il y a eu une erreur
+        console.error('Erreur lors de la recherche', err);
+    },
+    complete: () => {
+        // Remettre isLoading à false ici ou utiliser finalize dans le service
+        this.isLoading = false;
+        console.log('Après la recherche', this.isLoading);
+    }
+});
+Utilisation de finalize :
+Si vous ne l'avez pas déjà fait, envisagez d'utiliser finalize pour garantir que isLoading soit réinitialisé :
+
+typescript
+Copy
+import { finalize } from 'rxjs/operators';
+
+this.searchService.search(this.searchTerm, this.searchType).pipe(
+    finalize(() => {
+        this.isLoading = false;  // Assure que le chargement est stoppé
+    })
+).subscribe({
+    next: (results) => {
+        this.data = results.data;
+        this.totalPages = Math.ceil(this.data.length / this.itemsPerPage);
+    },
+    error: (err) => {
+        this.error = true;
+        console.error('Erreur lors de la recherche', err);
+    }
+});
+
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
