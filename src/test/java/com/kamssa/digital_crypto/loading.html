@@ -1,0 +1,130 @@
+import { Injectable } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { Observable } from 'rxjs';
+
+@Injectable({
+  providedIn: 'root'
+})
+export class MyService {
+  constructor(private http: HttpClient) {}
+
+  search(term: string): Observable<any[]> {
+    const apiUrl = `https://api.example.com/search?query=${encodeURIComponent(term)}`;
+    return this.http.get<any[]>(apiUrl);
+  }
+}
+🧩 2. Composant Angular (my-component.component.ts)
+ts
+Copier
+Modifier
+import { Component, OnInit, OnDestroy } from '@angular/core';
+import { Subject, Subscription, of } from 'rxjs';
+import {
+  debounceTime,
+  distinctUntilChanged,
+  switchMap,
+  catchError,
+  finalize,
+  tap
+} from 'rxjs/operators';
+import { MyService } from './my-service.service';
+
+@Component({
+  selector: 'app-my-component',
+  templateUrl: './my-component.component.html'
+})
+export class MyComponent implements OnInit, OnDestroy {
+  searchInput$ = new Subject<string>();
+  searchSubscription: Subscription;
+
+  results: any[] = [];
+  isLoading = false;
+  hasSearched = false;
+
+  constructor(private myService: MyService) {}
+
+  ngOnInit(): void {
+    this.searchSubscription = this.searchInput$.pipe(
+      debounceTime(300),
+      distinctUntilChanged(),
+      tap(() => {
+        this.isLoading = true;
+        this.hasSearched = true;
+      }),
+      switchMap(term =>
+        this.myService.search(term).pipe(
+          catchError(err => {
+            console.error('Erreur de recherche', err);
+            this.results = [];
+            return of([]);
+          }),
+          finalize(() => {
+            this.isLoading = false;
+          })
+        )
+      )
+    ).subscribe(data => {
+      this.results = data;
+    });
+  }
+
+  onInputChange(value: string): void {
+    this.searchInput$.next(value);
+  }
+
+  ngOnDestroy(): void {
+    this.searchSubscription.unsubscribe();
+  }
+}
+🧾 3. Template HTML (my-component.component.html)
+html
+Copier
+Modifier
+<input
+  type="text"
+  placeholder="Recherche..."
+  (input)="onInputChange($event.target.value)"
+/>
+
+<!-- Loader -->
+<div *ngIf="isLoading; else tableOrNoResult" class="center">
+  <img src="assets/img/input-loader.gif" style="width: 40px; margin: 10px;" />
+</div>
+
+<!-- Table ou message si vide -->
+<ng-template #tableOrNoResult>
+  <p-table *ngIf="results.length > 0; else noData" [value]="results">
+    <ng-template pTemplate="header">
+      <tr>
+        <th>ID</th>
+        <th>Nom</th>
+      </tr>
+    </ng-template>
+    <ng-template pTemplate="body" let-item>
+      <tr>
+        <td>{{ item.id }}</td>
+        <td>{{ item.name }}</td>
+      </tr>
+    </ng-template>
+  </p-table>
+</ng-template>
+
+<ng-template #noData>
+  <p *ngIf="hasSearched">Aucun résultat trouvé.</p>
+</ng-template>
+📦 À ne pas oublier dans app.module.ts
+ts
+Copier
+Modifier
+import { HttpClientModule } from '@angular/common/http';
+
+@NgModule({
+  declarations: [ ... ],
+  imports: [
+    ...,
+    HttpClientModule
+  ],
+  providers: [],
+  bootstrap: [AppComponent]
+})
+export class AppModule {}
