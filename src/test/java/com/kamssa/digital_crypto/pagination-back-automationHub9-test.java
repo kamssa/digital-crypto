@@ -70,3 +70,36 @@ S'arrête automatiquement à la fin des résultats ou à 100k
 Tu peux externaliser size et maxElements dans un application.properties
 
 Ou les passer en paramètres de méthode
+//////////////////test/////////////////
+@ExtendWith(MockitoExtension.class)
+public class AutomationHubServiceImplTest {
+
+    @InjectMocks
+    private AutomationHubServiceImpl automationHubService;
+
+    @Mock
+    private NonCompliantDiscoveryQuery nonCompliantDiscoveryQuery;
+
+    @Mock
+    private SearchService searchService; // hypothèse : c'est là que searchCertificates() est défini
+
+    @Test
+    public void testSearchNotCompliantsTest_returnsResults() {
+        // Arrange
+        SearchCertificateRequestDto mockRequest = new SearchCertificateRequestDto();
+        List<AutomationHubCertificateDto> mockPage = Arrays.asList(new AutomationHubCertificateDto(), new AutomationHubCertificateDto());
+
+        Mockito.when(nonCompliantDiscoveryQuery.get())
+               .thenReturn(mockRequest);
+
+        Mockito.when(searchService.searchCertificates(Mockito.any(SearchCertificateRequestDto.class)))
+               .thenReturn(new PageResult<>(mockPage, mockPage.size()));
+
+        // Act
+        List<AutomationHubCertificateDto> result = automationHubService.searchNotCompliantsTest();
+
+        // Assert
+        Assertions.assertNotNull(result);
+        Assertions.assertEquals(2, result.size());
+    }
+}
