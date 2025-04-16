@@ -197,3 +197,79 @@ Avec ces mises à jour, votre méthode devrait maintenant gérer correctement la
 
 Photocopieuse
 Régénérer
+////////////////////////duree d'une methode en java//////////////////////////////
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+public class MyService {
+    private static final Logger LOGGER = LoggerFactory.getLogger(MyService.class);
+
+    public ResponseEntity<List<SearchResultDto>> searchCertificates(SearchCertificateRequestDto searchCertificateRequestDto) {
+        // Capturer le temps de début
+        long startTime = System.currentTimeMillis();
+
+        // Logique de la méthode
+        ResponseEntity<List<SearchResultDto>> response = null; 
+        try {
+            // ... logique pour rechercher des certificats
+        } finally {
+            // Capturer le temps de fin
+            long endTime = System.currentTimeMillis();
+            // Calculer la durée
+            long duration = endTime - startTime;
+            // Logger la durée
+            LOGGER.info("La méthode searchCertificates a pris {} ms pour s'exécuter.", duration);
+        }
+
+        return response; // Assurez-vous que la réponse est retournée
+    }
+}
+////////////////////////////////////////////////////////////////proxy/////////////////////////
+@Configuration
+public class CorsConfig {
+    @Bean
+    public WebMvcConfigurer corsConfigurer() {
+        return registry -> registry.addMapping("/**").allowedOrigins("http://localhost:4200");
+    }
+}//////////////////////////////////////autre logic//////////////////////////////
+public SearchResults searchCertificates(SearchCertificateRequest request, int currentPage, int pageSize) throws FieldNotFoundException {
+    boolean hasErrors = false;
+    List<Certificate> allCertificates = new ArrayList<>();
+
+    // Vérification de la requête
+    if (request == null) {
+        hasErrors = true;
+        throw new FieldNotFoundException("La requête est nulle.");
+    }
+    
+    // Récupération des certificats
+    try {
+        allCertificates = certificateService.findCertificates(request);
+    } catch (Exception e) {
+        hasErrors = true;
+        System.err.println("Erreur lors de la recherche : " + e.getMessage());
+    }
+    
+    // Gestion de la pagination
+    List<Certificate> pagedCertificates = new ArrayList<>();
+    int totalCertificates = allCertificates.size();
+    int startIndex = (currentPage - 1) * pageSize;
+    int endIndex = Math.min(startIndex + pageSize, totalCertificates);
+    
+    if (startIndex >= totalCertificates || startIndex < 0) {
+        // Si la page demandée est invalide
+        hasErrors = true;
+        System.out.println("Numéro de page invalide.");
+		} else {
+        // Création de la sous-liste pour la page en cours
+        pagedCertificates = allCertificates.subList(startIndex, endIndex);
+    }
+
+    // Gestion des erreurs
+    if (hasErrors) {
+        // Logique pour retourner des erreurs
+    }
+
+    // Retourner les résultats pour la page demandée
+    return new SearchResults(pagedCertificates, totalCertificates, currentPage, pageSize);
+}
