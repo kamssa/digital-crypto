@@ -273,3 +273,74 @@ public SearchResults searchCertificates(SearchCertificateRequest request, int cu
     // Retourner les résultats pour la page demandée
     return new SearchResults(pagedCertificates, totalCertificates, currentPage, pageSize);
 }
+////////////////////proxy/////////////////////////
+const proxyConfig = [
+  {
+    context: ['/api'],
+    target: 'http://localhost:8080',
+    secure: false,
+    logLevel: 'debug',
+    changeOrigin: true
+  }
+];
+//////////////////////logon sans passer par sso  Simuler un utilisateur (mock)//////////////////////////////
+@Configuration
+@Profile("dev")
+@EnableWebSecurity
+public class MockSecurityConfig extends WebSecurityConfigurerAdapter {
+
+    @Override
+    protected void configure(HttpSecurity http) throws Exception {
+        http
+            .authorizeRequests()
+            .anyRequest().authenticated()
+            .and().httpBasic() // 🔐 login/password via basic auth
+            .and().csrf().disable();
+    }
+
+    @Override
+    protected void configure(AuthenticationManagerBuilder auth) throws Exception {
+        auth
+            .inMemoryAuthentication()
+            .withUser("devuser").password("{noop}devpass").roles("USER");
+    }
+}
+//////////////////////////////🅲️ Utiliser un cookie SSO partagé/////////////////////////
+🅲️ Utiliser un cookie SSO partagé
+Si ton SSO met un cookie d’authentification (genre JSESSIONID ou AUTH_SESSION_ID) :
+
+Il peut être automatiquement envoyé avec les requêtes proxy si le domaine est le même et que tu actives withCredentials.
+
+ts
+Copier
+Modifier
+this.http.post('/api/certificates/search', payload, { withCredentials: true });
+Et côté Spring Boot :
+
+java
+Copier
+Modifier
+http.cors().and().csrf().disable()
+    .authorizeRequests().anyRequest().authenticated()
+    .and().sessionManagement().sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED);
+Mais ça marche uniquement si :
+
+Le SSO pose un cookie HTTP-only utilisable dans ton contexte.
+
+Tu lances Angular depuis le même domaine (ou un sous-domaine).
+/////////////////////////////////
+2. Solutions pour accéder au backend malgré le SSO
+🅰️ Désactiver le SSO en local
+➡️ Sur ton Spring Boot backend, tu peux configurer une exception sur /api/** en local, pour ne pas appliquer la sécurité SSO :
+
+java
+Copier
+Modifier
+@Override
+protected void configure(HttpSecurity http) throws Exception {
+    http
+        .authorizeRequests()
+        .antMatchers("/api/**").permitAll() // 🔓 accès libre
+        .anyRequest().authenticated()
+        .and().csrf().disable(); // (optionnel pour les devs)
+}
