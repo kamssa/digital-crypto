@@ -305,6 +305,9 @@ public class MockSecurityConfig extends WebSecurityConfigurerAdapter {
             .withUser("devuser").password("{noop}devpass").roles("USER");
     }
 }
+Et tu fais tes appels avec un header Authorization: Basic <base64(devuser:devpass)>.
+
+
 //////////////////////////////🅲️ Utiliser un cookie SSO partagé/////////////////////////
 🅲️ Utiliser un cookie SSO partagé
 Si ton SSO met un cookie d’authentification (genre JSESSIONID ou AUTH_SESSION_ID) :
@@ -344,3 +347,26 @@ protected void configure(HttpSecurity http) throws Exception {
         .anyRequest().authenticated()
         .and().csrf().disable(); // (optionnel pour les devs)
 }
+////////////////////////////////////////////////////////////////////////////////////
+ Solution 1 — Ignorer l’authentification dans le backend
+Dans ton Spring Security, tu ajoutes une config spéciale pour ton environnement local :
+
+🔧 Exemple :
+java
+Copier
+Modifier
+@Configuration
+@Profile("dev") // ⚠️ uniquement activée dans le profil dev
+@EnableWebSecurity
+public class DevSecurityConfig extends WebSecurityConfigurerAdapter {
+    @Override
+    protected void configure(HttpSecurity http) throws Exception {
+        http
+            .authorizeRequests()
+            .antMatchers("/api/**").permitAll() // 🔓 pas d’auth pour les endpoints API
+            .anyRequest().authenticated()
+            .and().csrf().disable(); // 🔁 souvent désactivé en dev
+    }
+}
+Active ce profil avec spring.profiles.active=dev dans ton application.properties.
+/////////////////////////////////////////////////////////////////////////////////////
