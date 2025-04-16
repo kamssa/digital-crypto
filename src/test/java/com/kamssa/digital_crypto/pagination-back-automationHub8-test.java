@@ -266,3 +266,33 @@ external:
     token: eyJhbGciOiJIUzI1NiIsInR5cCI6...
 pagination:
   pageSize: 50
+//////////////////////////webclient//////////////////////////////////
+public Mono<SearchResultDto> searchCertificates(SearchCertificateRequestDto request) {
+    int pageIndex = 1;
+    List<AutomationHubCertificateDto> allCertificates = new ArrayList<>();
+    SearchPayloadDto payload = new SearchPayloadDto();
+
+    if (!StringUtils.isEmpty(request.getRawQuery())) {
+        payload.setQuery(request.getRawQuery());
+    } else {
+        payload.setQuery(this.buildAutomationHubHqlQuery(request));
+    }
+
+    payload.setCaseSensitive(request.isCaseSensitive());
+    payload.setPageIndex(request.getPage());
+    payload.setPageSize(request.getSize());
+    payload.setWithCount(true);
+
+    return webClient.post()
+        .uri("/certificates/search")
+        .bodyValue(payload)
+        .retrieve()
+        .bodyToMono(ResponseSearchDto.class)
+        .map(resp -> {
+            SearchResultDto result = mapper.toSearchResultDto(resp);
+            if (result != null && result.getResults() != null) {
+                allCertificates.addAll(result.getResults());
+            }
+            return result;
+        });
+}
