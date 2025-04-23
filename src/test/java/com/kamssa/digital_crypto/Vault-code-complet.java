@@ -343,3 +343,167 @@ Les credentials sont récupérés dynamiquement et mis en cache.
 
 Le scheduler les rafraîchit automatiquement toutes les 5 minutes.
 
+//////implementation reelle du service //////////////////////////////////////////
+Implémentation réelle avec appel HTTPS à Vault
+java
+Copier
+Modifier
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.http.client.methods.CloseableHttpResponse;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClients;
+import org.apache.http.ssl.SSLContextBuilder;
+import org.springframework.stereotype.Service;
+
+import javax.net.ssl.SSLContext;
+import java.io.File;
+import java.util.Map;
+
+@Service
+public class VaultService {
+
+    private static final String VAULT_URL = "https://vault.example.com:8200/v1/database/creds/my-role";
+    private static final ObjectMapper mapper = new ObjectMapper();
+
+    public Map<String, String> getPostgresCredentials() {
+        try (CloseableHttpClient client = createHttpClient()) {
+            HttpGet request = new HttpGet(VAULT_URL);
+            try (CloseableHttpResponse response = client.execute(request)) {
+                if (response.getStatusLine().getStatusCode() != 200) {
+                    throw new RuntimeException("Vault response: " + response.getStatusLine());
+                }
+
+                JsonNode json = mapper.readTree(response.getEntity().getContent());
+                JsonNode data = json.path("data");
+
+                return Map.of(
+                    "username", data.get("username").asText(),
+                    "password", data.get("password").asText()
+                );
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to retrieve credentials from Vault", e);
+        }
+    }
+
+    private CloseableHttpClient createHttpClient() throws Exception {
+        SSLContext sslContext = SSLContextBuilder.create()
+            .loadKeyMaterial(
+                new File("/etc/vault/certs/client.p12"), // Contient cert et clé
+                "changeit".toCharArray(), // Mot de passe du keystore
+                "changeit".toCharArray()
+            )
+            .loadTrustMaterial(
+                new File("/etc/vault/certs/ca.crt"),
+                null
+            )
+            .build();
+
+        return HttpClients.custom()
+            .setSSLSocketFactory(new SSLConnectionSocketFactory(sslContext))
+            .build();
+    }
+}
+📂 Fichiers requis
+Assure-toi d’avoir les fichiers suivants :
+
+/etc/vault/certs/client.p12 : ton certificat client + clé, au format PKCS#12
+
+/etc/vault/certs/ca.crt : certificat racine Vault
+
+Le keystore doit être exporté avec un mot de passe (changeit dans cet exemple)
+///////////complement scheduller///////////////////////////////////
+La méthode refresh() dans ton service CredentialsCache semble très proche de ce que tu veux faire pour forcer un rafraîchissement des credentials. Je vais détailler un peu plus cette méthode pour garantir qu’elle fonctionne correctement et peut être utilisée avec un scheduler.
+
+Voici la version détaillée de la méthode refresh() avec un peu plus de sécurité et d'explications sur son fonctionnement.
+
+🎯 Méthode refresh() pour forcer un rafraîchissement
+L’objectif de cette méthode est de forcer la mise à jour des credentials en interrogeant Vault à chaque fois qu’elle est appelée (par exemple, via un scheduler Spring).
+
+Code final de refresh() :
+java
+Copier
+Modifier
+public void refresh(VaultService vaultService) {
+    synchronized (this) {
+        try {
+            // Appel à Vault pour récupérer les nouveaux credentials
+            Map<String, String> newCredentials = vaultService.getPostgresCredentials();
+            
+            // Mise à jour du cache avec les nouveaux credentials
+            cache.set(newCredentials);
+            
+            // Optionnellement, on peut aussi mettre à jour le temps de dernière récupération
+            lastLoadTime = Instant.now();
+
+            System.out.println("Credentials refreshed successfully.");
+        } catch (Exception e) {
+            System.err.println("Failed to refresh credentials from Vault: " + e.getMessage());
+            // Log de l’erreur, possibilité de lancer une alerte ou prendre une action
+        }
+    }
+}
+🚀 Explication
+Synchronisation : Le synchronized (this) assure que la mise à jour des credentials est thread-safe, pour éviter des accès concurrents qui pourraient altérer l’intégrité des données.
+
+Récupération des credentials : La méthode vaultService.getPostgresCredentials() récupère les nouveaux credentials à partir de Vault. Si l'appel échoue (par exemple, si Vault est inaccessible), une exception sera levée.
+
+Mise à jour du cache : Après récupération, le cache est mis à jour avec les nouveaux credentials via cache.set(newCredentials).
+
+Log et gestion des erreurs : Une simple gestion d’erreurs via try-catch est ajoutée pour éviter des exceptions non contrôlées qui pourraient perturber l’application.
+
+🔄 Scheduler pour appeler refresh()
+Voici comment appeler cette méthode périodiquement via un scheduler Spring :
+
+1. Ajouter l'annotation @Scheduled à une méthode :
+java
+Copier
+Modifier
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Component;
+
+@Component
+public class VaultRefresher {
+
+    private final VaultService vaultService;
+    private final CredentialsCache credentialsCache;
+
+    public VaultRefresher(VaultService vaultService, CredentialsCache credentialsCache) {
+        this.vaultService = vaultService;
+        this.credentialsCache = credentialsCache;
+    }
+
+    // Rafraîchir toutes les 5 minutes (300 000 ms)
+    @Scheduled(fixedRate = 300_000)
+    public void refreshCredentials() {
+        System.out.println("Refreshing credentials from Vault...");
+        credentialsCache.refresh(vaultService);
+    }
+}
+2. Activer le scheduling dans ton application :
+Dans ton Application.java, n'oublie pas d'ajouter l'annotation @EnableScheduling pour activer le scheduler.
+
+java
+Copier
+Modifier
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
+
+@SpringBootApplication
+@EnableScheduling
+public class Application {
+    public static void main(String[] args) {
+        SpringApplication.run(Application.class, args);
+    }
+}
+✅ Résultat
+Scheduler appelle la méthode refresh() toutes les 5 minutes pour s'assurer que les credentials sont mis à jour régulièrement.
+
+En cas de changement, le cache est mis à jour avec les nouveaux identifiants.
+
+Si une erreur se produit lors de la récupération, elle est loggée pour faciliter le débogage.
+
