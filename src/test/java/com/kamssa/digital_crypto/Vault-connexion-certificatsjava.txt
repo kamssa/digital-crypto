@@ -1,0 +1,78 @@
+✅ 1. Exemple de configuration Vault côté serveur
+Ces commandes se font sur le serveur Vault (ou via API)
+
+bash
+Copier
+Modifier
+# Activer l'authentification par certificat
+vault auth enable cert
+
+# Associer un certificat à une policy
+vault write auth/cert/certs/my-client-cert \
+    display_name="myapp" \
+    policies="default" \
+    certificate=@client-cert.pem
+✅ 2. Config côté Java / Spring avec VaultTemplate
+A. Créer un RestTemplate avec certificat client
+java
+Copier
+Modifier
+@Bean
+public VaultTemplate vaultTemplate() throws Exception {
+    SSLContext sslContext = buildSslContextWithClientCert();
+
+    ClientHttpRequestFactory requestFactory = new HttpComponentsClientHttpRequestFactory(
+        HttpClients.custom()
+            .setSSLContext(sslContext)
+            .build()
+    );
+
+    VaultEndpoint endpoint = VaultEndpoint.from(URI.create("https://vault.example.com:8200"));
+
+    return new VaultTemplate(endpoint, requestFactory, new SimpleSessionManager());
+}
+
+private SSLContext buildSslContextWithClientCert() throws Exception {
+    // Charger le keystore avec le certificat client (.p12 ou .jks)
+    KeyStore keyStore = KeyStore.getInstance("PKCS12");
+    keyStore.load(new FileInputStream("client-cert.p12"), "keystore-password".toCharArray());
+
+    KeyManagerFactory kmf = KeyManagerFactory.getInstance("SunX509");
+    kmf.init(keyStore, "keystore-password".toCharArray());
+
+    // Charger le truststore si nécessaire (optionnel)
+    KeyStore trustStore = KeyStore.getInstance("JKS");
+    trustStore.load(new FileInputStream("truststore.jks"), "truststore-password".toCharArray());
+
+    TrustManagerFactory tmf = TrustManagerFactory.getInstance("SunX509");
+    tmf.init(trustStore);
+
+    SSLContext sslContext = SSLContext.getInstance("TLS");
+    sslContext.init(kmf.getKeyManagers(), tmf.getTrustManagers(), new SecureRandom());
+
+    return sslContext;
+}
+Tu peux aussi tout faire avec des .pem si tu veux éviter les .p12
+
+B. Authentifier l’app avec le cert
+Une fois connecté avec le VaultTemplate, tu peux obtenir le token avec :
+
+java
+Copier
+Modifier
+VaultResponse response = vaultTemplate().write("auth/cert/login", null);
+String clientToken = response.getAuth().getClientToken();
+System.out.println("🔐 Vault client token: " + clientToken);
+Et ensuite tu peux utiliser ce token dans un TokenAuthentication classique si tu veux :
+
+java
+Copier
+Modifier
+VaultTemplate template = new VaultTemplate(vaultEndpoint, requestFactory,
+    new TokenAuthentication(clientToken));
+🧠 Résumé
+C’est plus sécurisé que token statique ou userpass
+
+Utilise le TLS mutualisé (serveur ↔️ client cert)
+
+Peut être combiné avec d’autres méthodes (ex: approle)
