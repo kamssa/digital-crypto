@@ -185,3 +185,75 @@ public class VaultManualConfig {
 client-cert.p12 : certificat client + clé privée (PKCS12)
 
 truststore.jks : store contenant la CA Vault
+//////////////////////////////////partie 4 /////////////////////////////
+Yes, voici un script Bash tout simple 🔧 pour générer un fichier .p12 (PKCS12) à partir de :
+
+un certificat client .crt
+
+une clé privée .key
+
+(optionnel) un certificat de CA .crt (si besoin de la chaîne complète)
+
+📝 Script : generate-p12.sh
+bash
+Copier
+Modifier
+#!/bin/bash
+
+# === CONFIG ===
+CERT="client-cert.crt"
+KEY="client-key.key"
+CA="ca-cert.crt"      # Optionnel
+P12_OUT="client-cert.p12"
+P12_PASS="changeit"
+
+# === CHECK FILES ===
+if [[ ! -f "$CERT" || ! -f "$KEY" ]]; then
+  echo "❌ Certificat ou clé manquants. Vérifie $CERT et $KEY"
+  exit 1
+fi
+
+# === GEN .p12 ===
+echo "🔐 Génération de $P12_OUT à partir de $CERT et $KEY..."
+
+if [[ -f "$CA" ]]; then
+  openssl pkcs12 -export \
+    -inkey "$KEY" \
+    -in "$CERT" \
+    -certfile "$CA" \
+    -out "$P12_OUT" \
+    -passout pass:"$P12_PASS"
+else
+  openssl pkcs12 -export \
+    -inkey "$KEY" \
+    -in "$CERT" \
+    -out "$P12_OUT" \
+    -passout pass:"$P12_PASS"
+fi
+
+if [[ $? -eq 0 ]]; then
+  echo "✅ Fichier $P12_OUT généré avec succès (mot de passe : $P12_PASS)"
+else
+  echo "❌ Erreur pendant la génération"
+fi
+🔧 Utilisation
+Place dans un dossier :
+
+client-cert.crt (certificat signé par Vault ou ta CA)
+
+client-key.key (clé privée associée)
+
+(optionnel) ca-cert.crt (la chaîne intermédiaire ou root)
+
+Lance :
+
+bash
+Copier
+Modifier
+chmod +x generate-p12.sh
+./generate-p12.sh
+🧪 Vérifier le .p12
+bash
+Copier
+Modifier
+keytool -list -v -keystore client-cert.p12 -storetype PKCS12 -storepass changeit
