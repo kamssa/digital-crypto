@@ -1,0 +1,51 @@
+FileInputStream("client.p12"), "your-password" ou avez-vous ces informations ?
+
+avatar
+Pour récupérer les informations nécessaires pour charger votre certificat et clé (fichierclient.p12et son mot de passe), voici les étapes que vous devez suivre :
+
+1.
+1
+Si vous devez générer un certificat client au format PKCS#12
+
+Générez une clé privée :
+frapper
+Copie
+openssl genrsa -out client.key 2048
+Créez une demande de signature de certificat (CSR) :
+frapper
+Copie
+openssl req -new -key client.key -out client.csr
+Générez un certificat auto-signé (ou faites-le signer par une autorité de certification si vous en
+frapper
+Copie
+openssl x509 -req -in client.csr -signkey client.key -out client.crt -days 365
+Convertissez le certificat et la clé en fichier PKCS#12 :
+frapper
+Copie
+openssl pkcs12 -export -in client.crt -inkey client.key -out client.p12 -name "client-cert"
+Lors de l'exécution de cette commande, vous serez invité à saisir un mot de passe pour protéger le fichier PKCS#12 ( client.p12). Assurez-vous deretenir car vous aurez besoin pour le code.
+
+2.
+Chemin du fichier :
+
+Placez le fichier client.p12dans un répertoire accessible par votre application. Par exempleresources, vous pourriez le
+Chemin et mot de passe dans le code Java :
+
+Modifiez le chemin dans votre code Java pour pointer vers l'emplacement de votre fichier client.p12.
+Java
+Copie
+KeyStore keyStore = KeyStore.getInstance("PKCS12");
+keyStore.load(new FileInputStream("src/main/resources/client.p12"), "votre-mot-de-passe".toCharArray());
+3. Util
+3.1. Gestion
+Stockage sécurisé : Évitez d'inclure des mots de passe directement dans le code. Utilisez éventuellement un gestionnaire de secrets (par exemple, AWS Secrets Manager, HashiCorp Vault, etc.) pour stocker et récupérer les mots de passe en toute sécurité.
+
+Variables d'environnement : Une alternative consiste à
+
+Java
+Copie
+String password = System.getenv("CLIENT_CERT_PASSWORD"); // Récupération depuis une variable d'environnement
+Conclusion
+Générez votre certificat et votre clé privée , en les sauvegardant dans un fichier .p12.
+Configurez votre code Java pour
+Testez les connexions pour vous assurer que
