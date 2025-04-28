@@ -257,3 +257,65 @@ bash
 Copier
 Modifier
 keytool -list -v -keystore client-cert.p12 -storetype PKCS12 -storepass changeit
+///////////////////////////
+import org.apache.http.HttpResponse;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClients;
+import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
+import org.apache.http.ssl.SSLContexts;
+
+import javax.net.ssl.SSLContext;
+import java.io.File;
+import java.security.KeyStore;
+import java.util.HashMap;
+import java.util.Map;
+
+public class VaultService {
+
+    static final String VAULT_URL = "https://vault.example.com:8200/v1/secret/data/postgres-credentials"; // URL pour récupérer les credentials
+    private ObjectMapper mapper = new ObjectMapper();
+
+    public Map<String, String> getPostgresCredentials() {
+        Map<String, String> credentials = new HashMap<>();
+        
+        try {
+            // Charger le KeyStore avec le certificat client et la clé privée
+            KeyStore keyStore = KeyStore.getInstance("PKCS12");
+            keyStore.load(new FileInputStream("client.p12"), "your-password".toCharArray());
+
+            // Créer un contexte SSL
+            SSLContext sslContext = SSLContexts.custom()
+                    .loadKeyMaterial(keyStore, "your-password".toCharArray())
+                    .build();
+
+            // Créer un socket factory SSL
+            SSLConnectionSocketFactory socketFactory = new SSLConnectionSocketFactory(sslContext);
+
+            // Créer le client HTTP
+            CloseableHttpClient client = HttpClients.custom()
+                    .setSSLSocketFactory(socketFactory)
+                    .build();
+
+            // Préparer la requête
+            HttpGet request = new HttpGet(VAULT_URL);
+            HttpResponse response = client.execute(request);
+            
+            if (response.getStatusLine().getStatusCode() == 200) {
+                // Traitement de la réponse
+                String json = EntityUtils.toString(response.getEntity());
+                
+                // Supposons que le JSON a la structure suivante: {"data": {"username": "user", "password": "pass"}}
+                credentials = mapper.readValue(json, new TypeReference<Map<String, Object>>() {}).get("data");
+            } else {
+                throw new RuntimeException("Erreur lors de la récupération des credentials: " + response.getStatusLine().getStatusCode());
+            }
+
+            return credentials;
+
+        } catch (IOException e) {
+            System.err.println("Erreur de communication avec le service Vault: " + e.getMessage());
+            throw new RuntimeException("Impossible de récupérer les credentials depuis Vault.", e);
+        }
+    }
+}
