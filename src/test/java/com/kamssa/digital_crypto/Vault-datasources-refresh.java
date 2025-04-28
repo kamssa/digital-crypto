@@ -89,3 +89,48 @@ Le DataSource est reconstruit automatiquement si le secret change
 Aucune interruption visible pour l’app (les pools sont recréés proprement)
 
 Tu veux que je t’ajoute une version avec logs, ou une API pour forcer un refresh manuellement via un endpoint /refresh-datasource ?
+@Bean
+public DataSource dataSource() {
+    int maxAttempts = 5;
+    int attempt = 0;
+    Exception lastException = null;
+
+    while (attempt < maxAttempts) {
+        try {
+            Map<String, String> credentials = credentialsCache.getCredentials(vaultService);
+
+            if (credentials == null || credentials.isEmpty()) {
+                throw new RuntimeException("Credentials sont vides ou nuls");
+            }
+
+            DriverManagerDataSource dataSource = new DriverManagerDataSource();
+            dataSource.setDriverClassName("org.postgresql.Driver");
+            dataSource.setUrl("jdbc:postgresql://localhost:5432/votre_nom_de_base");
+            dataSource.setUsername(credentials.get("username"));  // correction ici
+            dataSource.setPassword(credentials.get("password"));  // correction ici
+
+            // Tester la connexion immédiatement
+            dataSource.getConnection().close(); // Si ça passe ici, connexion réussie
+
+            System.out.println("Connexion réussie à la tentative " + (attempt + 1));
+            return dataSource;
+
+        } catch (Exception ex) {
+            attempt++;
+            lastException = ex;
+            System.err.println("Tentative " + attempt + " échouée : " + ex.getMessage());
+
+            // Important : rafraîchir le token ou credentials
+            refreshCredentials();
+
+            try {
+                Thread.sleep(1000); // petite pause avant retry (optionnel)
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+
+    // Si aucune tentative n'a marché, throw l'exception capturée
+    throw new RuntimeException("Impossible de se connecter à PostgreSQL après " + maxAttempts + " tentatives.", lastException);
+}
