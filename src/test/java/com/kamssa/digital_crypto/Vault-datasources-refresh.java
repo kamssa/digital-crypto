@@ -134,3 +134,132 @@ public DataSource dataSource() {
     // Si aucune tentative n'a marché, throw l'exception capturée
     throw new RuntimeException("Impossible de se connecter à PostgreSQL après " + maxAttempts + " tentatives.", lastException);
 }
+/////////// solution 2////////////////
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import javax.sql.DataSource;
+import java.util.Map;
+
+public class PostgresConnectionManager {
+
+    private final int maxAttempts;
+    private final CredentialsService credentialsService; // à injecter
+    private final VaultService vaultService;             // à injecter
+
+    public PostgresConnectionManager(int maxAttempts, CredentialsService credentialsService, VaultService vaultService) {
+        this.maxAttempts = maxAttempts;
+        this.credentialsService = credentialsService;
+        this.vaultService = vaultService;
+    }
+
+    public DataSource createDataSource() {
+        int attempt = 0;
+        Exception lastException = null;
+
+        while (attempt < maxAttempts) {
+            try {
+                Map<String, String> credentials = credentialsService.getCredentials(vaultService);
+
+                if (credentials == null || credentials.isEmpty()) {
+                    throw new RuntimeException("Credentials sont vides ou nuls");
+                }
+
+                DriverManagerDataSource dataSource = new DriverManagerDataSource();
+                dataSource.setDriverClassName("org.postgresql.Driver");
+                dataSource.setUrl("jdbc:postgresql://localhost:5432/votre_nom_de_base");
+                dataSource.setUsername(credentials.get("username"));
+                dataSource.setPassword(credentials.get("password"));
+
+                // Test immédiat de la connexion
+                dataSource.getConnection().close();
+
+                System.out.println("[SUCCESS] Connexion réussie à la tentative " + (attempt + 1));
+                return dataSource;
+
+            } catch (Exception ex) {
+                attempt++;
+                lastException = ex;
+                System.err.println("[FAIL] Tentative " + attempt + " échouée : " + ex.getMessage());
+
+                credentialsService.refreshCredentials(); // On force le refresh des credentials
+
+                try {
+                    Thread.sleep(1000); // Petite pause avant retry
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        }
+
+        throw new RuntimeException("Impossible de se connecter à PostgreSQL après " + maxAttempts + " tentatives.", lastException);
+    }
+}
+Et ensuite ton @Configuration devient ultra simple :
+java
+Copier
+Modifier
+@Bean
+public DataSource dataSource(PostgresConnectionManager connectionManager) {
+    return connectionManager.createDataSource();
+}
+//////////////////////////////cache //////////////////////////
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
+
+public class CredentialsService {
+
+    private final CredentialsCache credentialsCache; // Ton cache existant
+    private final VaultService vaultService;         // Ton service Vault existant
+
+    // Optionnel : un cache interne thread-safe
+    private final AtomicReference<Map<String, String>> currentCredentials = new AtomicReference<>();
+
+    public CredentialsService(CredentialsCache credentialsCache, VaultService vaultService) {
+        this.credentialsCache = credentialsCache;
+        this.vaultService = vaultService;
+    }
+
+    public Map<String, String> getCredentials(VaultService vaultService) {
+        Map<String, String> credentials = currentCredentials.get();
+        if (credentials == null || credentials.isEmpty()) {
+            credentials = credentialsCache.getCredentials(vaultService);
+            currentCredentials.set(credentials);
+        }
+        return credentials;
+    }
+
+    public void refreshCredentials() {
+        System.out.println("[INFO] Rafraîchissement des credentials en cours...");
+        credentialsCache.refresh(vaultService); // <--- À toi d'implémenter ça proprement
+        Map<String, String> freshCredentials = credentialsCache.getCredentials(vaultService);
+        currentCredentials.set(freshCredentials);
+        System.out.println("[INFO] Credentials rafraîchis avec succès.");
+    }
+}
+👉 Côté CredentialsCache, il doit donc exposer deux méthodes :
+java
+Copier
+Modifier
+Map<String, String> getCredentials(VaultService vaultService);
+void refresh(VaultService vaultService);
+Exemple rapide :
+
+java
+Copier
+Modifier
+public class CredentialsCache {
+
+    private Map<String, String> cachedCredentials;
+
+    public Map<String, String> getCredentials(VaultService vaultService) {
+        if (cachedCredentials == null) {
+            refresh(vaultService);
+        }
+        return cachedCredentials;
+    }
+
+    public void refresh(VaultService vaultService) {
+        // Ici tu vas contacter Vault et recharger le secret
+        this.cachedCredentials = vaultService.retrieveCredentials();
+    }
+}
+
