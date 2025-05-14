@@ -270,3 +270,287 @@ Rafraîchir seulement en cas d’erreur,
 Garder des composants testables, injectables, réutilisables.
 
 Souhaites-tu que je t’aide à générer un squelette de projet complet (ex: pom.xml, structure ZIP) ?
+///////////////////////////////////////////////////
+✅ Étapes à suivre
+1. Injecter SecurePostgresService dans ton service métier
+java
+Copier
+Modifier
+@Service
+public class MonServiceMetier {
+
+    private final SecurePostgresService securePostgresService;
+
+    public MonServiceMetier(SecurePostgresService securePostgresService) {
+        this.securePostgresService = securePostgresService;
+    }
+
+    public void lireDonnees() {
+        try (Connection conn = securePostgresService.getConnection()) {
+            PreparedStatement stmt = conn.prepareStatement("SELECT * FROM ma_table");
+            ResultSet rs = stmt.executeQuery();
+
+            while (rs.next()) {
+                String valeur = rs.getString("colonne");
+                System.out.println("Valeur = " + valeur);
+            }
+
+        } catch (SQLException e) {
+            throw new RuntimeException("Erreur lors de la lecture des données", e);
+        }
+    }
+}
+2. Ajouter une méthode getConnection() dans SecurePostgresService
+Ton SecurePostgresService expose actuellement uniquement testConnection(). Il faut lui ajouter un accès direct à la Connection :
+
+java
+Copier
+Modifier
+public Connection getConnection() throws SQLException {
+    try {
+        return provider.build().getConnection();
+    } catch (SQLException e) {
+        System.out.println("⚠️ Connexion échouée, rafraîchissement des credentials...");
+        refreshCredentials();
+        return provider.build().getConnection();
+    }
+}
+3. Utilisation dans un contrôleur ou autre composant
+java
+Copier
+Modifier
+@RestController
+@RequestMapping("/data")
+public class DonneesController {
+
+    private final MonServiceMetier metier;
+
+    public DonneesController(MonServiceMetier metier) {
+        this.metier = metier;
+    }
+
+    @GetMapping("/read")
+    public ResponseEntity<String> lire() {
+        metier.lireDonnees();
+        return ResponseEntity.ok("Lecture terminée");
+    }
+}
+🧩 Résumé
+Tu peux accéder aux données PostgreSQL comme d’habitude avec JDBC, en passant par une Connection obtenue via SecurePostgresService.
+
+🛡 Bonus recommandé : Gestion transactionnelle
+Si tu fais des écritures complexes, il serait utile d’ajouter un wrapper autour de la Connection pour supporter les transactions manuelles (ou envisager un JdbcTemplate si tu veux aller plus loin).
+
+Souhaites-tu que je t’aide à :
+
+Ajouter un service pour exécuter des requêtes génériques ?
+
+Mettre en place un JdbcTemplate sécurisé basé sur les credentials Vault ?
+
+Ajouter des tests unitaires avec H2 ou PostgreSQL mocké ?
+
+Je peux aussi t’ajouter un exemple complet de lecture/écriture dans ma_table.
+
+
+
+
+
+
+
+Vous avez dit :
+Ajouter un service pour exécuter des requêtes génériques ?
+
+
+ChatGPT a dit :
+Parfait ! Voici comment ajouter un service générique d'exécution de requêtes SQL (lecture/écriture) en utilisant ton système de connexion sécurisée (SecurePostgresService).
+
+✅ Objectif
+Créer un GenericQueryService qui permet :
+
+d’exécuter des requêtes de lecture (SELECT) avec un ResultSetExtractor ou RowMapper.
+
+d’exécuter des requêtes d'écriture (INSERT, UPDATE, DELETE) avec paramètres.
+
+📁 Fichier : GenericQueryService.java
+java
+Copier
+Modifier
+package com.example.securevault.service;
+
+import org.springframework.stereotype.Service;
+
+import java.sql.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.Function;
+
+@Service
+public class GenericQueryService {
+
+    private final SecurePostgresService securePostgresService;
+
+    public GenericQueryService(SecurePostgresService securePostgresService) {
+        this.securePostgresService = securePostgresService;
+    }
+
+    public <T> List<T> executeQuery(String sql, List<Object> params, Function<ResultSet, T> rowMapper) {
+        try (Connection conn = securePostgresService.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+            for (int i = 0; i < params.size(); i++) {
+                stmt.setObject(i + 1, params.get(i));
+            }
+
+            ResultSet rs = stmt.executeQuery();
+            List<T> results = new ArrayList<>();
+            while (rs.next()) {
+                results.add(rowMapper.apply(rs));
+            }
+            return results;
+
+        } catch (SQLException e) {
+            throw new RuntimeException("Erreur lors de l'exécution de la requête", e);
+        }
+    }
+
+    public int executeUpdate(String sql, List<Object> params) {
+        try (Connection conn = securePostgresService.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+            for (int i = 0; i < params.size(); i++) {
+                stmt.setObject(i + 1, params.get(i));
+            }
+
+            return stmt.executeUpdate();
+
+        } catch (SQLException e) {
+            throw new RuntimeException("Erreur lors de l'exécution de la mise à jour", e);
+        }
+    }
+}
+🧪 Exemple d'utilisation
+Service métier
+java
+Copier
+Modifier
+@Service
+public class UtilisateurService {
+
+    private final GenericQueryService queryService;
+
+    public UtilisateurService(GenericQueryService queryService) {
+        this.queryService = queryService;
+    }
+
+    public List<String> tousLesPrenoms() {
+        String sql = "SELECT prenom FROM utilisateurs";
+        return queryService.executeQuery(sql, List.of(), rs -> rs.getString("prenom"));
+    }
+
+    public void ajouterUtilisateur(String nom, String prenom) {
+        String sql = "INSERT INTO utilisateurs (nom, prenom) VALUES (?, ?)";
+        queryService.executeUpdate(sql, List.of(nom, prenom));
+    }
+}
+Contrôleur simple
+java
+Copier
+Modifier
+@RestController
+@RequestMapping("/utilisateurs")
+public class UtilisateurController {
+
+    private final UtilisateurService service;
+
+    public UtilisateurController(UtilisateurService service) {
+        this.service = service;
+    }
+
+    @GetMapping
+    public List<String> tous() {
+        return service.tousLesPrenoms();
+    }
+
+    @PostMapping
+    public ResponseEntity<Void> ajouter(@RequestParam String nom, @RequestParam String prenom) {
+        service.ajouterUtilisateur(nom, prenom);
+        return ResponseEntity.ok().build();
+    }
+}
+🧠 Avantages
+🔄 Réutilisable pour n’importe quelle requête SQL.
+
+🧼 Paramétré proprement avec PreparedStatement (pas d'injection SQL).
+
+🔗 Connecté directement à ton système d'authentification Vault.
+
+Souhaites-tu aussi :
+
+Ajouter un support transactionnel ?
+
+Retourner des DTO complexes ?
+
+Utiliser JdbcTemplate ou JPA à la place ?
+
+Je peux adapter selon ton besoin exact.
+
+
+
+
+
+
+
+Vous avez dit :
+Retourner des DTO complexes ?
+
+
+ChatGPT a dit :
+Parfait 👌 ! Retourner des DTO complexes depuis le service générique est très simple : il suffit de mapper le ResultSet vers ton propre type de retour, comme un POJO/DTO personnalisé.
+
+🧱 1. Exemple de DTO
+java
+Copier
+Modifier
+public class UtilisateurDto {
+    private final Long id;
+    private final String nom;
+    private final String prenom;
+
+    public UtilisateurDto(Long id, String nom, String prenom) {
+        this.id = id;
+        this.nom = nom;
+        this.prenom = prenom;
+    }
+
+    // getters
+}
+🧠 2. Utilisation avec GenericQueryService
+Tu mappes chaque ligne du ResultSet vers un UtilisateurDto :
+
+java
+Copier
+Modifier
+public List<UtilisateurDto> listerTousLesUtilisateurs() {
+    String sql = "SELECT id, nom, prenom FROM utilisateurs";
+
+    return queryService.executeQuery(sql, List.of(), rs ->
+        new UtilisateurDto(
+            rs.getLong("id"),
+            rs.getString("nom"),
+            rs.getString("prenom")
+        )
+    );
+}
+✅ 3. Contrôleur REST
+java
+Copier
+Modifier
+@GetMapping
+public List<UtilisateurDto> lister() {
+    return service.listerTousLesUtilisateurs();
+}
+📌 Bonus : méthode générique avec Class<T> (optionnel)
+Si tu veux aller encore plus générique, tu peux créer une version qui utilise une interface RowMapper<T> ou un Function<ResultSet, T> comme déjà fait.
+
+Mais si tu as besoin d’un mapping automatique (par nom de colonne → propriété Java), je peux aussi te générer une version avec BeanPropertyRowMapper de Spring ou une librairie comme MapStruct.
+
