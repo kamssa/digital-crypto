@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 https://maven.apache.org/xsd/settings-1.0.0.xsd">
+
+  <!-- Local repository path -->
+  <localRepository>C:\Users\h45884\Projects\certis\Dev\maven\repository</localRepository>
+
+  <!-- Serveurs avec credentials -->
+  <servers>
+    <server>
+      <id>central</id>
+      <username>h45884</username>
+      <password>Traore01</password>
+    </server>
+    <server>
+      <id>snapshots</id>
+      <username>h45884</username>
+      <password>Traore01</password>
+    </server>
+    <server>
+      <id>p-1188</id>
+      <username>h45884</username>
+      <password>Traore01</password>
+    </server>
+  </servers>
+
+  <!-- Configuration du proxy -->
+  <proxies>
+    <proxy>
+      <id>np-proxy-http</id>
+      <active>true</active>
+      <protocol>http</protocol>
+      <username>h45884</username>
+      <password>Traore01</password>
+      <host>np-proxy</host>
+      <port>8080</port>
+      <nonProxyHosts>localhost|sweetdev.group.echonet|sweetdev3.dev.echonet|race-svn.itp.echonet|scm-race.itp.echonet</nonProxyHosts>
+    </proxy>
+  </proxies>
+
+  <!-- Ajout du mirror pour forcer Maven à utiliser ton Artifactory -->
+  <mirrors>
+    <mirror>
+      <id>p1188-mirror</id>
+      <name>Mirror vers artifactory echonet</name>
+      <url>https://artifactory-dogen.group.echonet/artifactory/p-1188-maven</url>
+      <mirrorOf>*</mirrorOf>
+    </mirror>
+  </mirrors>
+
+  <!-- Dépôts Maven personnalisés -->
+  <profiles>
+    <profile>
+      <id>p1188-profile</id>
+      <repositories>
+        <repository>
+          <id>p-1188</id>
+          <url>https://artifactory-dogen.group.echonet/artifactory/p-1188-maven</url>
+          <releases><enabled>true</enabled></releases>
+          <snapshots><enabled>true</enabled></snapshots>
+        </repository>
+      </repositories>
+      <pluginRepositories>
+        <pluginRepository>
+          <id>p-1188</id>
+          <url>https://artifactory-dogen.group.echonet/artifactory/p-1188-maven</url>
+          <releases><enabled>true</enabled></releases>
+          <snapshots><enabled>true</enabled></snapshots>
+        </pluginRepository>
+      </pluginRepositories>
+    </profile>
+  </profiles>
+
+  <!-- Activation du profil -->
+  <activeProfiles>
+    <activeProfile>p1188-profile</activeProfile>
+  </activeProfiles>
+
+</settings>
