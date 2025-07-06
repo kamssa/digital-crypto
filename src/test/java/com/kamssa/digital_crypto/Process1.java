@@ -275,3 +275,319 @@ interface CertificateOwnerService {
 
 // Les autres interfaces/classes comme ReferenceRefIDto, ItsmTaskService, etc.,
 // devraient aussi être définies dans votre projet pour que le code compile.
+
+/////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&///////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
+
+// --- Imports des DTO et Services (à adapter à vos chemins réels) ---
+// import com.bnpparibas.certis.api.tasks.dto.AutomationHubCertificateLightDto;
+// import com.bnpparibas.certis.api.tasks.dto.CertificateOwnerDTO;
+// import com.bnpparibas.certis.api.tasks.dto.ReferenceRefIDto;
+// import com.bnpparibas.certis.api.tasks.dto.autoItsmTaskDto;
+// import com.bnpparibas.certis.api.tasks.service.CertificateOwnerService;
+// import com.bnpparibas.certis.api.tasks.service.ReferenceRefService;
+// import com.bnpparibas.certis.api.tasks.service.ItsmTaskService;
+// import com.bnpparibas.certis.api.tasks.service.EmailService;
+// import com.bnpparibas.certis.api.tasks.exception.NoSupportGroupException;
+// import com.bnpparibas.certis.api.tasks.exception.CreateIncidentException;
+// import com.bnpparibas.certis.api.tasks.enums.PRIORITYTYPE;
+// import com.bnpparibas.certis.api.tasks.enums.IncTypeEnum;
+// import com.bnpparibas.certis.api.tasks.utils.DateUtils; // Importez votre DateUtils
+
+
+// --- EXEMPLES DE CLASSES FACTICES (À REMPLACER PAR VOS VRAIES IMPLÉMENTATIONS) ---
+// Si vous avez déjà ces classes, ignorez ces définitions.
+class AutomationHubCertificateLightDto {
+    private String automationId;
+    private String commonName;
+    private Date expiryDate;
+    private Certificate certificate;
+    private String environment;
+    public String getAutomationId() { return automationId; }
+    public String getCommonName() { return commonName; }
+    public Date getExpiryDate() { return expiryDate; }
+    public Certificate getCertificate() { return certificate; }
+    public String getEnvironment() { return environment; }
+    @Override public String toString() { return "AutomationId: " + automationId + ", CommonName: " + commonName; }
+
+    public static class Certificate {
+        private String serialNumber;
+        public String getSerialNumber() { return serialNumber; }
+    }
+}
+
+class CertificateOwnerDTO {
+    private String auId;
+    private String codeApp;
+    public String getAuId() { return auId; }
+    public String getCodeApp() { return codeApp; }
+}
+
+class ReferenceRefIDto { /* ... */ }
+class autoItsmTaskDto { /* ... */ }
+
+interface CertificateOwnerService {
+    CertificateOwnerDTO getInfoByCodeAp(AutomationHubCertificateLightDto dto);
+    CertificateOwnerDTO getInfoByUrl(AutomationHubCertificateLightDto dto);
+    CertificateOwnerDTO getInfoByHostName(AutomationHubCertificateLightDto dto);
+}
+
+interface ReferenceRefService {
+    ReferenceRefIDto findReferenceByCodeAp(String codeAp);
+}
+
+interface ItsmTaskService {
+    autoItsmTaskDto createIncidentAutoEnroll(AutomationHubCertificateLightDto reqDto, ReferenceRefIDto refDto, PRIORITYTYPE priority, IncTypeEnum incType);
+}
+
+interface EmailService {
+    void sendAlertEmail(String subject, String body, String recipientEmail);
+}
+
+enum PRIORITYTYPE { P2, P3 }
+enum IncTypeEnum { AutOENROLL }
+
+class NoSupportGroupException extends RuntimeException { public NoSupportGroupException(String message) { super(message); } }
+class CreateIncidentException extends RuntimeException { public CreateIncidentException(String message) { super(message); } }
+
+// *** VOTRE CLASSE DateUtils ***
+// C'est un exemple basique. Si vous utilisez Apache Commons Lang DateUtils,
+// vous n'aurez pas besoin de cette classe factice.
+class DateUtils {
+    public static Date addDays(Date date, int days) {
+        Calendar cal = Calendar.getInstance();
+        cal.setTime(date);
+        cal.add(Calendar.DATE, days);
+        // TRONQUE À MINUIT pour une comparaison de jour exact
+        cal.set(Calendar.HOUR_OF_DAY, 0);
+        cal.set(Calendar.MINUTE, 0);
+        cal.set(Calendar.SECOND, 0);
+        cal.set(Calendar.MILLISECOND, 0);
+        return cal.getTime();
+    }
+
+    public static Date truncate(Date date, int field) {
+        // Cette méthode serait utilisée par Apache Commons DateUtils par exemple.
+        // Ici, nous l'incorporons directement dans addDays pour la simplicité.
+        // Si vous utilisez une lib, utilisez leur truncate si besoin.
+        return date; // Placeholder
+    }
+}
+// --- FIN DES EXEMPLES DE CLASSES FACTICES ---
+
+
+@Service
+public class DiscoveryTaskService {
+    private static final Logger LOGGER = LoggerFactory.getLogger(DiscoveryTaskService.class);
+
+    @Autowired
+    private CertificateOwnerService certificateOwnerService;
+    @Autowired
+    private ReferenceRefService referenceRefService;
+    @Autowired
+    private ItsmTaskService itsmTaskService;
+    @Autowired
+    private EmailService emailService;
+    // @Autowired // Si DateUtils est un Spring Bean et non une utilitaire statique
+    // private DateUtils dateUtils; // DÉCOMMENTEZ SI VOTRE DATEUTILS EST UN BEAN
+
+
+    // --- Méthodes privées utilitaires (non modifiées par cette requête) ---
+
+    private boolean isAuIdMissing(CertificateOwnerDTO dto) {
+        return dto == null || dto.getAuId() == null;
+    }
+
+    private CertificateOwnerDTO getBestAvailableCertificateOwner(AutomationHubCertificateLightDto automationHubCertificateLightDto) {
+        CertificateOwnerDTO dtoByCodeAp = certificateOwnerService.getInfoByCodeAp(automationHubCertificateLightDto);
+        if (!isAuIdMissing(dtoByCodeAp)) {
+            LOGGER.debug("CertificateOwnerDTO trouvé via CodeAp avec AuId: {}", dtoByCodeAp.getAuId());
+            return dtoByCodeAp;
+        } else {
+            LOGGER.debug("CertificateOwnerDTO non valide trouvé par CodeAp pour automationId: {}", automationHubCertificateLightDto.getAutomationId());
+        }
+
+        CertificateOwnerDTO dtoByUrl = certificateOwnerService.getInfoByUrl(automationHubCertificateLightDto);
+        if (!isAuIdMissing(dtoByUrl)) {
+            LOGGER.debug("CertificateOwnerDTO trouvé via URL avec AuId: {}", dtoByUrl.getAuId());
+            return dtoByUrl;
+        } else {
+            LOGGER.debug("CertificateOwnerDTO non valide trouvé par URL pour automationId: {}", automationHubCertificateLightDto.getAutomationId());
+        }
+
+        CertificateOwnerDTO dtoByHostName = certificateOwnerService.getInfoByHostName(automationHubCertificateLightDto);
+        if (!isAuIdMissing(dtoByHostName)) {
+            LOGGER.debug("CertificateOwnerDTO trouvé via HostName avec AuId: {}", dtoByHostName.getAuId());
+            return dtoByHostName;
+        } else {
+            LOGGER.debug("CertificateOwnerDTO non valide trouvé par HostName pour automationId: {}", automationHubCertificateLightDto.getAutomationId());
+        }
+
+        LOGGER.warn("Aucun CertificateOwnerDTO valide (AuId manquant) trouvé pour automationId: {} après vérification CodeAp, URL, HostName.", automationHubCertificateLightDto.getAutomationId());
+        return null;
+    }
+
+    // Ancienne méthode private Date addDaysToCurrentDate(int days) a été supprimée ou commentée,
+    // car nous utilisons DateUtils.addDays(new Date(), ...) directement comme demandé.
+
+    private void createAndSendIncident(
+        AutomationHubCertificateLightDto requestDto,
+        String incidentLogMessage,
+        PRIORITYTYPE priority,
+        CertificateOwnerDTO selectedCertificateOwnerDTO,
+        AtomicInteger successCounter,
+        AtomicInteger errorCounter,
+        List<String> noSuppReport,
+        List<String> errorReport
+    ) {
+        LOGGER.info(incidentLogMessage);
+
+        ReferenceRefIDto referenceRefIDto = null;
+        if (selectedCertificateOwnerDTO != null && selectedCertificateOwnerDTO.getCodeApp() != null) {
+            referenceRefIDto = referenceRefService.findReferenceByCodeAp(selectedCertificateOwnerDTO.getCodeApp());
+        }
+        if (referenceRefIDto == null) {
+            LOGGER.warn("donnée non retrouvée : referenceRefIDto pour le codeApp: {}. Pour la récupération du support groupé.",
+                        selectedCertificateOwnerDTO != null ? selectedCertificateOwnerDTO.getCodeApp() : "N/A");
+        }
+
+        String subjectIncident = "Alerte Certificat: " + (requestDto.getCertificate() != null ? requestDto.getCertificate().getSerialNumber() : "N/A");
+        // String ipsString = "N/A"; // Si vous avez besoin de cette variable, dérivez-la
+        // Date dateExpireDiscovery = requestDto.getExpiryDate(); // Pas directement utilisé ici pour la comparaison, mais pour le log
+        // Map<String, String> data = new HashMap<>(); // Si vous collectez des données pour l'incident
+        // data.put("dateExpiration", dateExpireDiscovery != null ? dateExpireDiscovery.toString() : "N/A");
+        // data.put("serialDiscovery", requestDto.getCertificate() != null ? requestDto.getCertificate().getSerialNumber() : "N/A");
+
+
+        try {
+            autoItsmTaskDto itsmTaskDto = itsmTaskService.createIncidentAutoEnroll(
+                requestDto, referenceRefIDto, priority, IncTypeEnum.AutOENROLL
+            );
+            successCounter.incrementAndGet();
+            LOGGER.info("Incident créé avec succès pour AutomationId: {}", requestDto.getAutomationId());
+        } catch (NoSupportGroupException e) {
+            String warningInfo = selectedCertificateOwnerDTO.getAuId() + "," + requestDto.getCommonName();
+            noSuppReport.add(warningInfo);
+            errorCounter.incrementAndGet();
+            LOGGER.error("Support group not found for request {}: {}. Incident non créé.", requestDto.getAutomationId(), e.getMessage());
+            errorReport.add("Support group missing for " + requestDto.getAutomationId() + ": " + e.getMessage());
+        } catch (CreateIncidentException e) {
+            String warningInfo = selectedCertificateOwnerDTO.getAuId() + "," + requestDto.getCommonName();
+            errorReport.add(warningInfo);
+            errorCounter.incrementAndGet();
+            LOGGER.error("Incident failed to create on snow for {}: {}", requestDto.getAutomationId(), e.getMessage());
+            errorReport.add("Incident creation failed for " + requestDto.getAutomationId() + ": " + e.getMessage());
+        }
+    }
+
+
+    // --- Refonte des méthodes principales ---
+
+    public void processAutoEnrollCertificate(AutomationHubCertificateLightDto automationHubCertificateLightDto) {
+        AtomicInteger successCounter = new AtomicInteger(0);
+        AtomicInteger errorCounter = new AtomicInteger(0);
+        List<String> noSuppReport = new ArrayList<>();
+        List<String> errorReport = new ArrayList<>();
+
+        CertificateOwnerDTO selectedCertificateOwnerDTO = getBestAvailableCertificateOwner(automationHubCertificateLightDto);
+
+        if (selectedCertificateOwnerDTO == null) {
+            // selectedCertificateOwnerDTO == null : Envoyer un email d’alerte
+            String subject = "ALERTE: Propriétaire de Certificat Non Trouvé";
+            String body = String.format(
+                "Impossible de trouver un propriétaire valide (AuId manquant) pour le certificat avec AutomationId: '%s' et CommonName: '%s'. " +
+                "Toutes les sources (CodeAp, URL, HostName) ont été vérifiées et aucun AuId valide n'a été identifié. " +
+                "Le traitement Auto-Enroll est stoppé pour ce certificat. Veuillez investiguer.",
+                automationHubCertificateLightDto.getAutomationId(),
+                automationHubCertificateLightDto.getCommonName()
+            );
+            emailService.sendAlertEmail(subject, body, "alerte.certificats@votreentreprise.com"); // Adaptez l'adresse
+            LOGGER.warn("Alerte email envoyée car aucun CertificateOwnerDTO valide n'a été trouvé pour AutomationId: {}. Traitement stoppé.", automationHubCertificateLightDto.getAutomationId());
+            return;
+        } else {
+            // selectedCertificateOwnerDTO != null : Créer incident P2 ou P3
+            LOGGER.info("CertificateOwnerDTO valide trouvé (AuId: {}) pour AutomationId: {}. Procéder à la vérification d'expiration pour incident.",
+                        selectedCertificateOwnerDTO.getAuId(), automationHubCertificateLightDto.getAutomationId());
+
+            Date certificateExpiryDate = automationHubCertificateLightDto.getExpiryDate();
+            if (certificateExpiryDate == null) {
+                LOGGER.warn("La date d'expiration est manquante pour AutomationId: {}. Impossible de créer un incident P2/P3.", automationHubCertificateLightDto.getAutomationId());
+                return;
+            }
+
+            // --- Utilisation de DateUtils.addDays(new Date(), X) comme demandé ---
+            Date today = new Date(); // La date actuelle
+            Date threshold3Days = DateUtils.addDays(today, 3);
+            Date threshold15Days = DateUtils.addDays(today, 15);
+
+            // Si date d’expiration <= aujourd’hui + 3 jours → créer incident P2
+            if (certificateExpiryDate.compareTo(threshold3Days) <= 0) {
+                createAndSendIncident(
+                    automationHubCertificateLightDto,
+                    "Création incident P2 car le certificat certis expire dans moins de 3 jours (ou aujourd'hui). AutomationId: " + automationHubCertificateLightDto.getAutomationId(),
+                    PRIORITYTYPE.P2, selectedCertificateOwnerDTO,
+                    successCounter, errorCounter, noSuppReport, errorReport
+                );
+            }
+            // Sinon (c'est-à-dire > 3 jours), si date d’expiration <= aujourd’hui + 15 jours → créer incident P3
+            else if (certificateExpiryDate.compareTo(threshold15Days) <= 0) {
+                createAndSendIncident(
+                    automationHubCertificateLightDto,
+                    "Création incident P3 car le certificat certis expire dans moins de 15 jours (mais plus de 3). AutomationId: " + automationHubCertificateLightDto.getAutomationId(),
+                    PRIORITYTYPE.P3, selectedCertificateOwnerDTO,
+                    successCounter, errorCounter, noSuppReport, errorReport
+                );
+            } else {
+                LOGGER.info("Certificat pour AutomationId: {} expire dans plus de 15 jours. Pas d'incident créé pour l'instant (niveau P3 non atteint).", automationHubCertificateLightDto.getAutomationId());
+            }
+        }
+    }
+
+    public void processCertificateEsp3(AutomationHubCertificateLightDto automationHubCertificateLightDto) {
+        CertificateOwnerDTO certificateOwnerDTO = getBestAvailableCertificateOwner(automationHubCertificateLightDto);
+
+        if (certificateOwnerDTO == null) {
+            LOGGER.warn("Impossible de procéder dans processCertificateEsp3 : aucun CertificateOwnerDTO valide trouvé pour AutomationId: {}.", automationHubCertificateLightDto.getAutomationId());
+            return;
+        }
+
+        LOGGER.info("Procédure processCertificateEsp3 pour AutomationId: {} avec AuId: {}.",
+                    automationHubCertificateLightDto.getAutomationId(), certificateOwnerDTO.getAuId());
+
+        // ... Le reste de votre logique pour processCertificateEsp3 utilise maintenant `certificateOwnerDTO`
+    }
+
+    public void processExpireCertificate(List<AutomationHubCertificateLightDto> dtos) {
+        if (dtos == null || dtos.isEmpty()) {
+            LOGGER.info("Aucun DTO à traiter dans processExpireCertificate.");
+            return;
+        }
+
+        LOGGER.info("Début du traitement de {} certificats dans processExpireCertificate.", dtos.size());
+
+        for (AutomationHubCertificateLightDto dto : dtos) {
+            try {
+                // Appel de la méthode refactorisée pour chaque DTO
+                processAutoEnrollCertificate(dto); // Ou processCertificateEsp3(dto) selon votre besoin réel
+            } catch (Exception e) {
+                LOGGER.error("Erreur inattendue lors du traitement du certificat {}: {}", dto.getAutomationId(), e.getMessage(), e);
+            }
+        }
+        LOGGER.info("Fin du traitement de {} certificats dans processExpireCertificate.", dtos.size());
+    }
+
+    // ... d'autres méthodes de votre classe ...
+}
