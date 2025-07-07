@@ -838,3 +838,40 @@ import org.springframework.cache.annotation.Cacheable;
 public InformationDto getByCNFromSercerClasses(String cn) {
     // ... votre code actuel (de préférence celui avec la requête fusionnée)
 }
+///////////////////////////////indexer dans la base de donnée //////////////////////////////////////////////
+
+C'est la meilleure partie de cette solution : vous n'avez absolument rien à changer dans votre code Java !
+Laissez-moi vous expliquer pourquoi.
+Les index sont transparents pour l'application
+Un index de base de données est une structure de données interne, gérée exclusivement par le système de gestion de base de données (SGBD) lui-même (comme PostgreSQL, Oracle, etc.). Son but est d'accélérer la recherche de données, un peu comme l'index à la fin d'un livre vous permet de trouver rapidement une page sans avoir à lire le livre en entier.
+Quand votre application Java envoie une requête SQL comme celle-ci :
+Generated sql
+SELECT sys_id 
+FROM servicenow.cmdb_alt_classes 
+WHERE lower(name) = ?
+Use code with caution.
+SQL
+Le processus est le suivant :
+Votre code Java envoie la commande SQL textuelle à la base de données. Il ne sait rien des index et n'a pas besoin de le savoir.
+La base de données reçoit la requête.
+L'optimiseur de requêtes (le "cerveau" de la base de données) analyse la requête.
+Il regarde la clause WHERE lower(name) = ?.
+Il consulte son catalogue interne et se dit : "Ah, je vois qu'il existe un index nommé idx_cmdb_alt_classes_lower_name qui correspond exactement à l'expression lower(name). C'est parfait !"
+L'optimiseur décide d'utiliser cet index pour trouver la ou les lignes correspondantes de manière quasi-instantanée, au lieu de parcourir toute la table.
+Il exécute la requête en utilisant ce plan optimisé et renvoie le résultat à votre application Java.
+Votre code Java ne fait que poser une question ("Donne-moi les lignes où lower(name) est égal à X"). C'est le travail de la base de données de trouver la manière la plus intelligente et la plus rapide de répondre à cette question. En créant l'index, vous avez simplement donné à la base de données un nouvel outil très puissant pour le faire.
+Ce que vous devez faire maintenant
+Assurez-vous que l'index a bien été créé. Vous devriez avoir reçu un message de succès après avoir exécuté la commande CREATE INDEX.
+Relancez votre test ou votre application. Exécutez à nouveau le processus qui appelle la méthode findServerSysIdByName.
+Observez la différence de performance. Le temps de réponse, qui était peut-être de plusieurs secondes (ou dizaines de secondes), devrait maintenant être de quelques millisecondes. La différence devrait être spectaculaire.
+Il n'y a aucune modification de code à faire. Le code que vous avez écrit était déjà "correct" d'un point de vue fonctionnel. Le problème était un problème de "configuration de la performance" de la base de données, que vous venez de résoudre.
+Si vous aviez créé l'index composite
+Même si vous avez créé l'index composite plus avancé :
+Generated sql
+CREATE INDEX idx_cmdb_alt_classes_lower_name_class 
+ON servicenow.cmdb_alt_classes (lower(name), sys_class_name);
+Use code with caution.
+SQL
+La conclusion est la même. Quand l'optimiseur verra votre requête :
+Generated sql
+... WHERE sys_class_name IN (...) AND lower(name) = ? ...
