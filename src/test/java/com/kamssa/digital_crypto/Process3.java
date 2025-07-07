@@ -772,3 +772,69 @@ private void createIncidentAndLogResult(...) {
 
     // ... reste de la logique pour créer l'incident
 }
+////////////////////////////////////////////////////
+Requête 2 : findBusinessAppByChildSysId
+Generated sql
+SELECT ... FROM ... LEFT JOIN servicenow.business_app_childs AS rel ...
+WHERE rel.child_sys_id = ?
+Use code with caution.
+SQL
+Pour que cette requête soit rapide, il est impératif que la colonne rel.child_sys_id dans la table servicenow.business_app_childs soit indexée.
+✅ Solution : Vérifier/Ajouter un index.
+Assurez-vous qu'un index existe sur cette colonne.
+Generated sql
+CREATE INDEX idx_business_app_childs_child_sys_id ON servicenow.business_app_childs (child_sys_id);
+Use code with caution.
+SQL
+Comment vérifier ?
+Utilisez la commande EXPLAIN ANALYZE de votre base de données devant votre requête. Si vous voyez les mots Seq Scan (Sequential Scan) sur une grande table, c'est le signe qu'un index manque. Vous devriez voir Index Scan.
+Solution n°2 : Fusionner les deux requêtes en une seule
+Faire deux allers-retours vers la base de données est moins efficace qu'en faire un seul. Vous pouvez combiner les deux recherches en une seule requête SQL complexe qui fait tout le travail.
+L'idée est de dire à la base de données : "Trouve-moi l'application métier dont un des enfants est un serveur avec tel nom et telle classe".
+✅ Solution : Réécrire la logique avec une seule requête.
+Generated java
+public InformationDto getByCNFromSercerClasses(String cn) {
+    String sql = "SELECT ba.sys_id, ba.name " +
+                 "FROM servicenow.cmdb_ci_business_app AS ba " +
+                 "JOIN servicenow.business_app_childs AS rel ON rel.ba_sys_id = ba.sys_id " +
+                 "JOIN servicenow.cmdb_alt_classes AS server ON rel.child_sys_id = server.sys_id " +
+                 "WHERE server.sys_class_name IN (" + SERVER_CLASSES + ") " +
+                 "AND lower(server.name) = ? " +
+                 "ORDER BY ba.sys_id DESC LIMIT 1";
+
+    try {
+        // Le RowMapper est maintenant directement dans la requête
+        return openDataJdbcTemplate.queryForObject(sql, new Object[]{cn.toLowerCase()}, (rs, rowNum) -> {
+            InformationDtoImpl dto = new InformationDtoImpl();
+            dto.setSysId(rs.getString("sys_id"));
+            dto.setName(rs.getString("name"));
+            return dto;
+        });
+    } catch (EmptyResultDataAccessException e) {
+        LOGGER.warn("Aucune application métier parente trouvée pour un serveur avec le CN : {}", cn);
+        return new InformationDtoImpl();
+    }
+}
+Use code with caution.
+Java
+Avantages :
+Un seul appel réseau à la base de données.
+Le planificateur de la base de données peut trouver la manière la plus optimale d'exécuter la requête globale.
+Le code Java est plus simple.
+Note : Cette solution est très efficace, mais elle ne dispense pas d'avoir les bons index (Solution n°1) ! Les deux solutions se complètent.
+Solution n°3 : Mettre en place un cache
+Si vous appelez souvent cette méthode avec les mêmes noms de serveurs (cn), les résultats ne changent probablement pas toutes les secondes. Mettre en cache le résultat peut considérablement accélérer les appels répétés.
+✅ Solution : Utiliser un cache (ex: Spring Cache, Ehcache, Caffeine).
+Avec Spring, c'est très simple. Il suffit d'ajouter une annotation.
+Activez le cache dans votre configuration Spring (@EnableCaching).
+Ajoutez l'annotation @Cacheable à votre méthode.
+Generated java
+import org.springframework.cache.annotation.Cacheable;
+
+// ...
+
+@Override
+@Cacheable(value = "business-apps-by-server-cn", unless="#result.sysId == null")
+public InformationDto getByCNFromSercerClasses(String cn) {
+    // ... votre code actuel (de préférence celui avec la requête fusionnée)
+}
