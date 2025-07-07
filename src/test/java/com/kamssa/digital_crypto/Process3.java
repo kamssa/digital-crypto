@@ -647,3 +647,74 @@ public InformationDto getByCNFromServerClasses(String cn) {
         return new InformationDtoImpl(); // Retourner un DTO vide
     }
 }
+//////////////////////////////////////////////////////////oendata 1///////////////////////////////////////
+@Override
+public InformationDto getByCNFromServerClasses(String cn) {
+    // Étape 1 : Appeler la première méthode pour trouver le sys_id du serveur.
+    // L'utilisation de Optional est une manière propre de gérer un résultat qui peut être absent.
+    Optional<String> serverSysIdOptional = findServerSysIdByName(cn);
+
+    if (!serverSysIdOptional.isPresent()) {
+        LOGGER.info("Aucun serveur trouvé pour le CN : {}", cn);
+        return new InformationDtoImpl(); // Retourne un DTO vide si aucun serveur n'est trouvé.
+    }
+
+    // Un sys_id a été trouvé, on peut passer à l'étape 2.
+    String serverSysId = serverSysIdOptional.get();
+    LOGGER.info("Serveur trouvé avec sys_id : {}. Recherche de l'application parente...", serverSysId);
+
+    // Étape 2 : Appeler la seconde méthode pour trouver l'application métier parente.
+    return findBusinessAppByChildSysId(serverSysId);
+}
+
+/**
+ * MÉTHODE 1 : Trouve le sys_id d'un serveur correspondant à la première requête de l'image.
+ * @param cn Le nom du serveur à rechercher (name).
+ * @return Un Optional contenant le sys_id si trouvé, sinon un Optional vide.
+ */
+private Optional<String> findServerSysIdByName(String cn) {
+    String sql = "SELECT sys_id FROM servicenow.cmdb_all_classes " +
+                 "WHERE sys_class_name IN (" + SERVER_CLASSES + ") " +
+                 "AND name ILIKE ? " + // Utilise ILIKE comme dans l'image (correspondance exacte insensible à la casse)
+                 "ORDER BY sys_id ASC LIMIT 1"; // Utilise ASC comme dans l'image, et LIMIT 1 pour être efficace.
+
+    try {
+        // queryForObject est idéal pour récupérer une seule valeur d'une seule colonne.
+        String sysId = openDataJdbcTemplate.queryForObject(sql, new Object[]{cn}, String.class);
+        return Optional.of(sysId);
+    } catch (EmptyResultDataAccessException e) {
+        // C'est normal si rien n'est trouvé, on retourne simplement un résultat vide.
+        return Optional.empty();
+    }
+}
+
+/**
+ * MÉTHODE 2 : Trouve une application métier parente à partir du sys_id de son enfant (le serveur).
+ * Correspond à la deuxième requête de l'image.
+ * @param childSysId Le sys_id du serveur enfant.
+ * @return Un InformationDto rempli si une application parente est trouvée, sinon un DTO vide.
+ */
+private InformationDto findBusinessAppByChildSysId(String childSysId) {
+    // ATTENTION : Notez la correction du nom de la colonne 'rel.ba_sys_id' selon votre image.
+    String sql = "SELECT ba.sys_id, ba.name " + // IMPORTANT : On sélectionne les colonnes dont on a besoin !
+                 "FROM servicenow.cmdb_all_classes AS ba " +
+                 "LEFT JOIN servicenow.business_app_childs AS rel ON rel.ba_sys_id = ba.sys_id " + // 'ba_sys_id' comme dans l'image
+                 "WHERE rel.child_sys_id = ? " +
+                 "ORDER BY ba.sys_id ASC LIMIT 1";
+
+    try {
+        return openDataJdbcTemplate.queryForObject(
+            sql,
+            new Object[]{childSysId},
+            (rs, rowNum) -> {
+                InformationDtoImpl dto = new InformationDtoImpl();
+                dto.setSysId(rs.getString("sys_id"));
+                dto.setName(rs.getString("name"));
+                return dto;
+            }
+        );
+    } catch (EmptyResultDataAccessException e) {
+        LOGGER.warn("Aucune application métier parente trouvée pour le serveur avec sys_id : {}", childSysId);
+        return new InformationDtoImpl(); // Retourne un DTO vide si aucun parent n'est trouvé.
+    }
+}
