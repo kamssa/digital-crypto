@@ -591,3 +591,59 @@ public class DiscoveryTaskService {
 
     // ... d'autres méthodes de votre classe ...
 }
+////////////////////////////opendata////////////////////////////////////////////////////
+@Override
+public InformationDto getByCNFromServerClasses(String cn) {
+    // 1. Préparer le terme de recherche pour une correspondance partielle (avec jokers)
+    String searchLike = "%" + cn + "%";
+
+    // 2. Une liste des classes de serveurs (il serait préférable de la déplacer dans une constante ou un fichier de config)
+    String serverClasses = "'cmdb_ci_appliance_server'," +
+                           "'cmdb_ci_esx_server'," +
+                           "'cmdb_ci_mainframe_lpar'," +
+                           "'cmdb_ci_linux_server'," +
+                           "'cmdb_ci_win_server'," +
+                           "'cmdb_ci_netware_server'," +
+                           "'cmdb_ci_server'," +
+                           "'cmdb_ci_aix_server'," +
+                           "'cmdb_ci_hpux_server'," +
+                           "'cmdb_ci_mainframe'," +
+                           "'cmdb_ci_solaris_server'," +
+                           "'cmdb_ci_unix_server'";
+
+    // 3. Une seule requête SQL combinée et plus efficace
+    String sql = "SELECT " +
+                 "  ba.sys_id, " +
+                 "  ba.name " +
+                 "FROM " +
+                 "  servicenow.cmdb_ci_all_classes server " + // Alias pour le CI serveur
+                 "LEFT JOIN " +
+                 "  servicenow.business_app_childs rel ON rel.child_sys_id = server.sys_id " +
+                 "LEFT JOIN " +
+                 "  servicenow.cmdb_all_classes ba ON rel.be_sys_id = ba.sys_id " + // Alias pour l'application métier
+                 "WHERE " +
+                 "  server.sys_class_name IN (" + serverClasses + ") " +
+                 "  AND (server.name ILIKE ? OR server.fqdn ILIKE ? OR server.host_name ILIKE ?) " +
+                 "  AND ba.sys_id IS NOT NULL " + // S'assurer qu'on a bien trouvé une application métier liée
+                 "ORDER BY " +
+                 "  server.sys_updated_on DESC, ba.sys_id DESC " + // 4. Un tri plus significatif
+                 "LIMIT 1";
+
+    try {
+        // 5. Utiliser queryForObject qui attend exactement un résultat
+        return openDataJdbcTemplate.queryForObject(
+            sql,
+            new Object[]{searchLike, searchLike, searchLike},
+            (rs, rowNum) -> {
+                InformationDtoImpl dto = new InformationDtoImpl();
+                dto.setSysId(rs.getString("sys_id"));
+                dto.setName(rs.getString("name"));
+                return dto;
+            }
+        );
+    } catch (EmptyResultDataAccessException e) {
+        // 6. Gérer élégamment le cas où aucun résultat n'est trouvé
+        LOGGER.info("Liste CMDB vide pour cn: {}", cn);
+        return new InformationDtoImpl(); // Retourner un DTO vide
+    }
+}
