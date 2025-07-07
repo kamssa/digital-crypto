@@ -740,3 +740,35 @@ private InformationDto findBusinessAppByChildSysId(String childSysId) {
         return new InformationDtoImpl(); // Retourne un DTO vide si aucun parent n'est trouvé.
     }
 }
+//////////////////////////////////////execption ////////////////////////////////
+private void createIncidentAndLogResult(...) {
+    // ...
+    SnowIncidentReadResponseDto snowIncident = null;
+    try {
+        snowIncident = (existingIncident == null) ? null : snowService.getSnowIncidentBySysId(existingIncident.getSysId());
+    } catch (NotFoundIncidentException e) {
+        // CE N'EST PAS UNE ERREUR CRITIQUE.
+        // Cela signifie simplement que l'incident n'existe pas dans Snow. On peut donc continuer.
+        LOGGER.info("L'incident référencé localement n'existe pas/plus dans ServiceNow. On va en créer un nouveau.");
+        snowIncident = null; // On s'assure qu'il est bien null pour la suite.
+    } catch (MultipleIncidentException e) {
+        // CECI EST UNE ERREUR. Il ne devrait pas y avoir plusieurs incidents.
+        LOGGER.error("Plusieurs incidents trouvés pour le certificat {}, situation anormale. Aucune création ne sera effectuée.", dto.getAutomationHubId(), e);
+        errorCounter.incrementAndGet();
+        errorReport.add(dto.getAutomationHubId() + " ; Multiple incidents found");
+        return; // On arrête le traitement pour ce certificat.
+    } catch (NoSuchAlgorithmException | KeyManagementException e) {
+        // CECI EST UNE ERREUR TECHNIQUE GRAVE.
+        LOGGER.error("Erreur de sécurité/configuration lors de l'appel à ServiceNow pour le certificat {}", dto.getAutomationHubId(), e);
+        errorCounter.incrementAndGet();
+        errorReport.add(dto.getAutomationHubId() + " ; Technical security error");
+        return; // On arrête le traitement pour ce certificat.
+    }
+    
+    if (snowIncident != null) {
+        // ...
+        return;
+    }
+
+    // ... reste de la logique pour créer l'incident
+}
