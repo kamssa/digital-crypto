@@ -648,6 +648,28 @@ public InformationDto getByCNFromServerClasses(String cn) {
     }
 }
 //////////////////////////////////////////////////////////oendata 1///////////////////////////////////////
+// Variable de classe pour la liste des serveurs, pour éviter de la reconstruire à chaque appel.
+// J'ai ajouté 'u_cmdb_ci_appliance_server' qui était dans votre image.
+private static final String SERVER_CLASSES = 
+    "'u_cmdb_ci_appliance_server'," +
+    "'cmdb_ci_osx_server'," +
+    "'cmdb_ci_esx_server'," +
+    "'cmdb_ci_mainframe_lpar'," +
+    "'cmdb_ci_linux_server'," +
+    "'cmdb_ci_win_server'," +
+    "'cmdb_ci_netware_server'," +
+    "'cmdb_ci_server'," +
+    "'cmdb_ci_aix_server'," +
+    "'cmdb_ci_hpux_server'," +
+    "'cmdb_ci_mainframe'," +
+    "'cmdb_ci_solaris_server'," +
+    "'cmdb_ci_unix_server'";
+
+/**
+ * Méthode publique principale qui orchestre la recherche.
+ * 1. Trouve le sys_id d'un serveur par son nom.
+ * 2. Si trouvé, utilise ce sys_id pour trouver l'application métier parente.
+ */
 @Override
 public InformationDto getByCNFromServerClasses(String cn) {
     // Étape 1 : Appeler la première méthode pour trouver le sys_id du serveur.
