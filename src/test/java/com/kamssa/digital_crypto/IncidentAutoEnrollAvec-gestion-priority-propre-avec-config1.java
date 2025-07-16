@@ -749,3 +749,179 @@ class IncidentAutoEnrollTaskTest {
         assertTrue(reportLine.contains("app.prod.example.com"));
     }
 }
+//////////////////////////////// test complet ////////////////////////////
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.util.Collections;
+import java.util.Date;
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.*;
+
+// Active l'intégration de Mockito avec JUnit 5
+@ExtendWith(MockitoExtension.class)
+class IncidentAutoEnrollTaskTest {
+
+    // --- 1. Déclaration des Mocks et de la Classe à Tester ---
+
+    // Crée une instance de IncidentAutoEnrollTask et y injecte les mocks déclarés ci-dessous
+    @InjectMocks
+    private IncidentAutoEnrollTask incidentAutoEnrollTask;
+
+    // Crée des objets factices pour toutes les dépendances externes
+    @Mock private AutomationHubService automationHubService;
+    @Mock private ItsmTaskService itsmTaskService;
+    @Mock private SnowService snowService;
+    @Mock private CertificateOwnerService certificateOwnerService;
+    @Mock private ReferenceRefiService referenceRefiService;
+    @Mock private SendMailUtils sendMailUtils;
+
+    // Objets DTO factices qui seront utilisés dans les tests
+    private AutomationHubCertificateLightDto standardCert;
+    private AutomationHubCertificateLightDto urgentCert;
+    private CertificateOwnerDTO ownerDto;
+    private ReferenceRefDto refDto;
+
+    // --- 2. Méthode d'Initialisation (@BeforeEach) ---
+    // Cette méthode est exécutée avant CHAQUE test pour préparer les données communes
+    @BeforeEach
+    void setUp() {
+        // Crée des objets de données factices pour les tests
+        ownerDto = new CertificateOwnerDTO(); // Remplir avec des données si nécessaire
+        refDto = new ReferenceRefDto();       // Remplir avec des données si nécessaire
+
+        // Certificat avec priorité STANDARD (expire dans longtemps)
+        standardCert = new AutomationHubCertificateLightDto();
+        standardCert.setAutomationHubId("ID_STANDARD");
+        standardCert.setExpiryDate(DateUtils.addDays(new Date(), 30)); // Expire dans 30 jours
+        
+        // Certificat avec priorité URGENT (expire demain)
+        urgentCert = new AutomationHubCertificateLightDto();
+        urgentCert.setAutomationHubId("ID_URGENT");
+        urgentCert.setExpiryDate(DateUtils.addDays(new Date(), 1)); // Expire demain
+    }
+
+    // --- 3. Les Tests ---
+
+    @Test
+    void processExpireCertificates_whenNoCertificatesFound_shouldDoNothingButSendReport() {
+        // ARRANGE (Préparation) : On dit au service de ne retourner aucun certificat
+        when(automationHubService.searchAutoEnrollExpiring(anyInt())).thenReturn(Collections.emptyList());
+
+        // ACT (Action) : On lance la méthode principale de la tâche
+        incidentAutoEnrollTask.processExpireCertificates();
+
+        // ASSERT (Vérification) : On vérifie qu'aucune méthode de création/mise à jour n'a été appelée
+        verify(itsmTaskService, never()).createNewInc(any());
+        verify(itsmTaskService, never()).recreateInc(any());
+        verify(itsmTaskService, never()).updateInc(any());
+        // On vérifie que le rapport final est bien envoyé, même vide
+        verify(sendMailUtils, times(1)).sendEmail(any(), any(), any(), any());
+    }
+    
+    @Test
+    void processSingleCertificate_whenStandardPriority_shouldCreateNewIncident() {
+        // ARRANGE
+        // Le service retourne un certificat standard
+        when(automationHubService.searchAutoEnrollExpiring(anyInt())).thenReturn(List.of(standardCert));
+        // Les services de recherche de propriétaire/référence retournent des données valides
+        when(certificateOwnerService.getBestAvailableCertificateOwner(any())).thenReturn(ownerDto);
+        when(referenceRefiService.findReferenceByCodeAp(any())).thenReturn(refDto);
+
+        // ACT
+        incidentAutoEnrollTask.processExpireCertificates();
+
+        // ASSERT
+        // On vérifie qu'un NOUVEL incident a été créé exactement une fois
+        ArgumentCaptor<IncidentPriority> priorityCaptor = ArgumentCaptor.forClass(IncidentPriority.class);
+        verify(itsmTaskService, times(1)).createNewInc(any(), any(), any(), any(), any(), any(), priorityCaptor.capture());
+        
+        // On vérifie que la priorité passée était bien STANDARD
+        assertEquals(IncidentPriority.STANDARD, priorityCaptor.getValue());
+    }
+
+    @Test
+    void processSingleCertificate_whenUrgentAndNoExistingIncident_shouldCreateNewIncident() {
+        // ARRANGE
+        when(automationHubService.searchAutoEnrollExpiring(anyInt())).thenReturn(List.of(urgentCert));
+        when(certificateOwnerService.getBestAvailableCertificateOwner(any())).thenReturn(ownerDto);
+        when(referenceRefiService.findReferenceByCodeAp(any())).thenReturn(refDto);
+        // Simule qu'AUCUN incident n'existe dans ServiceNow
+        when(itsmTaskService.findByAutomationHubIdAndTypeAndCreationDate(anyString(), any(), any())).thenReturn(Collections.emptyList());
+        
+        // ACT
+        incidentAutoEnrollTask.processExpireCertificates();
+        
+        // ASSERT
+        // On vérifie qu'un NOUVEL incident a été créé avec la priorité URGENT
+        ArgumentCaptor<IncidentPriority> priorityCaptor = ArgumentCaptor.forClass(IncidentPriority.class);
+        verify(itsmTaskService, times(1)).createNewInc(any(), any(), any(), any(), any(), any(), priorityCaptor.capture());
+        assertEquals(IncidentPriority.URGENT, priorityCaptor.getValue());
+    }
+    
+    @Test
+    void processSingleCertificate_whenUrgentAndResolvedIncidentExists_shouldRecreateIncident() {
+        // ARRANGE
+        when(automationHubService.searchAutoEnrollExpiring(anyInt())).thenReturn(List.of(urgentCert));
+        when(certificateOwnerService.getBestAvailableCertificateOwner(any())).thenReturn(ownerDto);
+        when(referenceRefiService.findReferenceByCodeAp(any())).thenReturn(refDto);
+        
+        // Simule qu'un incident existant est trouvé
+        AutoItsmTaskDtoImpl existingTask = new AutoItsmTaskDtoImpl();
+        existingTask.setTaskId("INC12345");
+        when(itsmTaskService.findByAutomationHubIdAndTypeAndCreationDate(anyString(), any(), any())).thenReturn(List.of(existingTask));
+        when(itsmTaskService.getHigherIncNumberAutoItsmTaskDtoFromList(any())).thenReturn(existingTask);
+        
+        // Simule que cet incident est "Résolu" dans ServiceNow
+        SnowIncidentReadResponseDto resolvedIncident = new SnowIncidentReadResponseDto();
+        resolvedIncident.setState(SnowIncStateEnum.RESOLVED.getValue()); // état "Résolu"
+        when(snowService.getSnowIncidentById("INC12345")).thenReturn(resolvedIncident);
+
+        // ACT
+        incidentAutoEnrollTask.processExpireCertificates();
+        
+        // ASSERT
+        // On vérifie que la méthode pour RECREER un incident a été appelée
+        verify(itsmTaskService, times(1)).recreateInc(any(), any(), any(), any(), any(), any());
+        verify(itsmTaskService, never()).createNewInc(any()); // Et non pas les autres méthodes
+        verify(itsmTaskService, never()).updateInc(any());
+    }
+
+    @Test
+    void processSingleCertificate_whenUrgentAndHighPriorityIncidentExists_shouldDoNothing() {
+        // ARRANGE
+        when(automationHubService.searchAutoEnrollExpiring(anyInt())).thenReturn(List.of(urgentCert));
+        when(certificateOwnerService.getBestAvailableCertificateOwner(any())).thenReturn(ownerDto);
+        when(referenceRefiService.findReferenceByCodeAp(any())).thenReturn(refDto);
+        
+        AutoItsmTaskDtoImpl existingTask = new AutoItsmTaskDtoImpl();
+        existingTask.setTaskId("INC54321");
+        when(itsmTaskService.findByAutomationHubIdAndTypeAndCreationDate(anyString(), any(), any())).thenReturn(List.of(existingTask));
+        when(itsmTaskService.getHigherIncNumberAutoItsmTaskDtoFromList(any())).thenReturn(existingTask);
+        
+        // Simule qu'un incident OUVERT avec une HAUTE priorité (P2) existe
+        SnowIncidentReadResponseDto highPriorityIncident = new SnowIncidentReadResponseDto();
+        highPriorityIncident.setState(SnowIncStateEnum.IN_PROGRESS.getValue()); // état "Ouvert"
+        highPriorityIncident.setPriority("2"); // P2 = Haute priorité
+        when(snowService.getSnowIncidentById("INC54321")).thenReturn(highPriorityIncident);
+
+        // ACT
+        incidentAutoEnrollTask.processExpireCertificates();
+        
+        // ASSERT
+        // On vérifie qu'AUCUNE action de création/mise à jour n'a eu lieu
+        verify(itsmTaskService, never()).recreateInc(any());
+        verify(itsmTaskService, never()).createNewInc(any());
+        verify(itsmTaskService, never()).updateInc(any());
+    }
+}
