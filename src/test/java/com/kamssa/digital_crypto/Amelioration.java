@@ -219,3 +219,165 @@ private void sendAutoEnrollCertificateNoCodeApReport(ProcessingContext<Automatio
         LOGGER.error("Échec critique de l'envoi de l'e-mail pour les certificats sans propriétaire valide.", e);
     }
 }
+////////////////////////////////////////////////////////////////////
+private void sendFinalReport(ProcessingContext<AutomationHubCertificateLightDto> context) {
+    if (!context.hasItemsForFinalReport()) {
+        LOGGER.info("Rapport final non envoyé : aucune action de création ou d'erreur à signaler.");
+        return;
+    }
+
+    List<String> toList = new ArrayList<>();
+    toList.add(ipkiTeam);
+    
+    Map<String, Object> data = new HashMap<>();
+
+    // --- SÉPARATION DES INCIDENTS URGENTS ET STANDARDS ---
+    
+    List<Map<String, Object>> allSuccesses = context.getSuccessReportItems();
+
+    // On filtre pour ne garder que les incidents URGENTS
+    List<Map<String, Object>> urgentSuccesses = allSuccesses.stream()
+        .filter(item -> "URGENT".equals(item.get("priority")))
+        .toList(); // Utilise .collect(Collectors.toList()) si vous êtes en Java < 16
+
+    // On filtre pour ne garder que les incidents STANDARDS
+    List<Map<String, Object>> standardSuccesses = allSuccesses.stream()
+        .filter(item -> "STANDARD".equals(item.get("priority")))
+        .toList();
+
+    // On passe ces nouvelles listes au template
+    data.put("urgentSuccessItems", urgentSuccesses);
+    data.put("standardSuccessItems", standardSuccesses);
+    
+    // Les erreurs n'ont pas besoin d'être séparées, on garde la liste complète
+    data.put("errorItems", context.getErrorReportItems());
+    
+    data.put("date", new Date());
+    // --------------------------------------------------------
+
+    try {
+        // On peut créer un nouveau template dédié, plus propre
+        sendMailUtils.sendEmail(
+            "template/report-incident-summary.vm", // Nouveau nom de template
+            data, 
+            toList, 
+            "Rapport de Synthèse - Incidents Auto-Enroll"
+        );
+        
+        LOGGER.info("Rapport final envoyé avec {} succès et {} erreurs.", 
+            context.getSuccessCounter().get(), 
+            context.getErrorCounter().get());
+            
+    } catch (Exception e) {
+        LOGGER.error("Échec de l'envoi de l'e-mail de synthèse.", e);
+    }
+}
+Use code with caution.
+Java
+Étape 2 : Créer le Nouveau Template Adapté (report-incident-summary.vm)
+Ce nouveau template va maintenant avoir des sections distinctes pour les incidents urgents et les incidents standards. Cela rendra le rapport beaucoup plus clair pour l'équipe qui le reçoit.
+Generated html
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body { font-family: Arial, sans-serif; font-size: 14px; color: #333; }
+    .container { max-width: 900px; margin: 20px auto; padding: 20px; border: 1px solid #ddd; }
+    h1, h2 { color: #333366; }
+    h2 { border-bottom: 2px solid #333366; padding-bottom: 5px; }
+    table { border-collapse: collapse; width: 100%; margin-bottom: 20px; }
+    th, td { border: 1px solid #cccccc; text-align: left; padding: 8px; }
+    th { background-color: #f2f2f2; font-weight: bold; }
+    .urgent-title { color: #cc3300; } /* Couleur pour les titres urgents */
+    .error-title { color: #D8000C; }
+    .footer { margin-top: 30px; font-size: 12px; color: #888; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Rapport de Synthèse - Incidents Auto-Enroll</h1>
+    <p><strong>Date d'exécution :</strong> $date.toString()</p>
+
+    <!-- ================================================================== -->
+    <!-- Section des Incidents URGENTS -->
+    <!-- ================================================================== -->
+    #if( $urgentSuccessItems && !$urgentSuccessItems.isEmpty() )
+      <h2 class="urgent-title">Incidents URGENTS Créés ou Mis à Jour ($urgentSuccessItems.size())</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Action</th>
+            <th>Common Name</th>
+            <th>Code AP</th>
+            <th>Groupe Support</th>
+            <th>Expiration</th>
+            <th>N° Incident</th>
+          </tr>
+        </thead>
+        <tbody>
+          #foreach( $item in $urgentSuccessItems )
+            <tr>
+              <td>$!item.get("actionMessage")</td>
+              <td>$!item.get("commonName")</td>
+              <td>$!item.get("codeAp")</td>
+              <td>$!item.get("supportGroup")</td>
+              <td>$!item.get("expiryDate")</td>
+              <td><strong>$!item.get("incidentNumber")</strong></td>
+            </tr>
+          #end
+        </tbody>
+      </table>
+    #end
+
+    <!-- ================================================================== -->
+    <!-- Section des Incidents STANDARDS -->
+    <!-- ================================================================== -->
+    #if( $standardSuccessItems && !$standardSuccessItems.isEmpty() )
+      <h2>Incidents STANDARDS Créés ou Mis à Jour ($standardSuccessItems.size())</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Action</th>
+            <th>Common Name</th>
+            <th>Code AP</th>
+            <th>Groupe Support</th>
+            <th>Expiration</th>
+            <th>N° Incident</th>
+          </tr>
+        </thead>
+        <tbody>
+          #foreach( $item in $standardSuccessItems )
+            <tr>
+              <td>$!item.get("actionMessage")</td>
+              <td>$!item.get("commonName")</td>
+              <td>$!item.get("codeAp")</td>
+              <td>$!item.get("supportGroup")</td>
+              <td>$!item.get("expiryDate")</td>
+              <td><strong>$!item.get("incidentNumber")</strong></td>
+            </tr>
+          #end
+        </tbody>
+      </table>
+    #end
+    
+    <!-- S'il n'y a eu aucun succès, on affiche un message -->
+    #if( $urgentSuccessItems.isEmpty() && $standardSuccessItems.isEmpty() )
+        <h2>Opérations Réussies</h2>
+        <p>Aucune opération réussie à rapporter.</p>
+    #end
+
+    <!-- ================================================================== -->
+    <!-- Section des Erreurs (inchangée) -->
+    <!-- ================================================================== -->
+    #if( $errorItems && !$errorItems.isEmpty() )
+      <h2 class="error-title">Opérations en Échec ($errorItems.size())</h2>
+      <!-- ... (le tableau des erreurs reste le même) ... -->
+    #end
+
+    <div class="footer">
+      <p>Ceci est un e-mail généré automatiquement.</p>
+    </div>
+  </div>
+</body>
+</html>
