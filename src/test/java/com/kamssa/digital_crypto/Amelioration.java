@@ -184,3 +184,38 @@ public class IncidentAutoEnrollTask {
                    .format(DateTimeFormatter.ofPattern("dd/MM/yyyy"));
     }
 }
+/////////////////////////////////////////////
+private void sendAutoEnrollCertificateNoCodeApReport(ProcessingContext<AutomationHubCertificateLightDto> context) {
+    
+    // On récupère la liste des certificats qui ont échoué à l'étape de validation du propriétaire.
+    List<AutomationHubCertificateLightDto> certsInError = context.getItemsWithValidationError();
+
+    // Condition de garde : s'il n'y a aucun certificat dans cette liste, on ne fait rien.
+    if (certsInError == null || certsInError.isEmpty()) {
+        LOGGER.info("Rapport 'sans codeAp' non envoyé : aucune erreur de validation à signaler.");
+        return;
+    }
+
+    LOGGER.info("Préparation du rapport pour {} certificat(s) nécessitant une action manuelle.", certsInError.size());
+
+    // Préparation des destinataires et des données pour le template
+    List<String> toList = new ArrayList<>();
+    toList.add(ipkiTeam);
+    
+    Map<String, Object> data = new HashMap<>();
+    data.put("certsWithoutCodeAp", certsInError);
+    data.put("date", new Date());
+
+    // Envoi de l'e-mail
+    try {
+        sendMailUtils.sendEmail(
+            "template/report-no-codeap.vm", // Template dédié pour ce rapport
+            data, 
+            toList, 
+            "ALERTE : Action Manuelle Requise - Certificats sans Propriétaire Valide" // Sujet clair et alarmant
+        );
+        LOGGER.info("Rapport pour les certificats sans propriétaire valide envoyé avec succès.");
+    } catch (Exception e) {
+        LOGGER.error("Échec critique de l'envoi de l'e-mail pour les certificats sans propriétaire valide.", e);
+    }
+}
