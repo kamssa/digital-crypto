@@ -221,163 +221,334 @@ private void sendAutoEnrollCertificateNoCodeApReport(ProcessingContext<Automatio
 }
 ////////////////////////////////////////////////////////////////////
 private void sendFinalReport(ProcessingContext<AutomationHubCertificateLightDto> context) {
+    
+    // --- 1. Condition de Garde ---
+    // On vérifie s'il y a eu au moins un succès ou une erreur d'action.
+    // Si ce n'est pas le cas, il n'y a rien d'intéressant à rapporter dans ce mail.
     if (!context.hasItemsForFinalReport()) {
-        LOGGER.info("Rapport final non envoyé : aucune action de création ou d'erreur à signaler.");
+        LOGGER.info("Rapport de synthèse non envoyé : aucune action de création ou d'erreur à signaler.");
         return;
     }
 
+    // --- 2. Préparation des Données pour l'E-mail ---
+    
+    // Définition du destinataire
     List<String> toList = new ArrayList<>();
     toList.add(ipkiTeam);
     
+    // Création de la Map de données qui sera injectée dans le template Velocity.
     Map<String, Object> data = new HashMap<>();
-
-    // --- SÉPARATION DES INCIDENTS URGENTS ET STANDARDS ---
     
+    // --- Séparation des incidents urgents et standards pour un affichage clair ---
+    
+    // On récupère la liste complète de tous les succès
     List<Map<String, Object>> allSuccesses = context.getSuccessReportItems();
 
-    // On filtre pour ne garder que les incidents URGENTS
+    // On utilise les Streams Java pour filtrer et créer une liste des succès URGENTS
     List<Map<String, Object>> urgentSuccesses = allSuccesses.stream()
         .filter(item -> "URGENT".equals(item.get("priority")))
-        .toList(); // Utilise .collect(Collectors.toList()) si vous êtes en Java < 16
+        .toList(); // ou .collect(Collectors.toList()) pour Java < 16
 
-    // On filtre pour ne garder que les incidents STANDARDS
+    // On fait de même pour créer une liste des succès STANDARDS
     List<Map<String, Object>> standardSuccesses = allSuccesses.stream()
         .filter(item -> "STANDARD".equals(item.get("priority")))
         .toList();
 
-    // On passe ces nouvelles listes au template
+    // On ajoute ces listes séparées à notre Map de données.
+    // Le template pourra y accéder via les clés "urgentSuccessItems" et "standardSuccessItems".
     data.put("urgentSuccessItems", urgentSuccesses);
     data.put("standardSuccessItems", standardSuccesses);
     
-    // Les erreurs n'ont pas besoin d'être séparées, on garde la liste complète
+    // La liste des erreurs n'a pas besoin d'être filtrée, on la passe telle quelle.
     data.put("errorItems", context.getErrorReportItems());
     
+    // On ajoute la date pour l'afficher dans le rapport.
     data.put("date", new Date());
-    // --------------------------------------------------------
 
+    // --- 3. Envoi de l'E-mail ---
     try {
-        // On peut créer un nouveau template dédié, plus propre
+        // Appel à l'utilitaire d'envoi d'e-mails
         sendMailUtils.sendEmail(
-            "template/report-incident-summary.vm", // Nouveau nom de template
-            data, 
-            toList, 
-            "Rapport de Synthèse - Incidents Auto-Enroll"
+            "template/report-incident-summary.vm", // Le chemin vers le template dédié à ce rapport
+            data,                                  // Les données que le template va utiliser
+            toList,                                // La liste des destinataires
+            "Rapport de Synthèse - Incidents Auto-Enroll" // Le sujet de l'e-mail
         );
         
-        LOGGER.info("Rapport final envoyé avec {} succès et {} erreurs.", 
+        // Log de confirmation avec les compteurs pour un suivi facile
+        LOGGER.info("Rapport de synthèse envoyé avec {} succès et {} erreurs.", 
             context.getSuccessCounter().get(), 
             context.getErrorCounter().get());
             
     } catch (Exception e) {
+        // En cas d'échec de l'envoi, on logue une erreur critique.
         LOGGER.error("Échec de l'envoi de l'e-mail de synthèse.", e);
     }
 }
-Use code with caution.
-Java
-Étape 2 : Créer le Nouveau Template Adapté (report-incident-summary.vm)
-Ce nouveau template va maintenant avoir des sections distinctes pour les incidents urgents et les incidents standards. Cela rendra le rapport beaucoup plus clair pour l'équipe qui le reçoit.
+///////////////////////////////////////////////////////////
+// Remplacer l'ancienne méthode par celle-ci
+private void sendAutoEnrollCertificateNoCodeApReport(ProcessingContext<AutomationHubCertificateLightDto> context) {
+    
+    // --- 1. Récupération des données pertinentes ---
+    // On demande au contexte la liste des certificats qui ont échoué à l'étape de validation.
+    // C'est la seule source d'information qui nous intéresse pour ce rapport.
+    List<AutomationHubCertificateLightDto> certsInError = context.getItemsWithValidationError();
+
+    // --- 2. Condition de Garde ---
+    // Si cette liste est vide, cela signifie qu'il n'y a aucune erreur de validation
+    // à signaler. On arrête donc la méthode ici pour ne pas envoyer d'e-mail vide.
+    if (certsInError == null || certsInError.isEmpty()) {
+        LOGGER.info("Rapport 'sans codeAp' non envoyé : aucune erreur de validation de propriétaire à signaler.");
+        return;
+    }
+
+    LOGGER.info("Préparation du rapport d'alerte pour {} certificat(s) nécessitant une action manuelle.", certsInError.size());
+
+    // --- 3. Préparation des données pour l'e-mail ---
+    
+    // Définition du destinataire
+    List<String> toList = new ArrayList<>();
+    toList.add(ipkiTeam);
+    
+    // Création de la Map de données qui sera injectée dans le template Velocity.
+    Map<String, Object> data = new HashMap<>();
+    
+    // On passe la liste complète des objets certificats au template.
+    // Le template pourra accéder à toutes les propriétés de ces objets (commonName, id, etc.).
+    data.put("certsWithoutCodeAp", certsInError);
+    data.put("date", new Date());
+
+    // --- 4. Envoi de l'e-mail ---
+    try {
+        // Appel à l'utilitaire d'envoi d'e-mails
+        sendMailUtils.sendEmail(
+            "template/report-no-codeap.vm", // Le chemin vers le template dédié à ce rapport d'alerte.
+            data,                           // Les données que le template va utiliser.
+            toList,                         // La liste des destinataires.
+            "ALERTE : Action Manuelle Requise - Certificats sans Propriétaire Valide" // Un sujet clair et impactant.
+        );
+        LOGGER.info("Rapport d'alerte pour les certificats sans propriétaire valide envoyé avec succès.");
+    
+    } catch (Exception e) {
+        // En cas d'échec de l'envoi de l'e-mail, on logue une erreur critique pour le monitoring.
+        LOGGER.error("Échec critique de l'envoi de l'e-mail d'alerte pour les certificats sans propriétaire valide.", e);
+    }
+}
+. Template pour le Rapport de Synthèse (report-incident-summary.vm)
+Objectif : Fournir un résumé de l'activité de la tâche (créations/mises à jour réussies et erreurs d'action).
+Utilisé par : sendFinalReport()
 Generated html
 <!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8">
+  <title>Rapport de Synthèse - Incidents Auto-Enroll</title>
   <style>
-    body { font-family: Arial, sans-serif; font-size: 14px; color: #333; }
-    .container { max-width: 900px; margin: 20px auto; padding: 20px; border: 1px solid #ddd; }
-    h1, h2 { color: #333366; }
-    h2 { border-bottom: 2px solid #333366; padding-bottom: 5px; }
-    table { border-collapse: collapse; width: 100%; margin-bottom: 20px; }
-    th, td { border: 1px solid #cccccc; text-align: left; padding: 8px; }
+    body { font-family: Arial, sans-serif; font-size: 14px; color: #333; line-height: 1.6; }
+    .container { max-width: 1000px; margin: 20px auto; padding: 20px; border: 1px solid #ddd; border-radius: 5px; }
+    h1 { color: #2E4053; }
+    h2 { color: #2E4053; border-bottom: 2px solid #AED6F1; padding-bottom: 5px; margin-top: 30px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 15px; font-size: 12px; }
+    th, td { border: 1px solid #cccccc; text-align: left; padding: 8px; vertical-align: top; }
     th { background-color: #f2f2f2; font-weight: bold; }
-    .urgent-title { color: #cc3300; } /* Couleur pour les titres urgents */
-    .error-title { color: #D8000C; }
-    .footer { margin-top: 30px; font-size: 12px; color: #888; }
+    .urgent-title { color: #C0392B; border-bottom-color: #F5B7B1; }
+    .error-title { color: #D8000C; border-bottom-color: #FFBABA; }
+    .footer { margin-top: 30px; font-size: 12px; color: #888; text-align: center; }
+    .summary-box { background-color: #EBF5FB; border: 1px solid #AED6F1; padding: 15px; margin-bottom: 20px; border-radius: 5px; }
+    .summary-box strong { color: #2980B9; }
   </style>
 </head>
 <body>
-  <div class="container">
-    <h1>Rapport de Synthèse - Incidents Auto-Enroll</h1>
-    <p><strong>Date d'exécution :</strong> $date.toString()</p>
-
-    <!-- ================================================================== -->
-    <!-- Section des Incidents URGENTS -->
-    <!-- ================================================================== -->
-    #if( $urgentSuccessItems && !$urgentSuccessItems.isEmpty() )
-      <h2 class="urgent-title">Incidents URGENTS Créés ou Mis à Jour ($urgentSuccessItems.size())</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>Action</th>
-            <th>Common Name</th>
-            <th>Code AP</th>
-            <th>Groupe Support</th>
-            <th>Expiration</th>
-            <th>N° Incident</th>
-          </tr>
-        </thead>
-        <tbody>
-          #foreach( $item in $urgentSuccessItems )
-            <tr>
-              <td>$!item.get("actionMessage")</td>
-              <td>$!item.get("commonName")</td>
-              <td>$!item.get("codeAp")</td>
-              <td>$!item.get("supportGroup")</td>
-              <td>$!item.get("expiryDate")</td>
-              <td><strong>$!item.get("incidentNumber")</strong></td>
-            </tr>
-          #end
-        </tbody>
-      </table>
-    #end
-
-    <!-- ================================================================== -->
-    <!-- Section des Incidents STANDARDS -->
-    <!-- ================================================================== -->
-    #if( $standardSuccessItems && !$standardSuccessItems.isEmpty() )
-      <h2>Incidents STANDARDS Créés ou Mis à Jour ($standardSuccessItems.size())</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>Action</th>
-            <th>Common Name</th>
-            <th>Code AP</th>
-            <th>Groupe Support</th>
-            <th>Expiration</th>
-            <th>N° Incident</th>
-          </tr>
-        </thead>
-        <tbody>
-          #foreach( $item in $standardSuccessItems )
-            <tr>
-              <td>$!item.get("actionMessage")</td>
-              <td>$!item.get("commonName")</td>
-              <td>$!item.get("codeAp")</td>
-              <td>$!item.get("supportGroup")</td>
-              <td>$!item.get("expiryDate")</td>
-              <td><strong>$!item.get("incidentNumber")</strong></td>
-            </tr>
-          #end
-        </tbody>
-      </table>
-    #end
-    
-    <!-- S'il n'y a eu aucun succès, on affiche un message -->
-    #if( $urgentSuccessItems.isEmpty() && $standardSuccessItems.isEmpty() )
-        <h2>Opérations Réussies</h2>
-        <p>Aucune opération réussie à rapporter.</p>
-    #end
-
-    <!-- ================================================================== -->
-    <!-- Section des Erreurs (inchangée) -->
-    <!-- ================================================================== -->
-    #if( $errorItems && !$errorItems.isEmpty() )
-      <h2 class="error-title">Opérations en Échec ($errorItems.size())</h2>
-      <!-- ... (le tableau des erreurs reste le même) ... -->
-    #end
-
-    <div class="footer">
-      <p>Ceci est un e-mail généré automatiquement.</p>
-    </div>
+<div class="container">
+  
+  <h1>Rapport de Synthèse - Incidents Auto-Enroll</h1>
+  <p><strong>Date d'exécution :</strong> $date.toString()</p>
+  
+  <div class="summary-box">
+    Ce rapport récapitule les actions de création et de mise à jour d'incidents effectuées par la tâche automatisée.
   </div>
+
+  <!-- ================================================================== -->
+  <!-- Section des Incidents URGENTS (Priorité Haute) -->
+  <!-- ================================================================== -->
+  #if( $urgentSuccessItems && !$urgentSuccessItems.isEmpty() )
+    <h2 class="urgent-title">Incidents URGENTS Créés ou Mis à Jour ($urgentSuccessItems.size())</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Action</th>
+          <th>Common Name</th>
+          <th>Code AP</th>
+          <th>Groupe Support</th>
+          <th>Expiration</th>
+          <th>N° Incident</th>
+        </tr>
+      </thead>
+      <tbody>
+        #foreach( $item in $urgentSuccessItems )
+          <tr>
+            <td>$!item.get("actionMessage")</td>
+            <td>$!item.get("commonName")</td>
+            <td>$!item.get("codeAp")</td>
+            <td>$!item.get("supportGroup")</td>
+            <td>$!item.get("expiryDate")</td>
+            <td><strong>$!item.get("incidentNumber")</strong></td>
+          </tr>
+        #end
+      </tbody>
+    </table>
+  #end
+
+  <!-- ================================================================== -->
+  <!-- Section des Incidents STANDARDS (Priorité Normale) -->
+  <!-- ================================================================== -->
+  #if( $standardSuccessItems && !$standardSuccessItems.isEmpty() )
+    <h2>Incidents STANDARDS Créés ou Mis à Jour ($standardSuccessItems.size())</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Action</th>
+          <th>Common Name</th>
+          <th>Code AP</th>
+          <th>Groupe Support</th>
+          <th>Expiration</th>
+          <th>N° Incident</th>
+        </tr>
+      </thead>
+      <tbody>
+        #foreach( $item in $standardSuccessItems )
+          <tr>
+            <td>$!item.get("actionMessage")</td>
+            <td>$!item.get("commonName")</td>
+            <td>$!item.get("codeAp")</td>
+            <td>$!item.get("supportGroup")</td>
+            <td>$!item.get("expiryDate")</td>
+            <td><strong>$!item.get("incidentNumber")</strong></td>
+          </tr>
+        #end
+      </tbody>
+    </table>
+  #end
+  
+  #if( $urgentSuccessItems.isEmpty() && $standardSuccessItems.isEmpty() )
+      <h2>Opérations Réussies</h2>
+      <p>Aucune opération de création ou de mise à jour réussie à rapporter.</p>
+  #end
+
+  <!-- ================================================================== -->
+  <!-- Section des Erreurs d'Action -->
+  <!-- ================================================================== -->
+  #if( $errorItems && !$errorItems.isEmpty() )
+    <h2 class="error-title">Opérations en Échec ($errorItems.size())</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Action Tentée</th>
+          <th>Common Name</th>
+          <th>Code AP</th>
+          <th>Groupe Support</th>
+          <th>Expiration</th>
+          <th>Priorité Tentée</th>
+          <th style="width: 30%;">Message d'Erreur</th>
+        </tr>
+      </thead>
+      <tbody>
+        #foreach( $item in $errorItems )
+          <tr>
+            <td>$!item.get("actionMessage")</td>
+            <td>$!item.get("commonName")</td>
+            <td>$!item.get("codeAp")</td>
+            <td>$!item.get("supportGroup")</td>
+            <td>$!item.get("expiryDate")</td>
+            <td>$!item.get("priority")</td>
+            <td>$!item.get("errorMessage")</td>
+          </tr>
+        #end
+      </tbody>
+    </table>
+  #end
+
+  <div class="footer">
+    <p>Ceci est un e-mail généré automatiquement.</p>
+  </div>
+</div>
+</body>
+</html>
+Use code with caution.
+Html
+2. Template pour l'Alerte des Certificats sans codeAp (report-no-codeap.vm)
+Objectif : Alerter sur un problème de données nécessitant une action manuelle.
+Utilisé par : sendAutoEnrollCertificateNoCodeApReport()
+Generated html
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>ALERTE : Action Manuelle Requise</title>
+  <style>
+    body { font-family: Arial, sans-serif; font-size: 14px; color: #333; }
+    .container { max-width: 900px; margin: 20px auto; padding: 20px; border: 2px solid #D8000C; border-radius: 5px; }
+    h1 { color: #D8000C; } /* Rouge pour attirer l'attention */
+    p { line-height: 1.6; }
+    table { border-collapse: collapse; width: 100%; margin-top: 20px; font-size: 12px; }
+    th, td { border: 1px solid #cccccc; text-align: left; padding: 10px; }
+    th { background-color: #FFBABA; font-weight: bold; } /* Fond rouge clair pour l'en-tête */
+    .footer { margin-top: 30px; font-size: 12px; color: #888; text-align: center; }
+    .action-box { background-color: #FEF9E7; border: 1px solid #F7DC6F; padding: 15px; margin-top: 20px; border-radius: 5px; }
+  </style>
+</head>
+<body>
+<div class="container">
+  
+  <h1>ALERTE : Action Manuelle Requise</h1>
+  <p><strong>Date de l'alerte :</strong> $!date.toString()</p>
+
+  <div class="action-box">
+    <p>
+      La tâche automatisée n'a pas pu traiter les <strong>$certsWithoutCodeAp.size() certificat(s)</strong> listés ci-dessous.
+    </p>
+    <p>
+      <strong>Raison :</strong> Leur <strong>code applicatif (codeAp) est invalide</strong>, ou <strong>aucun propriétaire/contact technique</strong> n'a pu être trouvé dans les référentiels.
+    </p>
+    <p>
+      <strong>Action requise :</strong> Veuillez corriger les informations pour ces certificats afin que les futurs incidents puissent être créés et assignés correctement.
+    </p>
+  </div>
+
+  #if( $certsWithoutCodeAp && !$certsWithoutCodeAp.isEmpty() )
+    <table>
+      <thead>
+        <tr>
+          <th>Common Name (CN)</th>
+          <th>AutomationHub ID</th>
+          <th>Code AP (tel que trouvé)</th>
+          <th>Date d'Expiration</th>
+        </tr>
+      </thead>
+      <tbody>
+        #foreach( $cert in $certsWithoutCodeAp )
+          <tr>
+            <td><strong>$!cert.getCommonName()</strong></td>
+            <td>$!cert.getAutomationHubId()</td>
+            #set( $codeApLabel = "Non trouvé" )
+            #if( $cert.getLabels() )
+              #foreach( $label in $cert.getLabels() )
+                #if( $label.getKey().equalsIgnoreCase("APCode") )
+                  #set( $codeApLabel = $label.getValue() )
+                #end
+              #end
+            #end
+            <td>$!codeApLabel</td>
+            <td>$!cert.getExpiryDate().toString()</td>
+          </tr>
+        #end
+      </tbody>
+    </table>
+  #end
+
+  <div class="footer">
+    <p>Ceci est un e-mail généré automatiquement.</p>
+  </div>
+</div>
 </body>
 </html>
