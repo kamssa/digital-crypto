@@ -825,3 +825,58 @@ class IncidentAutoEnrollTaskTest {
         return new OwnerAndReferenceRefiResult(new CertificateOwnerDTO(), new ReferenceRefiDto());
     }
 }
+//////////////////////////// verouillge pour le test /////////////////////////
+@Test
+@DisplayName("Doit enregistrer une erreur de validation si le propriétaire du certificat n'est pas trouvé")
+void processExpireCertificates_shouldRecordValidationError_whenOwnerIsNotFound() {
+    // --- Arrange : On définit le comportement ATTENDU ---
+
+    // 1. On crée notre certificat de test.
+    AutomationHubCertificateLightDto cert = createTestCertificate("cert-123");
+    
+    // 2. On dit au mock de retourner ce certificat.
+    when(automationHubService.searchAutoEnrollExpiring(anyInt())).thenReturn(Arrays.asList(cert));
+
+    // 3. On simule l'échec de la recherche de propriétaire. C'est le cœur du scénario.
+    // On doit s'assurer que le deuxième argument est bien matché.
+    // Si getLabelByKey retourne une String, on utilise anyString().
+    // Si getLabelByKey peut retourner null, on utilise any() pour être sûr.
+    when(certificateOwnerService.findBestAvailableCertificateOwner(any(AutomationHubCertificateLightDto.class), any()))
+        .thenReturn(null);
+        
+    // --- NOUVEAU : On VERROUILLE les autres mocks ---
+    // On s'assure qu'AUCUN appel inattendu n'est fait aux autres services.
+    // Cela nous aidera à détecter immédiatement si le flux dévie.
+    verify(itsmTaskService, never()).findByAutomationHubIdAndStatusAndTypeAndCreationDate(any(), any(), any(), any());
+    verify(snowService, never()).getIncidentBySysId(anyString());
+
+
+    // --- Act ---
+    // On exécute la méthode à tester.
+    incidentAutoEnrollTask.processExpireCertificates();
+
+
+    // --- Assert ---
+    // On vérifie que le bon rapport a été envoyé, et UN SEUL.
+    ArgumentCaptor<Map<String, Object>> dataCaptor = ArgumentCaptor.forClass(Map.class);
+    ArgumentCaptor<String> subjectCaptor = ArgumentCaptor.forClass(String.class);
+
+    // On s'attend à UN SEUL appel.
+    verify(sendMailUtils, times(1)).sendEmail(
+        anyString(),
+        dataCaptor.capture(),
+        anyList(),
+        subjectCaptor.capture()
+    );
+
+    // On vérifie que c'est bien l'email d'alerte.
+    assertThat(subjectCaptor.getValue()).contains("Action Manuelle Requise");
+    
+    // On vérifie le contenu de cet e-mail.
+    Map<String, Object> reportData = dataCaptor.getValue();
+    List<AutomationHubCertificateLightDto> certsInError = (List<AutomationHubCertificateLightDto>) reportData.get("certsWithoutCodeAp");
+    
+    assertThat(certsInError).isNotNull();
+    assertThat(certsInError).hasSize(1);
+    assertThat(certsInError.get(0).getAutomationHubId()).isEqualTo("cert-123");
+}
