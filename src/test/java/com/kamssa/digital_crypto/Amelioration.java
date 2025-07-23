@@ -552,3 +552,58 @@ Generated html
 </div>
 </body>
 </html>
+/////////////////////////////////////////////////////////////////
+## =====================================================================
+## TEMPLATE POUR LA DESCRIPTION D'UN INCIDENT AUTO-ENROLL
+## Ce contenu sera visible dans le champ "Description" de l'incident ITSM.
+## =====================================================================
+
+## --- SECTION 1 : Contexte de la création de l'incident ---
+## Affiche un message spécifique si cet incident est une recréation.
+#if( $relatedIncNumber && !$relatedIncNumber.isEmpty() )
+This incident has been automatically created because the previous incident ($relatedIncNumber) was closed, but the certificate has not been renewed yet.
+#end
+
+## --- SECTION 2 : Résumé des Informations Clés ---
+## Un résumé clair et structuré des informations essentielles.
+A certificate requiring your attention is about to expire. Please take the necessary action to renew it.
+
+CERTIFICATE DETAILS:
+--------------------
+- Common Name (CN): $!cn
+- Application Code (codeAp): $!appCode
+- Expiration Date: $!expiryDate
+- Assigned Support Group: $!supportGroup
+
+TECHNICAL DETAILS:
+------------------
+- AutomationHub ID: $!automationHubId
+- Initial Priority: $!priority
+
+## --- SECTION 3 : Instructions Claires pour l'Action ---
+## Explique pas à pas ce que l'utilisateur doit faire.
+
+ACTION REQUIRED:
+
+OPTION 1: To renew the certificate, please follow the steps below:
+------------------------------------------------------------------
+  a. Go to the website: https://certis.group.echonet
+  b. Go into « My requests ».
+  c. Click the button « Renew » on the certificate to start a renewal request.
+  d. Verify/modify information in your renewal request.
+  e. Download the new certificate through the button « Download ».
+  f. Deploy the new certificate on your server.
+
+OPTION 2: If the certificate does not have to be renewed:
+-----------------------------------------------------------
+  a. Go to the website: https://certis.group.echonet
+  b. Go into « My requests ».
+  c. Click the button « Do not renew » on the certificate.
+  d. You may also request a revocation on the certificate if it's no more used.
+
+## --- SECTION 4 : Avertissement Important ---
+## Informe l'utilisateur sur le comportement futur de l'incident.
+
+WARNING:
+--------
+This incident will be automatically upgraded to a higher priority (P2) if it is not resolved 3 days prior to the certificate's expiry date.
