@@ -1110,11 +1110,18 @@ class IncidentAutoEnrollTaskTest {
     /**
      * Méthode d'aide pour configurer les mocks pour un scénario de création réussie.
      */
-    private void setupMocksForSuccessfulCreation(AutomationHubCertificateLightDto cert, String incidentNumber) {
+  private void setupMocksForSuccessfulCreation(AutomationHubCertificateLightDto cert, String incidentNumber) {
+        // On utilise notre helper pour créer un propriétaire valide
         OwnerAndReferenceRefiResult owner = createTestOwner();
         
+        // On mock les appels de service
         when(automationHubService.searchAutoEnrollExpiring(15)).thenReturn(Arrays.asList(cert));
-        when(certificateOwnerService.findBestAvailableCertificateOwner(any(), any())).thenReturn(owner);
+        
+        // On s'assure que la recherche de propriétaire réussit en retournant l'objet 'owner'
+        // Le getLabelByKey du code de prod va extraire "TEST_CODE_AP" du certificat de test
+        when(certificateOwnerService.findBestAvailableCertificateOwner(eq(cert), eq("TEST_CODE_AP")))
+            .thenReturn(owner);
+        
         when(itsmTaskService.findByAutomationHubIdAndStatusAndTypeAndCreationDate(any(), any(), any(), any()))
             .thenReturn(Collections.emptyList());
         
@@ -1166,13 +1173,43 @@ class IncidentAutoEnrollTaskTest {
     }
 
     private AutomationHubCertificateLightDto createTestCertificate(String id, int daysUntilExpiry) {
-        // ... (implémentation de la création du DTO de test)
-        return new AutomationHubCertificateLightDto();
+        AutomationHubCertificateLightDto cert = new AutomationHubCertificateLightDto();
+        
+        cert.setAutomationHubId(id);
+        cert.setCommonName("test." + id + ".com");
+
+        // Calcul dynamique de la date d'expiration
+        // On a besoin d'une dépendance comme commons-lang3 pour DateUtils, 
+        // ou on peut utiliser l'API java.time
+        Date expiryDate = Date.from(Instant.now().plus(daysUntilExpiry, ChronoUnit.DAYS));
+        cert.setExpiryDate(expiryDate);
+
+        // On simule aussi la présence des labels nécessaires
+        List<CertificateLabelDto> labels = new ArrayList<>();
+        labels.add(new CertificateLabelDto("ENVIRONNEMENT", "PROD"));
+        labels.add(new CertificateLabelDto("APCode", "TEST_CODE_AP"));
+        cert.setLabels(labels);
+
+        return cert;
     }
 
-    private OwnerAndReferenceRefiResult createTestOwner() {
-        // ... (implémentation de la création du DTO de test)
-        return new OwnerAndReferenceRefiResult(new CertificateOwnerDTO(), new ReferenceRefiDto());
+   private OwnerAndReferenceRefiResult createTestOwner() {
+        // On crée un DTO pour le propriétaire avec un AUID valide
+        CertificateOwnerDTO ownerDTO = new CertificateOwnerDTO();
+        ownerDTO.setAuid("APP12345");
+        ownerDTO.setHost("hostname.example.com");
+
+        // On crée un DTO pour le groupe de support
+        GroupSupportDto groupSupport = new GroupSupportDto();
+        groupSupport.setName("TEST_SUPPORT_GROUP");
+
+        // On crée un DTO pour les informations de référence
+        ReferenceRefiDto refiDto = new ReferenceRefiDto();
+        refiDto.setCodeAp("TEST_CODE_AP");
+        refiDto.setGroupSupportDto(groupSupport);
+        
+        // On retourne l'objet de résultat complet
+        return new OwnerAndReferenceRefiResult(ownerDTO, refiDto);
     }
 }
 Use code with caution.
