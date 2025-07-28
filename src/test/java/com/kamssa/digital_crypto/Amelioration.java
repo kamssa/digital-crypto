@@ -1224,3 +1224,47 @@ DRY (Don't Repeat Yourself) : Le code de test n'est pas dupliqué.
 Lisibilité : Les méthodes de test (@Test) deviennent très courtes et lisibles. On voit immédiatement leur intention : "préparer le scénario X, exécuter, puis vérifier le résultat Y".
 Maintenabilité : Si demain vous devez changer un détail dans les assertions (par exemple, vérifier un champ de plus dans le rapport), vous n'avez qu'à le modifier dans la méthode assert..., et la correction s'appliquera à tous les tests qui l'utilisent.
 Cette classe de test est maintenant complète, robuste et très facile à lire et à maintenir. Elle valide de manière fiable les règles métier que vous avez spécifiées.
+////////////////////////////////////////////////////////////////////////////////////////////////////
+private void setupMocksForSuccessfulCreation(AutomationHubCertificateLightDto cert, String incidentNumber) {
+
+    // --- PRÉPARATION DES DONNÉES DE RETOUR ---
+    OwnerAndReferenceRefiResult owner = createTestOwner();
+    AutoItsmTaskDto createdTask = new AutoItsmTaskDtoImpl();
+    createdTask.setItsmId(incidentNumber);
+
+    // --- CONFIGURATION DES MOCKS ---
+    // Chaque 'when' est une instruction claire et complète.
+
+    // Mock 1 : Le service AutomationHub retourne notre certificat.
+    when(automationHubService.searchAutoEnrollExpiring(anyInt()))
+        .thenReturn(Arrays.asList(cert));
+
+    // Mock 2 : Le service de propriétaire trouve un propriétaire valide.
+    when(certificateOwnerService.findBestAvailableCertificateOwner(any(), any()))
+        .thenReturn(owner);
+
+    // Mock 3 : Le service ITSM, quand on cherche un incident existant, retourne une liste VIDE.
+    // Assurons-nous que la signature est EXACTEMENT la bonne (4 arguments ici).
+    when(itsmTaskService.findByAutomationHubIdAndStatusAndTypeAndCreationDate(
+        anyString(),                // Argument 1: automationHubId (String)
+        any(),                      // Argument 2: status (peut être null)
+        any(InciTypeEnum.class),    // Argument 3: type (InciTypeEnum)
+        any()                       // Argument 4: creationDate (peut être null)
+    )).thenReturn(Collections.emptyList());
+    
+    // Mock 4 (optionnel mais recommandé) : La méthode de sélection, appelée avec une liste vide, retourne null.
+    when(itsmTaskService.getIncNumberByAutoItsmTaskList(Collections.emptyList()))
+        .thenReturn(null);
+
+    // Mock 5 : Le service ITSM, quand on crée un incident, retourne l'objet 'createdTask'.
+    // La signature doit correspondre à celle du 'verify' (probablement 7 arguments).
+    when(itsmTaskService.createIncidentAutoEnroll(
+        any(AutomationHubCertificateLightDto.class),
+        any(ReferenceRefiDto.class),
+        any(Integer.class),
+        anyString(),
+        anyString(),
+        any(InciTypeEnum.class),
+        any(AutoItsmTaskDtoImpl.class)
+    )).thenReturn(createdTask);
+}
