@@ -880,3 +880,120 @@ void processExpireCertificates_shouldRecordValidationError_whenOwnerIsNotFound()
     assertThat(certsInError).hasSize(1);
     assertThat(certsInError.get(0).getAutomationHubId()).isEqualTo("cert-123");
 }
+///////////////////////////////////// incident standard et uregent///////////////////////////////
+@BeforeEach
+void setUp() {
+    // Instanciation de la classe à tester...
+    incidentAutoEnrollTask = new IncidentAutoEnrollTask(...);
+
+    // --- CONFIGURATION ALIGNÉE SUR LES RÈGLES MÉTIER ---
+    
+    // On injecte la fenêtre de traitement principale (pour la recherche)
+    // C'est le début de la période de surveillance.
+    ReflectionTestUtils.setField(incidentAutoEnrollTask, "processingWindowDays", 15);
+
+    // On injecte le seuil où la priorité devient URGENT.
+    ReflectionTestUtils.setField(incidentAutoEnrollTask, "urgentPriorityThresholdDays", 3);
+    
+    ReflectionTestUtils.setField(incidentAutoEnrollTask, "ipkiTeam", "test-team@example.com");
+}
+Use code with caution.
+Java
+Étape 2 : Écrire le Test pour un Incident STANDARD
+Maintenant, nous allons écrire un test pour un cas STANDARD typique. Un bon exemple serait un certificat expirant dans 10 jours. C'est bien dans la fenêtre de 15 jours, mais loin du seuil d'urgence de 3 jours.
+Generated java
+// Dans la classe de test
+
+@Test
+@DisplayName("Doit créer un incident STANDARD pour un certificat expirant dans 10 jours")
+void processExpireCertificates_shouldCreateStandardIncident_whenExpiryIs10DaysAway() {
+    
+    // --- Arrange ---
+
+    // 1. On crée un certificat de test expirant dans 10 jours.
+    // Cela devrait résulter en une priorité STANDARD.
+    AutomationHubCertificateLightDto cert = createTestCertificate("cert-standard-10days", 10);
+    
+    // 2. On simule la recherche et la validation du propriétaire
+    OwnerAndReferenceRefiResult owner = createTestOwner();
+    when(automationHubService.searchAutoEnrollExpiring(15)).thenReturn(Arrays.asList(cert)); // On s'attend à un appel avec 15 jours
+    when(certificateOwnerService.findBestAvailableCertificateOwner(any(), any())).thenReturn(owner);
+        
+    // 3. On simule qu'aucun incident n'existe
+    when(itsmTaskService.findByAutomationHubIdAndStatusAndTypeAndCreationDate(any(), any(), any(), any()))
+        .thenReturn(Collections.emptyList());
+    
+    // 4. On simule la création réussie de l'incident
+    AutoItsmTaskDto createdTask = new AutoItsmTaskDtoImpl();
+    createdTask.setItsmId("INC_STD_123");
+    when(itsmTaskService.createIncidentAutoEnroll(any(), any(), any(), any(), any(), any(), any()))
+        .thenReturn(createdTask);
+
+    // --- Act ---
+    incidentAutoEnrollTask.processExpireCertificates();
+
+    // --- Assert ---
+    // On vérifie que la priorité passée au service de création est bien STANDARD
+    ArgumentCaptor<IncidentPriority> priorityCaptor = ArgumentCaptor.forClass(IncidentPriority.class);
+    verify(itsmTaskService).createIncidentAutoEnroll(any(), any(), priorityCaptor.capture(), any(), any(), any(), any());
+    assertThat(priorityCaptor.getValue()).isEqualTo(IncidentPriority.STANDARD);
+
+    // ... (on peut aussi ajouter les vérifications sur l'e-mail de rapport comme précédemment)
+}
+Use code with caution.
+Java
+Étape 3 : Écrire le Test pour un Incident URGENT
+Pour être complets, nous devons aussi tester l'autre côté de la règle : un certificat expirant dans 3 jours ou moins doit devenir URGENT.
+Generated java
+// Dans la classe de test
+
+@Test
+@DisplayName("Doit créer un incident URGENT pour un certificat expirant dans 2 jours")
+void processExpireCertificates_shouldCreateUrgentIncident_whenExpiryIs2DaysAway() {
+    
+    // --- Arrange ---
+
+    // 1. On crée un certificat de test expirant dans 2 jours.
+    // Cela devrait résulter en une priorité URGENT.
+    AutomationHubCertificateLightDto cert = createTestCertificate("cert-urgent-2days", 2);
+    
+    // 2. On simule la recherche et la validation du propriétaire
+    OwnerAndReferenceRefiResult owner = createTestOwner();
+    when(automationHubService.searchAutoEnrollExpiring(15)).thenReturn(Arrays.asList(cert));
+    when(certificateOwnerService.findBestAvailableCertificateOwner(any(), any())).thenReturn(owner);
+        
+    // 3. On simule qu'aucun incident n'existe
+    when(itsmTaskService.findByAutomationHubIdAndStatusAndTypeAndCreationDate(any(), any(), any(), any()))
+        .thenReturn(Collections.emptyList());
+    
+    // 4. On simule la création réussie de l'incident
+    AutoItsmTaskDto createdTask = new AutoItsmTaskDtoImpl();
+    createdTask.setItsmId("INC_URG_456");
+    when(itsmTaskService.createIncidentAutoEnroll(any(), any(), any(), any(), any(), any(), any()))
+        .thenReturn(createdTask);
+
+    // --- Act ---
+    incidentAutoEnrollTask.processExpireCertificates();
+
+    // --- Assert ---
+    // On vérifie que la priorité passée au service de création est bien URGENT
+    ArgumentCaptor<IncidentPriority> priorityCaptor = ArgumentCaptor.forClass(IncidentPriority.class);
+    verify(itsmTaskService).createIncidentAutoEnroll(any(), any(), priorityCaptor.capture(), any(), any(), any(), any());
+    assertThat(priorityCaptor.getValue()).isEqualTo(IncidentPriority.URGENT);
+
+    // ... (on peut vérifier ici que le rapport contient bien une entrée dans la section URGENT)
+}
+Use code with caution.
+Java
+La Logique de Production Validée
+Ces tests valident que la logique suivante dans votre code de production est correcte :
+Generated java
+// Dans processExpireCertificates()
+// La tâche appelle la recherche avec la fenêtre de 15 jours.
+automationHubService.searchAutoEnrollExpiring(processingWindowDays); // processingWindowDays = 15
+
+// Dans processSingleCertificate()
+// Le seuil d'urgence est de 3 jours.
+boolean isExpiringUrgently = certificate.getExpiryDate().compareTo(DateUtils.addDays(new Date(), urgentPriorityThresholdDays)) <= 0; // urgentPriorityThresholdDays = 3
+
+IncidentPriority priority = isExpiringUrgently ? IncidentPriority.URGENT : IncidentPriority.STANDARD;
