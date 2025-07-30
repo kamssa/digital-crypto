@@ -1589,3 +1589,128 @@ class IncidentAutoEnrollTaskTest {
     // ... (les méthodes d'aide restent les mêmes)
 }
 }
+//////////////////////////////////////
+@Test
+@DisplayName("Doit envoyer les DEUX rapports quand il y a des succès, des erreurs d'action et des erreurs de validation")
+void processExpireCertificates_shouldSendBothReports_whenAllCasesOccur() {
+    
+    // --- Arrange ---
+    // (Cette partie reste exactement la même)
+    AutomationHubCertificateLightDto certSuccess = createTestCertificate("cert-success", 10);
+    AutomationHubCertificateLightDto certActionError = createTestCertificate("cert-action-error", 8);
+    AutomationHubCertificateLightDto certValidationError = createTestCertificate("cert-validation-error", 5);
+
+    OwnerAndReferenceRefiResult validOwner = createTestOwner();
+    
+    when(automationHubService.searchAutoEnrollExpiring(anyInt())).thenReturn(Arrays.asList(
+        certSuccess, certActionError, certValidationError
+    ));
+    
+    when(certificateOwnerService.findBestAvailableCertificateOwner(eq(certSuccess), anyString())).thenReturn(validOwner);
+    when(certificateOwnerService.findBestAvailableCertificateOwner(eq(certActionError), anyString())).thenReturn(validOwner);
+    when(certificateOwnerService.findBestAvailableCertificateOwner(eq(certValidationError), anyString())).thenReturn(null);
+    
+    when(itsmTaskService.findByAutomationhubIdAndTypeAndCreationDate(anyString(), any(), any())).thenReturn(Collections.emptyList());
+    
+    AutoItsmTaskDto createdTask = new AutoItsmTaskDtoImpl();
+    createdTask.setItsmId("INC_SUCCESS_123");
+    when(itsmTaskService.createIncidentAutoEnroll(eq(certSuccess), any(), any(), any(), any(), any(), any())).thenReturn(createdTask);
+    when(itsmTaskService.createIncidentAutoEnroll(eq(certActionError), any(), any(), any(), any(), any(), any()))
+        .thenThrow(new CreateIncidentException("ITSM API is down"));
+
+    // --- Act ---
+    incidentAutoEnrollTask.processExpireCertificates();
+
+    // --- Assert ---
+
+    verify(sendMailUtils, times(2)).sendEmail(anyString(), dataCaptor.capture(), anyList(), subjectCaptor.capture());
+
+    List<Map<String, Object>> allReportData = dataCaptor.getAllValues();
+    List<String> allSubjects = subjectCaptor.getAllValues();
+
+    Map<String, Object> summaryReportData = null;
+    Map<String, Object> alertReportData = null;
+    
+    for (int i = 0; i < allSubjects.size(); i++) {
+        if (allSubjects.get(i).contains("Rapport de Synthèse")) {
+            summaryReportData = allReportData.get(i);
+        } else if (allSubjects.get(i).contains("Action Manuelle Requise")) {
+            alertReportData = allReportData.get(i);
+        }
+    }
+
+    // --- Le code Java ci-dessus est déjà compatible Java 8 ---
+    // Il n'y a pas de changement à faire dans ce test précis, car il n'utilise pas .toList().
+    // Mais dans le test précédent, il fallait bien le changer.
+
+    assertThat(summaryReportData).isNotNull();
+    List<Map<String, Object>> successItems = (List<Map<String, Object>>) summaryReportData.get("standardSuccessItems");
+    assertThat(successItems).hasSize(1);
+    assertThat(successItems.get(0).get("automationHubId")).isEqualTo("cert-success");
+
+    List<Map<String, Object>> errorItems = (List<Map<String, Object>>) summaryReportData.get("errorItems");
+    assertThat(errorItems).hasSize(1);
+    assertThat(errorItems.get(0).get("automationHubId")).isEqualTo("cert-action-error");
+    
+    assertThat(alertReportData).isNotNull();
+    List<AutomationHubCertificateLightDto> validationErrors = (List<AutomationHubCertificateLightDto>) alertReportData.get("certsWithoutCodeAp");
+    assertThat(validationErrors).hasSize(1);
+    assertThat(validationErrors.get(0).getAutomationHubId()).isEqualTo("cert-validation-error");
+}
+////////////////////////////////////////////
+// Dans la méthode sendFinalReport
+
+private void sendFinalReport(ProcessingContext<AutomationHubCertificateLightDto> context) {
+    
+    // Condition de garde
+    if (!context.hasItemsForFinalReport()) {
+        LOGGER.info("Rapport de synthèse non envoyé : aucune action de création ou d'erreur à signaler.");
+        return;
+    }
+
+    // Préparation des destinataires
+    List<String> toList = new ArrayList<>();
+    toList.add(ipkiTeam);
+    
+    // Préparation des données pour le template
+    Map<String, Object> data = new HashMap<>();
+    
+    List<Map<String, Object>> allSuccesses = context.getSuccessReportItems();
+
+    // Séparation des succès pour un affichage clair (compatible Java 8)
+    List<Map<String, Object>> urgentSuccesses = allSuccesses.stream()
+        .filter(item -> "URGENT".equals(item.get("priority")))
+        .collect(Collectors.toList());
+
+    List<Map<String, Object>> standardSuccesses = allSuccesses.stream()
+        .filter(item -> "STANDARD".equals(item.get("priority")))
+        .collect(Collectors.toList());
+
+    data.put("urgentSuccessItems", urgentSuccesses);
+    data.put("standardSuccessItems", standardSuccesses);
+    data.put("errorItems", context.getErrorReportItems());
+    data.put("date", new Date());
+
+    // --- BLOC TRY-CATCH POUR L'ENVOI DE L'E-MAIL ---
+    try {
+        // 1. On définit les paramètres de l'e-mail
+        String templatePath = "template/report-incident-summary.vm";
+        String subject = "Rapport de Synthèse - Incidents Auto-Enroll";
+
+        // 2. On appelle le service d'envoi d'e-mails
+        sendMailUtils.sendEmail(templatePath, data, toList, subject);
+        
+        // 3. Si l'envoi réussit, on le confirme dans les logs
+        LOGGER.info("Rapport de synthèse envoyé avec succès à {}. (Succès: {}, Erreurs: {})", 
+            toList, 
+            context.getSuccessCounter().get(), 
+            context.getErrorCounter().get());
+            
+    } catch (Exception e) {
+        // 4. Si une exception se produit pendant l'envoi, on l'attrape.
+        // On logue une erreur détaillée mais on NE RELANCE PAS l'exception.
+        // Cela permet à la tâche principale de se terminer normalement.
+        LOGGER.error("Échec critique de l'envoi de l'e-mail de synthèse.", e);
+    }
+    // ------------------------------------------------
+}
