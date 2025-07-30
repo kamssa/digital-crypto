@@ -1268,3 +1268,324 @@ private void setupMocksForSuccessfulCreation(AutomationHubCertificateLightDto ce
         any(AutoItsmTaskDtoImpl.class)
     )).thenReturn(createdTask);
 }
+///////////// test complet repris//////////////////////////////////////
+import com.bnpparibas.certis.api.enums.IncidentPriority;
+import com.bnpparibas.certis.api.enums.SnowIncStateEnum;
+import com.bnpparibas.certis.api.utils.ProcessingContext;
+import com.bnpparibas.certis.automationhub.dto.AutomationHubCertificateLightDto;
+import com.bnpparibas.certis.automationhub.dto.CertificateLabelDto;
+import com.bnpparibas.certis.itsm.dto.AutoItsmTaskDto;
+import com.bnpparibas.certis.itsm.dto.AutoItsmTaskDtoImpl;
+import com.bnpparibas.certis.referential.dto.GroupSupportDto;
+import com.bnpparibas.certis.referential.dto.OwnerAndReferenceRefiResult;
+import com.bnpparibas.certis.referential.dto.ReferenceRefiDto;
+import com.bnpparibas.certis.snow.dto.SnowIncidentReadResponseDto;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Captor;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
+
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Date;
+import java.util.List;
+import java.util.Map;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
+
+@ExtendWith(MockitoExtension.class)
+@DisplayName("Tests unitaires pour la tâche IncidentAutoEnrollTask")
+class IncidentAutoEnrollTaskTest {
+
+    // --- Mocks ---
+    @Mock private ItsmTaskService itsmTaskService;
+    @Mock private CertificateOwnerService certificateOwnerService;
+    @Mock private AutomationHubService automationHubService;
+    @Mock private SnowService snowService;
+    @Mock private SendMailUtils sendMailUtils;
+
+    // --- Captureurs ---
+    @Captor private ArgumentCaptor<Integer> priorityValueCaptor;
+    @Captor private ArgumentCaptor<Map<String, Object>> dataCaptor;
+    @Captor private ArgumentCaptor<String> subjectCaptor;
+
+    // --- Instance à tester ---
+    private IncidentAutoEnrollTask incidentAutoEnrollTask;
+
+    @BeforeEach
+    void setUp() {
+        incidentAutoEnrollTask = new IncidentAutoEnrollTask(
+            itsmTaskService, certificateOwnerService, automationHubService, 
+            snowService, sendMailUtils
+        );
+        
+        ReflectionTestUtils.setField(incidentAutoEnrollTask, "processingWindowDays", 15);
+        ReflectionTestUtils.setField(incidentAutoEnrollTask, "urgentPriorityThresholdDays", 3);
+        ReflectionTestUtils.setField(incidentAutoEnrollTask, "ipkiTeam", "test-team@example.com");
+    }
+
+    // ========================================================================
+    // --- Scénarios de Test ---
+    // ========================================================================
+
+    @Test
+    @DisplayName("Doit créer un incident STANDARD pour un certificat expirant dans 10 jours")
+    void processExpireCertificates_shouldCreateStandardIncident_whenExpiryIs10DaysAway() {
+        // Arrange
+        String certId = "cert-std-10days";
+        String incidentNumber = "INC_STD_123";
+        AutomationHubCertificateLightDto cert = createTestCertificate(certId, 10);
+        setupMocksForSuccessfulCreation(cert, incidentNumber);
+
+        // Act
+        incidentAutoEnrollTask.processExpireCertificates();
+
+        // Assert
+        assertIncidentCreationAndReport(IncidentPriority.STANDARD, "standardSuccessItems", certId, incidentNumber);
+    }
+    
+    @Test
+    @DisplayName("Doit créer un incident URGENT pour un certificat expirant dans 3 jours")
+    void processExpireCertificates_shouldCreateUrgentIncident_whenExpiryIs3DaysAway() {
+        // Arrange
+        String certId = "cert-urg-3days";
+        String incidentNumber = "INC_URG_456";
+        AutomationHubCertificateLightDto cert = createTestCertificate(certId, 3);
+        setupMocksForSuccessfulCreation(cert, incidentNumber);
+
+        // Act
+        incidentAutoEnrollTask.processExpireCertificates();
+
+        // Assert
+        assertIncidentCreationAndReport(IncidentPriority.URGENT, "urgentSuccessItems", certId, incidentNumber);
+    }
+    
+    @Test
+    @DisplayName("Doit mettre à jour un incident existant si sa priorité est trop basse")
+    void processExpireCertificates_shouldUpdateIncident_whenPriorityIsTooLow() {
+        // Arrange
+        AutomationHubCertificateLightDto cert = createTestCertificate("cert-update-789", 2);
+        OwnerAndReferenceRefiResult owner = createTestOwner();
+        
+        AutoItsmTaskDtoImpl existingTaskInDb = new AutoItsmTaskDtoImpl();
+        existingTaskInDb.setItsmId("SYS_ID_123");
+        
+        SnowIncidentReadResponseDto openLowPriorityIncident = new SnowIncidentReadResponseDto();
+        openLowPriorityIncident.setState(String.valueOf(SnowIncStateEnum.IN_PROGRESS.getValue()));
+        openLowPriorityIncident.setPriority(String.valueOf(IncidentPriority.STANDARD.getValue()));
+
+        when(automationHubService.searchAutoEnrollExpiring(anyInt())).thenReturn(Arrays.asList(cert));
+        when(certificateOwnerService.findBestAvailableCertificateOwner(any(), anyString())).thenReturn(owner);
+        when(itsmTaskService.findByAutomationhubIdAndTypeAndCreationDate(anyString(), any(InciTypeEnum.class), any(Date.class)))
+            .thenReturn(Arrays.asList(existingTaskInDb));
+        when(itsmTaskService.getIncNumberByAutoItsmTaskList(anyList())).thenReturn(existingTaskInDb);
+        when(snowService.getIncidentBySysId(eq("SYS_ID_123"))).thenReturn(openLowPriorityIncident);
+
+        // Act
+        incidentAutoEnrollTask.processExpireCertificates();
+
+        // Assert
+        verify(itsmTaskService, times(1)).upgradeIncidentAutoEnroll(priorityValueCaptor.capture(), any(AutoItsmTaskDtoImpl.class));
+        assertThat(priorityValueCaptor.getValue()).isEqualTo(IncidentPriority.URGENT.getValue());
+        verify(itsmTaskService, never()).createIncidentAutoEnroll(any(), any(), any(), any(), any(), any(), any());
+    }
+    
+    @Test
+    @DisplayName("Doit RECRÉER un incident si l'incident précédent est résolu")
+    void processExpireCertificates_shouldRecreateIncident_whenPreviousIncidentIsResolved() {
+        // Arrange
+        String certId = "cert-recreate-123";
+        String newIncidentNumber = "INC_NEW_789";
+        AutomationHubCertificateLightDto cert = createTestCertificate(certId, 2);
+        OwnerAndReferenceRefiResult owner = createTestOwner();
+        
+        AutoItsmTaskDtoImpl previousResolvedTask = new AutoItsmTaskDtoImpl();
+        previousResolvedTask.setItsmId("SYS_ID_OLD_456");
+        
+        SnowIncidentReadResponseDto resolvedIncident = new SnowIncidentReadResponseDto();
+        resolvedIncident.setState(String.valueOf(SnowIncStateEnum.RESOLVED.getValue()));
+        
+        when(automationHubService.searchAutoEnrollExpiring(anyInt())).thenReturn(Arrays.asList(cert));
+        when(certificateOwnerService.findBestAvailableCertificateOwner(any(), anyString())).thenReturn(owner);
+        when(itsmTaskService.findByAutomationhubIdAndTypeAndCreationDate(anyString(), any(InciTypeEnum.class), any(Date.class)))
+            .thenReturn(Arrays.asList(previousResolvedTask));
+        when(itsmTaskService.getIncNumberByAutoItsmTaskList(anyList())).thenReturn(previousResolvedTask);
+        when(snowService.getIncidentBySysId(eq("SYS_ID_OLD_456"))).thenReturn(resolvedIncident);
+        
+        AutoItsmTaskDto createdTask = new AutoItsmTaskDtoImpl();
+        createdTask.setItsmId(newIncidentNumber);
+        when(itsmTaskService.createIncidentAutoEnroll(any(), any(), any(), any(), any(), any(), any())).thenReturn(createdTask);
+
+        // Act
+        incidentAutoEnrollTask.processExpireCertificates();
+
+        // Assert
+        verify(itsmTaskService, times(1)).createIncidentAutoEnroll(any(), any(), any(), any(), any(), any(), any());
+        verify(itsmTaskService, never()).upgradeIncidentAutoEnroll(any(), any());
+    }
+
+    // ========================================================================
+    // --- Méthodes d'aide (Helpers) ---
+    // ========================================================================
+
+    private void setupMocksForSuccessfulCreation(AutomationHubCertificateLightDto cert, String incidentNumber) {
+        OwnerAndReferenceRefiResult owner = createTestOwner();
+        AutoItsmTaskDto createdTask = new AutoItsmTaskDtoImpl();
+        createdTask.setItsmId(incidentNumber);
+
+        when(automationHubService.searchAutoEnrollExpiring(anyInt())).thenReturn(Arrays.asList(cert));
+        when(certificateOwnerService.findBestAvailableCertificateOwner(any(), anyString())).thenReturn(owner);
+        when(itsmTaskService.findByAutomationhubIdAndTypeAndCreationDate(anyString(), any(InciTypeEnum.class), any(Date.class)))
+            .thenReturn(Collections.emptyList());
+        when(itsmTaskService.getIncNumberByAutoItsmTaskList(anyList())).thenReturn(null);
+        when(itsmTaskService.createIncidentAutoEnroll(any(), any(), any(), any(), any(), any(), any())).thenReturn(createdTask);
+    }
+
+    private void assertIncidentCreationAndReport(IncidentPriority expectedPriority, String reportSectionKey, String expectedCertId, String expectedIncidentNumber) {
+        verify(itsmTaskService).createIncidentAutoEnroll(any(), any(), priorityValueCaptor.capture(), any(), any(), any(), any());
+        assertThat(priorityValueCaptor.getValue()).isEqualTo(expectedPriority.getValue());
+
+        verify(sendMailUtils, times(1)).sendEmail(anyString(), dataCaptor.capture(), anyList(), subjectCaptor.capture());
+        assertThat(subjectCaptor.getValue()).contains("Rapport de Synthèse");
+            
+        Map<String, Object> reportData = dataCaptor.getValue();
+        List<Map<String, Object>> successSection = (List<Map<String, Object>>) reportData.get(reportSectionKey);
+        assertThat(successSection).isNotNull().hasSize(1);
+        
+        Map<String, Object> successItem = successSection.get(0);
+        assertThat(successItem.get("automationHubId")).isEqualTo(expectedCertId);
+        assertThat(successItem.get("incidentNumber")).isEqualTo(expectedIncidentNumber);
+        assertThat(successItem.get("priority")).isEqualTo(expectedPriority.name());
+
+        String otherSectionKey = reportSectionKey.equals("standardSuccessItems") ? "urgentSuccessItems" : "standardSuccessItems";
+        List<Map<String, Object>> otherSuccessSection = (List<Map<String, Object>>) reportData.get(otherSectionKey);
+        assertThat(otherSuccessSection).isNotNull().isEmpty();
+    }
+
+    private AutomationHubCertificateLightDto createTestCertificate(String id, int daysUntilExpiry) {
+        AutomationHubCertificateLightDto cert = new AutomationHubCertificateLightDto();
+        cert.setAutomationHubId(id);
+        cert.setCommonName("test." + id + ".com");
+        cert.setExpiryDate(Date.from(Instant.now().plus(daysUntilExpiry, ChronoUnit.DAYS)));
+        
+        List<CertificateLabelDto> labels = new ArrayList<>();
+        CertificateLabelDto envLabel = new CertificateLabelDto();
+        envLabel.setKey("ENVIRONNEMENT");
+        envLabel.setValue("PROD");
+        labels.add(envLabel);
+        
+        CertificateLabelDto codeApLabel = new CertificateLabelDto();
+        codeApLabel.setKey("APCode");
+        codeApLabel.setValue("TEST_CODE_AP");
+        labels.add(codeApLabel);
+        
+        cert.setLabels(labels);
+        return cert;
+    }
+
+    private OwnerAndReferenceRefiResult createTestOwner() {
+        CertificateOwnerDTO ownerDTO = new CertificateOwnerDTO();
+        ownerDTO.setAuid("APP12345");
+        ReferenceRefiDto refiDto = new ReferenceRefiDto();
+        refiDto.setGroupSupportDto(new GroupSupportDto());
+        return new OwnerAndReferenceRefiResult(ownerDTO, refiDto);
+    }
+	@Test
+    @DisplayName("Doit envoyer les DEUX rapports quand il y a des succès, des erreurs d'action et des erreurs de validation")
+    void processExpireCertificates_shouldSendBothReports_whenAllCasesOccur() {
+        
+        // --- Arrange ---
+
+        // 1. On prépare 3 certificats pour 3 scénarios différents
+        AutomationHubCertificateLightDto certSuccess = createTestCertificate("cert-success", 10); // Va réussir
+        AutomationHubCertificateLightDto certActionError = createTestCertificate("cert-action-error", 8); // Va échouer à la création
+        AutomationHubCertificateLightDto certValidationError = createTestCertificate("cert-validation-error", 5); // N'a pas de propriétaire
+
+        // 2. On configure les mocks pour chaque cas
+        OwnerAndReferenceRefiResult validOwner = createTestOwner();
+        
+        // La recherche initiale retourne nos 3 certificats
+        when(automationHubService.searchAutoEnrollExpiring(anyInt())).thenReturn(Arrays.asList(
+            certSuccess, certActionError, certValidationError
+        ));
+        
+        // Comportement de la recherche de propriétaire
+        when(certificateOwnerService.findBestAvailableCertificateOwner(eq(certSuccess), anyString())).thenReturn(validOwner);
+        when(certificateOwnerService.findBestAvailableCertificateOwner(eq(certActionError), anyString())).thenReturn(validOwner);
+        when(certificateOwnerService.findBestAvailableCertificateOwner(eq(certValidationError), anyString())).thenReturn(null); // Échec pour celui-ci
+        
+        // Comportement de la recherche d'incident existant (aucun n'existe)
+        when(itsmTaskService.findByAutomationhubIdAndTypeAndCreationDate(anyString(), any(), any())).thenReturn(Collections.emptyList());
+        
+        // Comportement de la création d'incident
+        // a) Réussite pour le certificat 'certSuccess'
+        AutoItsmTaskDto createdTask = new AutoItsmTaskDtoImpl();
+        createdTask.setItsmId("INC_SUCCESS_123");
+        when(itsmTaskService.createIncidentAutoEnroll(eq(certSuccess), any(), any(), any(), any(), any(), any())).thenReturn(createdTask);
+        // b) Échec pour le certificat 'certActionError'
+        when(itsmTaskService.createIncidentAutoEnroll(eq(certActionError), any(), any(), any(), any(), any(), any()))
+            .thenThrow(new CreateIncidentException("ITSM API is down"));
+
+        // --- Act ---
+        
+        incidentAutoEnrollTask.processExpireCertificates();
+
+        // --- Assert ---
+
+        // VÉRIFICATION 1 : On s'attend à DEUX appels d'envoi d'e-mail
+        verify(sendMailUtils, times(2)).sendEmail(anyString(), dataCaptor.capture(), anyList(), subjectCaptor.capture());
+
+        // VÉRIFICATION 2 : On analyse les deux e-mails envoyés
+        
+        // On récupère toutes les données et sujets capturés
+        List<Map<String, Object>> allReportData = dataCaptor.getAllValues();
+        List<String> allSubjects = subjectCaptor.getAllValues();
+
+        // On identifie le rapport de synthèse et le rapport d'alerte
+        Map<String, Object> summaryReportData = null;
+        Map<String, Object> alertReportData = null;
+        
+        for (int i = 0; i < allSubjects.size(); i++) {
+            if (allSubjects.get(i).contains("Rapport de Synthèse")) {
+                summaryReportData = allReportData.get(i);
+            } else if (allSubjects.get(i).contains("Action Manuelle Requise")) {
+                alertReportData = allReportData.get(i);
+            }
+        }
+
+        // VÉRIFICATION 3 : On valide le contenu du RAPPORT DE SYNTHÈSE
+        assertThat(summaryReportData).isNotNull();
+        // a) Section Succès
+        List<Map<String, Object>> successItems = (List<Map<String, Object>>) summaryReportData.get("standardSuccessItems");
+        assertThat(successItems).hasSize(1);
+        assertThat(successItems.get(0).get("automationHubId")).isEqualTo("cert-success");
+        // b) Section Erreurs
+        List<Map<String, Object>> errorItems = (List<Map<String, Object>>) summaryReportData.get("errorItems");
+        assertThat(errorItems).hasSize(1);
+        assertThat(errorItems.get(0).get("automationHubId")).isEqualTo("cert-action-error");
+        
+        // VÉRIFICATION 4 : On valide le contenu du RAPPORT D'ALERTE
+        assertThat(alertReportData).isNotNull();
+        List<AutomationHubCertificateLightDto> validationErrors = (List<AutomationHubCertificateLightDto>) alertReportData.get("certsWithoutCodeAp");
+        assertThat(validationErrors).hasSize(1);
+        assertThat(validationErrors.get(0).getAutomationHubId()).isEqualTo("cert-validation-error");
+    }
+
+
+    // ========================================================================
+    // --- Méthodes d'aide (Helpers) ---
+    // ========================================================================
+    
+    // ... (les méthodes d'aide restent les mêmes)
+}
+}
