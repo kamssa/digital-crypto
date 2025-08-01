@@ -1,0 +1,56 @@
+<!-- APRÈS -->
+<section class="section-style">
+    <fieldset>
+        <!-- ... autre code que vous avez dans le fieldset ... -->
+
+        <!-- NOUVEAU CHAMP : COMMENTAIRE (Éditable) -->
+        <!-- Ce bloc affiche le commentaire principal du certificat -->
+        <div class="row">
+            <div class="separator"></div>
+            <div class="ui-g-3">
+                <label class="pull-right" style="font-weight: bold; font-size: 11pt;">
+                    {{'certificateInformationSection.certificateComment' | translate}}:</label>
+            </div>
+            <div class="ui-g-9">
+                <!-- On affiche la valeur avec interpolation, c'est plus sécurisé -->
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <span [innerHTML]="certificateRequest.certificateComment || 'Aucun commentaire.'"></span>
+                    
+                    <!-- BOUTON POUR OUVRIR LE MODAL DE MODIFICATION -->
+                    <button pButton type="button" icon="pi pi-pencil" 
+                            class="p-button-sm p-button-text" 
+                            (click)="showUpdateDialog()"
+                            pTooltip="Modifier le commentaire" tooltipPosition="top">
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- CHAMP EXISTANT RENOMMÉ : HISTORIQUE -->
+        <!-- Ce bloc est conditionnel, comme dans votre code original -->
+        <div class="row" [hidden]="!(constraint?.fields['comment'])">
+            <div class="separator"></div>
+            <div class="ui-g-3">
+                <!-- On utilise une nouvelle clé de traduction pour "Historique" -->
+                <label class="pull-right" style="font-weight: bold; font-size: 11pt;">
+                    {{'certificateInformationSection.history' | translate}}:</label>
+            </div>
+            <div class="ui-g-9">
+                <!-- Ce champ affiche maintenant l'historique -->
+                <!-- J'ai supprimé la div dupliquée qui était à l'intérieur -->
+                <div [innerHTML]="certificateRequest.comment"></div>
+            </div>
+        </div>
+
+        <!-- ... autre code que vous avez dans le fieldset ... -->
+
+    </fieldset>
+</section>
+
+<!-- N'oubliez pas d'inclure le composant modal quelque part dans votre template -->
+<app-certificate-update
+  *ngIf="displayUpdateModal"
+  [certificate]="certificateRequest" 
+  [(visible)]="displayUpdateModal"
+  (updateSuccess)="onUpdateSuccess()">
+</app-certificate-update>
