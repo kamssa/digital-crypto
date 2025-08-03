@@ -228,47 +228,57 @@ Generated json
 // Dans votre classe AutoEnrollService.java
 
 private List<San> getAutoEnrollSans(List<SanDto> subjectAlternateNames) {
-    // Si la liste en entrée est vide, on retourne une liste vide.
+    
+    // Si la liste en entrée est nulle ou vide, on retourne une liste vide pour éviter les erreurs.
     if (subjectAlternateNames == null || subjectAlternateNames.isEmpty()) {
-        return new ArrayList<>();
+        return new ArrayList<>(); // Ou Collections.emptyList();
     }
 
+    // On prépare la liste qui contiendra nos entités finales.
     List<San> sanList = new ArrayList<>();
-    
-    // On boucle sur chaque DTO reçu en entrée.
+
+    // On boucle sur chaque DTO reçu.
     for (SanDto sanDto : subjectAlternateNames) {
-        // On crée une nouvelle entité San vide, prête à être peuplée.
+        
+        // On crée une nouvelle instance de notre entité San.
         San sanEntity = new San();
 
-        // 1. Récupérer le type depuis le DTO et le mettre dans l'entité.
-        //    (Nécessite une méthode de conversion si les enums sont dans des packages différents).
-        sanEntity.setType(convertSanTypeEnumToSanType(sanDto.getSanType()));
-
-        // 2. Récupérer la valeur depuis le DTO.
+        // 1. On récupère les informations depuis le DTO.
         String value = sanDto.getSanValue();
+        SanTypeEnum typeFromDto = sanDto.getSanType();
 
-        // 3. Remplir TOUS les champs de valeur dans l'entité pour la cohérence.
-        sanEntity.setUrl(value);         // On remplit l'ancien champ 'url'.
-        sanEntity.setSanValue(value);    // On remplit le nouveau champ 'sanValue'.
+        // 2. On peuple les champs de valeur de l'entité.
+        //    Il est crucial de remplir les deux pour la cohérence des données.
+        sanEntity.setUrl(value);
+        sanEntity.setSanValue(value);
 
-        // Ajouter l'entité maintenant complète à la liste.
+        // 3. On peuple le champ 'type' de l'entité en utilisant la méthode de conversion.
+        //    C'est cette étape qui gère la "traduction" entre les types d'enums.
+        sanEntity.setType(convertSanTypeEnumToSanType(typeFromDto));
+
+        // 4. On ajoute l'entité maintenant complète à notre liste de résultats.
         sanList.add(sanEntity);
     }
 
+    // On retourne la liste des entités prêtes à être sauvegardées.
     return sanList;
 }
 
 /**
- * Petite méthode d'aide pour convertir l'enum du DTO (SanTypeEnum)
- * en enum de l'entité (SanType).
+ * Méthode d'aide (helper method) pour convertir l'enum du DTO (SanTypeEnum)
+ * en son équivalent pour l'entité (SanType).
+ * Cette méthode assure la "traduction" entre le monde de l'API et le monde de la base de données.
+ *
  * @param dtoEnum L'enum provenant du DTO.
- * @return L'enum correspondant pour l'entité.
+ * @return L'enum correspondant pour l'entité, ou null si l'entrée est nulle.
  */
 private SanType convertSanTypeEnumToSanType(SanTypeEnum dtoEnum) {
     if (dtoEnum == null) {
         return null;
     }
-    // Cette conversion simple fonctionne si les noms des valeurs des enums correspondent.
+    
+    // Cette conversion simple fonctionne car les noms des valeurs
+    // dans les deux enums (SanType et SanTypeEnum) sont identiques.
+    // Ex: SanTypeEnum.DNSNAME.name() retourne "DNSNAME", et SanType.valueOf("DNSNAME") retourne SanType.DNSNAME.
     return SanType.valueOf(dtoEnum.name());
 }
-U
