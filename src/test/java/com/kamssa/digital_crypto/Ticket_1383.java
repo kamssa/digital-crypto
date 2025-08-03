@@ -83,3 +83,36 @@ public class San implements Serializable {
         this.certificate = certificate;
     }
 }
+//////////////////////////////////////enum ///////////////////////
+public enum SanType {
+    
+    /**
+     * Pour les noms de domaine (ex: "www.example.com")
+     */
+    DNSNAME,
+
+    /**
+     * Pour les adresses e-mail (ex: "user@example.com")
+     */
+    RFC822NAME,
+
+    /**
+     * Pour les adresses IP (ex: "192.168.1.1")
+     */
+    IPADDRESS,
+
+    /**
+     * Pour un Globally Unique Identifier (GUID)
+     */
+    OTHERNAME_GUID,
+
+    /**
+     * Pour un User Principal Name (UPN)
+     */
+    OTHERNAME_UPN,
+
+    /**
+     * Pour un Uniform Resource Identifier (ex: "https://service.example.com")
+     */
+    URI
+}
