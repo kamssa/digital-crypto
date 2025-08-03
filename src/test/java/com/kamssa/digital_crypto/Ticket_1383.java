@@ -341,3 +341,55 @@ protected List<EnrollPayloadTemplateSanDto> buildSan() {
 
     return enrollPayloadTemplateSanDtos;
 }
+///////// version final de builSan/////////////////////////////////
+protected List<EnrollPayloadTemplateSanDto> buildSan() {
+
+    List<SanDto> inputSans = automationHubRequestDto.getSanList();
+    List<EnrollPayloadTemplateSan-Dto> enrollPayloadTemplateSanDtos = new ArrayList<>();
+
+    // CAS 1 : La liste de SANs est vide ou nulle.
+    if (inputSans == null || inputSans.isEmpty()) {
+        String commonName = automationHubRequestDto.getCommonName();
+        if (commonName != null && !commonName.isEmpty() && !commonName.contains("|")) {
+            EnrollPayloadTemplateSanDto payloadSan = new EnrollPayloadTemplateSanDto();
+            payloadSan.setType(SanTypeEnum.DNSNAME.name());
+            payloadSan.setValue(Collections.singletonList(commonName));
+            enrollPayloadTemplateSanDtos.add(payloadSan);
+        }
+    } 
+    // CAS 2 : Une liste de SANs a été fournie.
+    else {
+        Map<String, List<String>> sanBuildingMap = new HashMap<>();
+
+        // Étape 1 : Remplir la map de regroupement.
+        for (SanDto san : inputSans) {
+            if (san != null && san.getSanType() != null && san.getSanValue() != null) {
+                String sanType = san.getSanType().name();
+                
+                // On récupère la liste des valeurs pour ce type.
+                List<String> currentValues = sanBuildingMap.get(sanType);
+                
+                // Si cette liste n'existe pas, c'est la première fois qu'on voit ce type.
+                if (currentValues == null) {
+                    // On crée une nouvelle liste.
+                    currentValues = new ArrayList<>();
+                    // ET ON LA MET DANS LA MAP. C'est l'étape que vous avez notée.
+                    sanBuildingMap.put(sanType, currentValues);
+                }
+                
+                // Maintenant, on est sûr que 'currentValues' est la bonne liste, on y ajoute la valeur.
+                currentValues.add(san.getSanValue());
+            }
+        }
+
+        // Étape 2 : Construire les DTOs finaux à partir de la map.
+        for (Map.Entry<String, List<String>> entry : sanBuildingMap.entrySet()) {
+            EnrollPayloadTemplateSanDto finalDto = new EnrollPayloadTemplateSanDto();
+            finalDto.setType(entry.getKey());
+            finalDto.setValue(entry.getValue());
+            enrollPayloadTemplateSanDtos.add(finalDto);
+        }
+    }
+
+    return enrollPayloadTemplateSanDtos;
+}
