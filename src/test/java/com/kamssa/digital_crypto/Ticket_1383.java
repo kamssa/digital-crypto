@@ -282,3 +282,54 @@ private SanType convertSanTypeEnumToSanType(SanTypeEnum dtoEnum) {
     // Ex: SanTypeEnum.DNSNAME.name() retourne "DNSNAME", et SanType.valueOf("DNSNAME") retourne SanType.DNSNAME.
     return SanType.valueOf(dtoEnum.name());
 }
+/////////// buildSan///////////////////
+@Override
+protected List<EnrollPayloadTemplateSanDto> buildSan() {
+    
+    // On récupère la liste des DTOs en entrée.
+    List<SanDto> inputSans = automationHubRequestDto.getSanList();
+
+    // On prépare la liste qui contiendra nos DTOs de payload finaux.
+    List<EnrollPayloadTemplateSanDto> enrollPayloadTemplateSanDtos = new ArrayList<>();
+
+    // CAS 1 : La liste de SANs est vide ou nulle.
+    // On se rabat sur le "Common Name" comme solution de secours, comme le faisait l'ancien code.
+    if (inputSans == null || inputSans.isEmpty()) {
+        String commonName = automationHubRequestDto.getCommonName();
+        // S'assurer que le commonName existe avant de l'utiliser.
+        if (commonName != null && !commonName.isEmpty()) {
+            EnrollPayloadTemplateSanDto payloadSan = new EnrollPayloadTemplateSanDto();
+            
+            // On définit le type comme DNSNAME par défaut.
+            payloadSan.setType(SanTypeEnum.DNSNAME.name());
+            
+            // On met le commonName comme valeur.
+            // La méthode setValue attend une List<String>, donc on utilise Arrays.asList().
+            payloadSan.setValue(Arrays.asList(commonName));
+            
+            enrollPayloadTemplateSanDtos.add(payloadSan);
+        }
+    } 
+    // CAS 2 : La liste de SANs contient un ou plusieurs éléments.
+    else {
+        // ON BOUCLE SUR TOUS LES SANS D'ENTRÉE, ET NON PLUS SEULEMENT LE PREMIER.
+        for (SanDto inputSan : inputSans) {
+            EnrollPayloadTemplateSanDto payloadSan = new EnrollPayloadTemplateSanDto();
+            
+            // On récupère le type et la valeur de CHAQUE san.
+            if (inputSan.getSanType() != null) {
+                payloadSan.setType(inputSan.getSanType().name());
+            }
+            
+            if (inputSan.getSanValue() != null) {
+                // La méthode setValue attend une List<String>.
+                payloadSan.setValue(Arrays.asList(inputSan.getSanValue()));
+            }
+            
+            // On ajoute le payload SAN créé à notre liste de résultats.
+            enrollPayloadTemplateSanDtos.add(payloadSan);
+        }
+    }
+
+    return enrollPayloadTemplateSanDtos;
+}
