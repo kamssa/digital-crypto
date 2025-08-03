@@ -224,3 +224,51 @@ Generated json
   "url": "example.com",
   "san_value": "example.com"
 }
+////////////////////////////////
+// Dans votre classe AutoEnrollService.java
+
+private List<San> getAutoEnrollSans(List<SanDto> subjectAlternateNames) {
+    // Si la liste en entrée est vide, on retourne une liste vide.
+    if (subjectAlternateNames == null || subjectAlternateNames.isEmpty()) {
+        return new ArrayList<>();
+    }
+
+    List<San> sanList = new ArrayList<>();
+    
+    // On boucle sur chaque DTO reçu en entrée.
+    for (SanDto sanDto : subjectAlternateNames) {
+        // On crée une nouvelle entité San vide, prête à être peuplée.
+        San sanEntity = new San();
+
+        // 1. Récupérer le type depuis le DTO et le mettre dans l'entité.
+        //    (Nécessite une méthode de conversion si les enums sont dans des packages différents).
+        sanEntity.setType(convertSanTypeEnumToSanType(sanDto.getSanType()));
+
+        // 2. Récupérer la valeur depuis le DTO.
+        String value = sanDto.getSanValue();
+
+        // 3. Remplir TOUS les champs de valeur dans l'entité pour la cohérence.
+        sanEntity.setUrl(value);         // On remplit l'ancien champ 'url'.
+        sanEntity.setSanValue(value);    // On remplit le nouveau champ 'sanValue'.
+
+        // Ajouter l'entité maintenant complète à la liste.
+        sanList.add(sanEntity);
+    }
+
+    return sanList;
+}
+
+/**
+ * Petite méthode d'aide pour convertir l'enum du DTO (SanTypeEnum)
+ * en enum de l'entité (SanType).
+ * @param dtoEnum L'enum provenant du DTO.
+ * @return L'enum correspondant pour l'entité.
+ */
+private SanType convertSanTypeEnumToSanType(SanTypeEnum dtoEnum) {
+    if (dtoEnum == null) {
+        return null;
+    }
+    // Cette conversion simple fonctionne si les noms des valeurs des enums correspondent.
+    return SanType.valueOf(dtoEnum.name());
+}
+U
