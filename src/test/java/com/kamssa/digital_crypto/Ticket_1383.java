@@ -293,30 +293,38 @@ protected List<EnrollPayloadTemplateSanDto> buildSan() {
     List<EnrollPayloadTemplateSanDto> enrollPayloadTemplateSanDtos = new ArrayList<>();
 
     // CAS 1 : La liste de SANs est vide ou nulle.
-    // On se rabat sur le "Common Name" comme solution de secours, comme le faisait l'ancien code.
+    // On se rabat sur le "Common Name" comme solution de secours, en appliquant la règle de validation existante.
     if (inputSans == null || inputSans.isEmpty()) {
+        
         String commonName = automationHubRequestDto.getCommonName();
-        // S'assurer que le commonName existe avant de l'utiliser.
-        if (commonName != null && !commonName.isEmpty()) {
+        
+        // On vérifie que le commonName existe, n'est pas vide, ET ne contient pas le caractère '|'.
+        if (commonName != null && !commonName.isEmpty() && !commonName.contains("|")) {
+            
+            // Si toutes les conditions sont remplies, on crée un SAN à partir du commonName.
             EnrollPayloadTemplateSanDto payloadSan = new EnrollPayloadTemplateSanDto();
             
-            // On définit le type comme DNSNAME par défaut.
+            // On définit le type comme DNSNAME par défaut, ce qui est logique pour un commonName.
             payloadSan.setType(SanTypeEnum.DNSNAME.name());
             
             // On met le commonName comme valeur.
-            // La méthode setValue attend une List<String>, donc on utilise Arrays.asList().
+            // La méthode setValue attend une List<String>, donc on utilise Arrays.asList() pour l'encapsuler.
             payloadSan.setValue(Arrays.asList(commonName));
             
             enrollPayloadTemplateSanDtos.add(payloadSan);
         }
+        // Si le commonName contient un '|', il est ignoré (comportement de l'ancien code).
+        
     } 
     // CAS 2 : La liste de SANs contient un ou plusieurs éléments.
+    // Dans ce cas, on ignore le commonName et on traite la liste.
     else {
         // ON BOUCLE SUR TOUS LES SANS D'ENTRÉE, ET NON PLUS SEULEMENT LE PREMIER.
         for (SanDto inputSan : inputSans) {
             EnrollPayloadTemplateSanDto payloadSan = new EnrollPayloadTemplateSanDto();
             
             // On récupère le type et la valeur de CHAQUE san.
+            // On ajoute des vérifications pour éviter les NullPointerException.
             if (inputSan.getSanType() != null) {
                 payloadSan.setType(inputSan.getSanType().name());
             }
