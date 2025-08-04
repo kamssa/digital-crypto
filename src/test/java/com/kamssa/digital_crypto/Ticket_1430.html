@@ -183,3 +183,74 @@ Generated scss
 Use code with caution.
 Scss
 En résumé, la modification principale consiste à transformer votre donnée SANS d'un simple tableau de chaînes à un tableau d'objets structurés, puis à utiliser cette structure dans le template pour afficher dynamiquement un badge et sa valeur, tout en triant les données au préalable dans le composant.
+////////////////////// proxy////////////////////
+Suivez ces 3 étapes.
+Étape 1 : Créer un fichier de configuration pour le proxy
+À la racine de votre projet Angular (au même niveau que angular.json), créez un nouveau fichier nommé proxy.conf.json.
+Collez-y le contenu suivant. Adaptez le port 8080 si votre backend Spring Boot tourne sur un autre port.
+Generated json
+{
+  "/api": {
+    "target": "http://localhost:8080",
+    "secure": false,
+    "logLevel": "debug",
+    "changeOrigin": true
+  }
+}
+Use code with caution.
+Json
+Explication des options :
+"/api" : C'est la clé. Cela signifie que toute URL commençant par /api dans votre application Angular sera interceptée et transférée. Utiliser un préfixe comme /api est une bonne pratique pour ne pas transférer les appels pour des fichiers locaux (comme les images, css, etc.).
+"target": "http://localhost:8080" : C'est la destination. C'est l'adresse de votre backend Spring Boot.
+"secure": false : Indispensable si votre backend utilise un certificat HTTPS auto-signé en développement.
+"logLevel": "debug" : Très utile ! Affiche dans la console où vous lancez ng serve toutes les requêtes qui sont transférées, ce qui aide énormément à déboguer.
+"changeOrigin": true : Une option souvent nécessaire qui modifie l'en-tête "Host" de la requête pour correspondre à la cible.
+Étape 2 : Dire à Angular d'utiliser ce fichier de configuration
+Ouvrez le fichier angular.json.
+Trouvez la section architect -> serve -> options.
+Ajoutez une nouvelle propriété "proxyConfig" qui pointe vers le fichier que vous venez de créer.
+Votre section serve dans angular.json devrait ressembler à ceci :
+Generated json
+// dans angular.json
+...
+"architect": {
+  "serve": {
+    "builder": "@angular-devkit/build-angular:dev-server",
+    "options": {
+      "browserTarget": "votre-projet:build",
+      "proxyConfig": "proxy.conf.json"  // <--- AJOUTEZ CETTE LIGNE
+    },
+...
+Use code with caution.
+Json
+Étape 3 : Modifier vos appels HTTP dans le code Angular
+C'est l'étape la plus importante. Vous ne devez plus jamais écrire l'URL complète du backend dans vos services. Utilisez des chemins relatifs qui commencent par /api.
+Ancien code dans votre service :
+Generated typescript
+// ANCIEN CODE - NE MARCHE PAS AVEC LE PROXY D'ENTREPRISE
+const apiUrl = 'http://localhost:8080/api/certificates';
+return this.http.get(apiUrl);
+Use code with caution.
+TypeScript
+Nouveau code à utiliser :
+Generated typescript
+// NOUVEAU CODE - UTILISE LE PROXY ANGULAR
+const apiUrl = '/api/certificates'; // Plus de 'http://localhost:8080' !
+return this.http.get(apiUrl);
+Use code with caution.
+TypeScript
+Pourquoi ça marche ?
+Votre code demande /api/certificates.
+La requête part vers le serveur de développement Angular (localhost:4200).
+Le serveur voit /api et, grâce à proxy.conf.json, transfère la requête à http://localhost:8080/api/certificates.
+Cette communication se fait de serveur à serveur sur votre machine, elle ne passe jamais par le proxy de l'entreprise.
+Étape finale : Relancer le serveur
+Vous devez absolument arrêter votre serveur de développement (Ctrl+C) et le relancer avec ng serve pour que les modifications dans angular.json soient prises en compte.
+Alternative (moins recommandée) : Configurer les exceptions du proxy système
+Vous pouvez aussi dire à votre système d'exploitation (Windows/macOS) ou à votre navigateur de ne pas utiliser le proxy pour les adresses locales.
+Sur Windows :
+Cherchez "Options Internet" ou "Paramètres de proxy" dans le menu Démarrer.
+Allez dans l'onglet "Connexions" -> "Paramètres réseau".
+Si un proxy est configuré, cliquez sur "Avancé".
+Dans le champ "Exceptions", ajoutez localhost;127.0.0.1; à la liste existante (séparés par des points-virgules).
+Inconvénient de cette méthode : Elle peut être réinitialisée par les politiques de sécurité de votre entreprise, et elle n'est pas contenue dans votre projet, ce qui la rend moins portable. La méthode du proxy Angular est bien plus robuste.
