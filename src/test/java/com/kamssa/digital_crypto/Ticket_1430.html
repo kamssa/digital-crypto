@@ -1,0 +1,185 @@
+// Exemple de structure de données attendue
+[
+  { type: 'DNSNAME', value: 'testafcomment' },
+  { type: 'DNSNAME', value: 's02vft123456' },
+  { type: 'RFC822NAME', value: 'toto.tataATbnpparibas.com' },
+  { type: 'IPADDRESS', value: '1.1.1.1' },
+  { type: 'OTHERNAME_GUID', value: 'afi1234' },
+  { type: 'OTHERNAME_UPN', value: 'toto.tataATbnpparibas.com' },
+  { type: 'URI', value: 'https_monurl.bnpparibas.com' }
+]
+Use code with caution.
+TypeScript
+Action : Vous devez vous assurer avec l'équipe backend que l'API renvoie bien les SANs sous cette forme { type: string, value: string }. Sans cela, le front-end ne pourra pas connaître le type de chaque SAN.
+Étape 1 : Trier les données dans le composant (.ts)
+Pour respecter la demande "Afficher par ordre de type", le plus simple est de trier le tableau dès sa réception. Dans votre fichier de composant TypeScript (par exemple, votre-composant.component.ts), une fois que certificateRequest est chargé, triez le tableau SANS.
+Vous pouvez utiliser le hook ngOnInit ou ngOnChanges si les données arrivent via un @Input.
+Generated typescript
+import { Component, OnInit, Input } from '@angular/core';
+
+@Component({
+  selector: 'app-votre-composant',
+  // ...
+})
+export class VotreComposant implements OnInit {
+  @Input() certificateRequest: any; // ou un type plus précis si vous en avez un
+
+  ngOnInit(): void {
+    // Assurez-vous que les données existent avant de trier
+    if (this.certificateRequest?.certificate?.SANS) {
+      this.sortSans();
+    }
+  }
+
+  // Si les données peuvent changer après l'initialisation
+  ngOnChanges(changes: SimpleChanges): void {
+    if (changes.certificateRequest && this.certificateRequest?.certificate?.SANS) {
+      this.sortSans();
+    }
+  }
+
+  private sortSans(): void {
+    this.certificateRequest.certificate.SANS.sort((a, b) => {
+      // Compare les types pour le tri alphabétique
+      if (a.type < b.type) {
+        return -1;
+      }
+      if (a.type > b.type) {
+        return 1;
+      }
+      // Si les types sont identiques, on peut trier par valeur
+      if (a.value < b.value) {
+        return -1;
+      }
+      if (a.value > b.value) {
+        return 1;
+      }
+      return 0;
+    });
+  }
+}
+Use code with caution.
+TypeScript
+Étape 2 : Mettre à jour le template HTML (.html)
+Maintenant, modifions le code HTML que vous avez montré. Nous allons utiliser un composant PrimeNG comme <p-tag> qui est parfait pour ce genre de badge, ou un simple <span> stylisé.
+Generated html
+<!-- Fichier .html -->
+
+<!-- Label général pour la section SANS -->
+<div class="row nopad" [hidden]="!certificateRequest?.certificate?.SANS?.length">
+    <div class="ui-g-3 nopad">
+        <label class="pull-right">{{'requestDetailsSection.SANS' | translate}} :</label>
+    </div>
+    <!-- Laissez une colonne vide pour l'alignement si nécessaire, ou supprimez cette partie -->
+    <div class="ui-g-9 nopad"></div>
+</div>
+
+<!-- Boucle sur chaque SAN pour l'afficher sur une nouvelle ligne -->
+<div *ngFor="let san of certificateRequest?.certificate?.SANS" 
+     class="row nopad" 
+     [hidden]="!certificateRequest?.certificate?.SANS?.length">
+    
+    <!-- Colonne de gauche vide pour l'indentation, alignée avec le label principal -->
+    <div class="ui-g-3 nopad"></div>
+
+    <!-- Colonne de droite contenant le badge et la valeur -->
+    <div class="ui-g-9 nopad san-container">
+        <!-- Le Badge PrimeNG (p-tag) ou un span custom -->
+        <span class="san-badge" [ngClass]="getSanBadgeClass(san.type)">
+            {{ san.type }}
+        </span>
+
+        <!-- La valeur du SAN -->
+        <label class="pull-left nopad san-value">{{ san.value }}</label>
+    </div>
+</div>
+Use code with caution.
+Html
+Étape 3 : Ajouter la logique pour les badges dans le composant (.ts)
+Dans le même fichier votre-composant.component.ts, ajoutez la fonction getSanBadgeClass utilisée par [ngClass] pour retourner la classe CSS appropriée en fonction du type de SAN.
+Generated typescript
+// Dans votre-composant.component.ts
+
+// ... (dans la classe VotreComposant)
+
+public getSanBadgeClass(sanType: string): string {
+  switch (sanType) {
+    case 'DNSNAME':
+      return 'san-badge-dnsname';
+    case 'IPADDRESS':
+      return 'san-badge-ipaddress';
+    case 'RFC822NAME':
+      return 'san-badge-rfc822name';
+    case 'URI':
+      return 'san-badge-uri';
+    case 'OTHERNAME_GUID':
+      return 'san-badge-othername-guid';
+    case 'OTHERNAME_UPN':
+      return 'san-badge-othername-upn';
+    default:
+      return 'san-badge-default';
+  }
+}
+Use code with caution.
+TypeScript
+Étape 4 : Définir les styles CSS des badges (.scss ou .css)
+Enfin, ajoutez le code CSS pour styliser les badges en fonction des classes que nous venons de créer. Mettez ce code dans le fichier de style de votre composant (votre-composant.component.scss).
+Generated scss
+// Fichier votre-composant.component.scss
+
+// Conteneur pour une ligne de SAN (badge + valeur)
+.san-container {
+    display: flex;
+    align-items: center;
+    margin-bottom: 4px; // Un peu d'espace entre les lignes
+}
+
+// Style de base pour tous les badges
+.san-badge {
+    padding: 2px 8px;
+    border-radius: 12px; // Pour des bords bien arrondis
+    color: #ffffff; // Texte en blanc pour un bon contraste
+    font-size: 0.8em;
+    font-weight: bold;
+    margin-right: 12px; // Espace entre le badge et la valeur
+    text-transform: uppercase; // Comme dans la maquette
+    min-width: 90px; // Pour avoir une largeur unifiée
+    text-align: center;
+}
+
+.san-value {
+    // Ajustez si nécessaire
+}
+
+// Couleurs spécifiques pour chaque type de badge (à ajuster pour correspondre exactement à la maquette)
+.san-badge-dnsname {
+    background-color: #27A146; // Vert
+}
+
+.san-badge-ipaddress {
+    background-color: #28a745; // Un autre vert ou une autre couleur
+}
+
+.san-badge-rfc822name {
+    background-color: #007bff; // Bleu
+}
+
+.san-badge-uri {
+    background-color: #dc3545; // Rouge
+}
+
+.san-badge-othername-guid {
+    background-color: #ffc107; // Jaune/Orange
+    color: #212529; // Texte foncé pour la lisibilité
+}
+
+.san-badge-othername-upn {
+    background-color: #6c757d; // Gris
+}
+
+.san-badge-default {
+    background-color: #343a40; // Gris foncé par défaut
+}
+Use code with caution.
+Scss
+En résumé, la modification principale consiste à transformer votre donnée SANS d'un simple tableau de chaînes à un tableau d'objets structurés, puis à utiliser cette structure dans le template pour afficher dynamiquement un badge et sa valeur, tout en triant les données au préalable dans le composant.
