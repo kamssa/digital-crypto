@@ -254,3 +254,55 @@ Allez dans l'onglet "Connexions" -> "Paramètres réseau".
 Si un proxy est configuré, cliquez sur "Avancé".
 Dans le champ "Exceptions", ajoutez localhost;127.0.0.1; à la liste existante (séparés par des points-virgules).
 Inconvénient de cette méthode : Elle peut être réinitialisée par les politiques de sécurité de votre entreprise, et elle n'est pas contenue dans votre projet, ce qui la rend moins portable. La méthode du proxy Angular est bien plus robuste.
+/////////////////////////////////////////////////
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.WebSecurityConfigurerAdapter;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import java.util.Arrays;
+
+// Assurez-vous que votre classe a ces annotations
+@Configuration
+public class WebSecurityConfig extends WebSecurityConfigurerAdapter { // Ou une autre configuration de sécurité
+
+    // ... vos autres propriétés comme apiAuthentificationFilter ...
+
+    @Override
+    protected void configure(HttpSecurity http) throws Exception {
+        // ÉTAPE 1 : Dire à Spring Security d'utiliser la configuration CORS que nous allons définir plus bas.
+        http.cors().and() // <--- AJOUTEZ CETTE LIGNE
+            .csrf().disable()
+            .anonymous()
+            .and()
+            .authorizeRequests()
+                .antMatchers("/**").authenticated()
+            .and()
+            .addFilterAfter(this.apiAuthentificationFilter, UsernamePasswordAuthenticationFilter.class);
+    }
+
+    // ÉTAPE 2 : Définir un "Bean" qui fournit la configuration CORS globale.
+    // Copiez-collez toute cette méthode dans votre classe.
+    @Bean
+    public CorsConfigurationSource corsConfigurationSource() {
+        CorsConfiguration configuration = new CorsConfiguration();
+        // Autorise les requêtes depuis votre application Angular
+        configuration.setAllowedOrigins(Arrays.asList("http://localhost:4200"));
+        // Autorise les méthodes HTTP standard
+        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+        // Autorise tous les en-têtes
+        configuration.setAllowedHeaders(Arrays.asList("*"));
+        // C'EST LA LIGNE LA PLUS IMPORTANTE : elle autorise l'envoi des cookies
+        configuration.setAllowCredentials(true);
+        
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        // Applique cette configuration à toutes les URLs de l'application
+        source.registerCorsConfiguration("/**", configuration);
+        
+        return source;
+    }
+
+    // ... vos autres beans comme CertisRequestLoggingFilter ...
+}
