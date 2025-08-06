@@ -67,3 +67,23 @@ public List<String> validateSansOnRefweb(RequestDto requestDto) throws Exception
     
     return sansInvalid;
 }
+////////////////////////////////////////////////
+private RequestDto evaluateSan3W(RequestDto requestDto) {
+    List<SanDto> sanDtoList = requestDto.getCertificate().getSans();
+    if (sanDtoList == null) {
+        sanDtoList = new ArrayList<>();
+        requestDto.getCertificate().setSans(sanDtoList);
+    }
+    // ... logique pour créer `finalDomainWWW` ...
+    boolean alreadyExists = sanDtoList.stream()
+            .anyMatch(sanDto -> finalDomainWWW.equalsIgnoreCase(sanDto.getSanValue()));
+
+    if (!alreadyExists) {
+        SanDto sanDtoWWW = new SanDto();
+        sanDtoWWW.setType(SanTypeEnum.DNSNAME);
+        sanDtoWWW.setSanValue(finalDomainWWW);
+        sanDtoWWW.setUrl(finalDomainWWW);
+        sanDtoList.add(0, sanDtoWWW);
+    }
+    return requestDto;
+}
