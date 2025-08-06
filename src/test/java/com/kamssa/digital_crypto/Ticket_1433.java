@@ -87,3 +87,45 @@ private RequestDto evaluateSan3W(RequestDto requestDto) {
     }
     return requestDto;
 }
+///////////////
+private RequestDto evaluateSan3W(RequestDto requestDto) {
+    
+    // CHANGEMENT 1 : On travaille avec le bon type d'objet : List<SanDto>
+    List<SanDto> sanDtoList = requestDto.getCertificate().getSans();
+
+    // SÉCURITÉ : On s'assure que la liste existe pour éviter les erreurs plus tard.
+    if (sanDtoList == null) {
+        sanDtoList = new ArrayList<>();
+        requestDto.getCertificate().setSans(sanDtoList);
+    }
+    
+    // La logique pour déterminer la valeur "www" reste la même.
+    String cn = requestDto.getCertificate().getCommonName();
+    String domainWWW = cn.startsWith("www.") ? cn.replaceFirst("www.", "") : "www." + cn;
+    final String finalDomainWWW = domainWWW; 
+
+    // CHANGEMENT 2 : On vérifie l'existence en se basant sur la propriété `sanValue` du DTO.
+    boolean alreadyExists = sanDtoList.stream()
+            .anyMatch(sanDto -> finalDomainWWW.equalsIgnoreCase(sanDto.getSanValue()));
+
+    // Si le SAN "www" n'existe pas dans la liste...
+    if (!alreadyExists) {
+        // CHANGEMENT 3 : On crée un NOUVEAU DTO (`new SanDto()`), pas une entité.
+        SanDto sanDtoWWW = new SanDto();
+
+        // CHANGEMENT 4 : On remplit TOUTES les propriétés nécessaires du DTO.
+        // On définit le type, car on sait que c'est un nom de domaine.
+        sanDtoWWW.setType(SanTypeEnum.DNSNAME);
+        
+        // On définit la valeur principale.
+        sanDtoWWW.setSanValue(finalDomainWWW);
+        
+        // On respecte la règle que `url` et `sanValue` sont identiques.
+        sanDtoWWW.setUrl(finalDomainWWW);
+
+        // On ajoute ce DTO complet et bien formé à la liste.
+        sanDtoList.add(0, sanDtoWWW);
+    }
+    
+    return requestDto;
+}
