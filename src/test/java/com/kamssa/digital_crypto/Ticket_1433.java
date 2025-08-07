@@ -359,3 +359,127 @@ $info-color:    #17a2b8;
 $success-color: #28a745;
 $warning-color: #ffc107;
 $danger-color:  #dc3545;
+//////////////////////////// 
+<!-- =================================================================== -->
+<!-- ### DÉBUT DU NOUVEAU BLOC DE CODE POUR LES SANS ###                 -->
+<!-- Collez ce code à la place de l'ancien -->
+<!-- =================================================================== -->
+<div class="row row-style" [hidden]="!(constraint?.fields['SANS'])">
+  <div class="ui-g-4">
+    <i class="fa fa-info-circle tooltip pull-right" [pTooltip]="'Tooltips.SANS' | translate" tooltipPosition="top"></i>
+    <label class="pull-right">{{ 'requestDetailSection.SANS' | translate }}
+      <span class="mandatory-field pull-right" *ngIf="constraint?.fields['SANS']?.required">*</span>
+    </label>
+  </div>
+  <div class="ui-g-8">
+    <!-- Le conteneur qui est lié au FormArray 'sans' dans le .ts -->
+    <div formArrayName="sans">
+      
+      <!-- Boucle *ngFor pour afficher une ligne pour chaque SAN -->
+      <div *ngFor="let sanGroup of sans.controls; let i = index" [formGroupName]="i" class="ui-g-12 ui-g-nopad" style="margin-bottom: 15px;">
+        
+        <div class="ui-g ui-fluid p-align-center">
+          <!-- Champ de saisie pour la valeur du SAN (domaine, email, etc.) -->
+          <div class="ui-g-7">
+            <input type="text" pInputText formControlName="value" placeholder="ex: www.site.com ou admin@site.com">
+          </div>
+
+          <!-- Menu de sélection du type avec les badges colorés -->
+          <div class="ui-g-4">
+            <p-selectButton 
+                [options]="sanTypes" 
+                formControlName="type" 
+                optionValue="value">
+              <ng-template let-item>
+                <p-tag [value]="item.label" [styleClass]="item.styleClass"></p-tag>
+              </ng-template>
+            </p-selectButton>
+          </div>
+          
+          <!-- Bouton pour supprimer la ligne SAN -->
+          <div class="ui-g-1" style="text-align: right;">
+            <button pButton type="button" icon="pi pi-trash"
+                    class="p-button-danger p-button-text"
+                    (click)="removeSan(i)"
+                    [disabled]="sans.controls.length <= 1"
+                    pTooltip="Supprimer ce SAN" tooltipPosition="top">
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bouton pour ajouter une nouvelle ligne de SAN -->
+    <div class="ui-g-12 ui-g-nopad" style="margin-top: 10px;">
+       <button pButton type="button" label="{{ 'form.buttons.addSan' | translate }}"
+               icon="pi pi-plus"
+               class="p-button-secondary"
+               (click)="addSan()">
+       </button>
+    </div>
+  </div>
+</div>
+<!-- =================================================================== -->
+<!-- ### FIN DU NOUVEAU BLOC DE CODE ###                                -->
+<!-- =================================================================== -->
+
+///////////////////////////////////
+<!-- =================================================================== -->
+<!-- ### CODE COMPLET POUR LA SECTION DES SANS AVEC LISTE DÉROULANTE ### -->
+<!-- =================================================================== -->
+<div class="row row-style" [hidden]="!(constraint?.fields['SANS'])">
+  <div class="ui-g-4">
+    <label class="pull-right">{{ 'requestDetailSection.SANS' | translate }}
+      <span class="mandatory-field pull-right">*</span>
+    </label>
+  </div>
+  <div class="ui-g-8">
+    <div formArrayName="sans">
+      <div *ngFor="let sanGroup of sans.controls; let i = index" [formGroupName]="i" class="ui-g-12 ui-g-nopad" style="margin-bottom: 15px;">
+        <div class="ui-g ui-fluid p-align-center">
+          
+          <!-- Champ de saisie pour la valeur du SAN -->
+          <div class="ui-g-7">
+            <input type="text" pInputText formControlName="value" placeholder="ex: www.site.com">
+          </div>
+
+          <!-- ======================================================= -->
+          <!-- ### C'EST ICI QUE L'UTILISATEUR CHOISIT LE TYPE ### -->
+          <!-- ======================================================= -->
+          <div class="ui-g-4">
+            <!-- C'est une liste déroulante standard de PrimeNG -->
+            <p-dropdown 
+                [options]="sanTypes" 
+                formControlName="type"
+                optionLabel="label"
+                optionValue="value">
+                
+                <!-- Template pour l'élément sélectionné (quand la liste est fermée) -->
+                <ng-template let-item pTemplate="selectedItem">
+                    <p-tag [value]="item.label" [styleClass]="item.styleClass" style="width: 100%;"></p-tag>
+                </ng-template>
+                
+                <!-- Template pour chaque option dans la liste ouverte -->
+                <ng-template let-item pTemplate="item">
+                    <p-tag [value]="item.label" [styleClass]="item.styleClass" style="width: 100%;"></p-tag>
+                </ng-template>
+            </p-dropdown>
+          </div>
+          <!-- ======================================================= -->
+
+          <!-- Bouton de suppression -->
+          <div class="ui-g-1" style="text-align: right;">
+            <button pButton type="button" icon="pi pi-trash" class="p-button-danger p-button-text" (click)="removeSan(i)" [disabled]="sans.controls.length <= 1"></button>
+          </div>
+
+        </div>
+      </div>
+    </div>
+    
+    <!-- Bouton pour ajouter une nouvelle ligne -->
+    <div class="ui-g-12 ui-g-nopad" style="margin-top: 10px;">
+       <button pButton type="button" label="{{ 'form.buttons.addSan' | translate }}"
+               icon="pi pi-plus" class="p-button-secondary" (click)="addSan()"></button>
+    </div>
+  </div>
+</div>
