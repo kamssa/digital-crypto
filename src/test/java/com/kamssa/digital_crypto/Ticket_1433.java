@@ -483,3 +483,58 @@ $danger-color:  #dc3545;
     </div>
   </div>
 </div>
+////////////////////////// onSubmit /////////////////////////////////
+ // ===================================================================
+  onSubmit(): void {
+    // 1. Marquer tous les champs comme "touchés" pour afficher les messages d'erreur s'il y en a.
+    this.form.markAllAsTouched();
+    
+    // 2. Vérifier si le formulaire est valide. Si ce n'est pas le cas, on arrête tout.
+    if (this.form.invalid) {
+      console.error('Le formulaire est invalide. Soumission annulée.');
+      return; // Sort de la fonction
+    }
+
+    // 3. Activer l'état de "chargement" pour l'interface (ex: désactiver le bouton, montrer un spinner).
+    this.requestChangeInProgress = true;
+    this.errorMessage = null; // Réinitialiser les anciens messages d'erreur
+
+    // 4. Créer une copie profonde du payload pour ne pas altérer l'objet du formulaire.
+    const payload = JSON.parse(JSON.stringify(this.form.value));
+
+    // 5. La transformation cruciale de la liste des SANs.
+    const sansFromForm = payload.certificateDetails?.sans; // Utilisez le bon nom de votre form group
+
+    if (sansFromForm && Array.isArray(sansFromForm)) {
+      payload.certificateDetails.sans = sansFromForm.map(san => {
+        // Formate chaque objet SAN pour correspondre à ce que le backend attend.
+        return {
+          type: san.type,
+          sanValue: san.value,
+          url: san.value // `url` et `sanValue` sont synchronisés
+        };
+      });
+    }
+
+    // 6. Appeler le service pour envoyer le payload final au backend.
+    console.log('Payload final envoyé au backend :', payload); // Très utile pour le débogage !
+    
+    this.requestService.addRequest(payload).subscribe({
+      // 7a. Gestion du cas de SUCCÈS
+      next: (response) => {
+        console.log('Requête créée avec succès !', response);
+        this.requestChangeInProgress = false;
+        
+        // Rediriger l'utilisateur vers une page de confirmation, par exemple.
+        // const newRequestId = response.id;
+        // this.router.navigate(['/confirmation', newRequestId]);
+      },
+      // 7b. Gestion du cas d'ERREUR
+      error: (err) => {
+        console.error('Une erreur est survenue lors de la création de la requête :', err);
+        this.errorMessage = 'Une erreur est survenue. Veuillez réessayer.'; // Message pour l'utilisateur
+        this.requestChangeInProgress = false; // Très important de désactiver le spinner même en cas d'erreur
+      }
+    });
+  }
+}
