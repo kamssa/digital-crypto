@@ -296,39 +296,42 @@ public onSubmit(): void {
   // this.requestService.addRequest(payload).subscribe(...);
 }
 ///////////////////////////////////////////////////////////////////   nuveau modif //////////////////////////
- <div class="row row-style">
-        <div class="ui-g-4">
-          <label class="pull-right">{{ 'certificateInformationSection.sans.title' | translate }}
-            <span class="mandatory-field pull-right">*</span>
-          </label>
-        </div>
-        <div class="ui-g-8">
-          <!-- Le conteneur lié au FormArray 'sans' -->
-          <div formArrayName="sans">
-            <!-- Boucle pour afficher une ligne pour chaque SAN -->
-            <div *ngFor="let sanGroup of sans.controls; let i = index" [formGroupName]="i" class="ui-g-12 ui-g-nopad" style="margin-bottom: 15px;">
-              <div class="ui-g ui-fluid p-align-center">
-                <!-- Champ de saisie pour la valeur -->
-                <div class="ui-g-7">
-                  <input type="text" pInputText formControlName="value" placeholder="ex: www.site.com ou admin@site.com">
-                </div>
-                <!-- Sélection du type avec les badges -->
-                <div class="ui-g-4">
-                  <p-selectButton [options]="sanTypes" formControlName="type" optionValue="value">
-                    <ng-template let-item><p-tag [value]="item.label" [styleClass]="item.styleClass"></p-tag></ng-template>
-                  </p-selectButton>
-                </div>
-                <!-- Bouton de suppression -->
-                <div class="ui-g-1" style="text-align: right;">
-                  <button pButton type="button" icon="pi pi-trash" class="p-button-danger p-button-text" (click)="removeSan(i)" [disabled]="sans.controls.length <= 1"></button>
-                </div>
-              </div>
-            </div>
+ <div class="row row-style" style="margin-top: 1.5rem;" [hidden]="!(constraint?.fields['SANS'])">
+    <br><br>
+    <app-panel-message class="sanPanel" type="DANGER" [center]="true" [shrink]="false" message="requestDetailSection.sanWarningPanelMsg"></app-panel-message>
+</div>
+
+<!-- =================================================================== -->
+<!-- ### DÉBUT DU BLOC MODIFIÉ ET INTÉGRÉ POUR LA GESTION DES SANS ###   -->
+<!-- REMPLACEZ L'ANCIEN BLOC PAR CELUI-CI -->
+<!-- =================================================================== -->
+<div class="row row-style" [hidden]="!(constraint?.fields['SANS'])">
+  <div class="ui-g-4">
+    <i class="fa fa-info-circle tooltip pull-right" [pTooltip]="'Tooltips.SANS' | translate" tooltipPosition="top"></i>
+    <label class="pull-right">{{ 'requestDetailSection.SANS' | translate }}</label>
+  </div>
+  <div class="ui-g-8">
+    <!-- Le conteneur lié au FormArray 'sans' -->
+    <div formArrayName="sans">
+      <!-- Boucle pour afficher une ligne pour chaque SAN -->
+      <div *ngFor="let sanGroup of sans.controls; let i = index" [formGroupName]="i" class="ui-g-12 ui-g-nopad" style="margin-bottom: 15px;">
+        <div class="ui-g ui-fluid p-align-center">
+          <div class="ui-g-7">
+            <input type="text" pInputText formControlName="value" placeholder="ex: www.site.com ou admin@site.com">
           </div>
-          <!-- Bouton pour ajouter une ligne -->
-          <div class="ui-g-12 ui-g-nopad" style="margin-top: 10px;">
-            <button pButton type="button" label="{{ 'form.buttons.addSan' | translate }}" 
-                    icon="pi pi-plus" class="p-button-secondary" (click)="addSan()"></button>
+          <div class="ui-g-4">
+            <p-selectButton [options]="sanTypes" formControlName="type" optionValue="value">
+              <ng-template let-item><p-tag [value]="item.label" [styleClass]="item.styleClass"></p-tag></ng-template>
+            </p-selectButton>
+          </div>
+          <div class="ui-g-1" style="text-align: right;">
+            <button pButton type="button" icon="pi pi-trash" class="p-button-danger p-button-text" (click)="removeSan(i)" [disabled]="sans.controls.length <= 1"></button>
           </div>
         </div>
       </div>
+    </div>
+    <div class="ui-g-12 ui-g-nopad" style="margin-top: 10px;">
+      <button pButton type="button" label="{{ 'form.buttons.addSan' | translate }}" icon="pi pi-plus" class="p-button-secondary" (click)="addSan()"></button>
+    </div>
+  </div>
+</div>
