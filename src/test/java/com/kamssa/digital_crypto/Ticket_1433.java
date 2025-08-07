@@ -129,3 +129,169 @@ private RequestDto evaluateSan3W(RequestDto requestDto) {
     
     return requestDto;
 }
+///////////////////////////////////////////////// front end///////////////////////
+Voir une liste de champs pour les Noms Alternatifs du Sujet (SANs).
+Pour chaque SAN, saisir une valeur (ex: www.site.com).
+Pour chaque SAN, choisir son type via des badges colorés (DNSNAME, Email, IP, URI).
+Ajouter de nouvelles lignes de SAN ou en supprimer.
+Soumettre ces données dans un format structuré.
+Fichier 1 : src/app/shared/utils/style-mapper.ts (Nouveau Fichier)
+Rôle : Centraliser la correspondance entre les types de SAN et les classes CSS des badges. C'est votre "source de vérité" pour les styles, ce qui rendra l'application plus facile à maintenir.
+Action : Créer ce fichier et y ajouter le code suivant.
+Generated typescript
+// Ce fichier est votre source de vérité pour les styles.
+export const StyleMapper = {
+  // Types de SAN
+  'DNSNAME':    'badge-info',
+  'RFC822NAME': 'badge-success',
+  'IPADDRESS':  'badge-warning',
+  'URI':        'badge-danger',
+
+  // Vous pourrez ajouter d'autres statuts de votre application ici pour tout harmoniser.
+};
+Use code with caution.
+TypeScript
+Fichier 2 : src/styles/_badges.scss (Nouveau Fichier)
+Rôle : Définir le style visuel de chaque badge.
+Action : Créer ce fichier, y ajouter le code, et l'importer dans votre fichier principal src/styles.scss (avec @import 'styles/badges';).
+Generated scss
+// Ce fichier définit l'apparence des badges.
+// Vous pouvez ajuster les couleurs pour qu'elles correspondent à votre charte graphique.
+.badge-info { background-color: #17a2b8 !important; color: white !important; }
+.badge-success { background-color: #28a745 !important; color: white !important; }
+.badge-warning { background-color: #ffc107 !important; color: #212529 !important; /* Texte sombre sur fond jaune */ }
+.badge-danger { background-color: #dc3545 !important; color: white !important; }
+Use code with caution.
+Scss
+Fichier 3 : src/app/.../certificate-detail-section.component.ts
+Rôle : C'est le "cerveau" de cette section du formulaire. Il gère la structure des données et les actions de l'utilisateur (ajout/suppression).
+Action : Mettre à jour ce composant pour inclure la logique du FormArray des SANs.
+Generated typescript
+// --- Imports nécessaires au début du fichier ---
+import { Component, OnInit, Input } from '@angular/core';
+import { FormBuilder, FormGroup, FormArray, Validators } from '@angular/forms';
+import { StyleMapper } from 'src/app/shared/utils/style-mapper'; // Import du mapper de style
+
+@Component({
+  selector: 'app-certificate-detail-section',
+  // ...
+})
+export class CertificateDetailSectionComponent implements OnInit {
+  @Input() certificateInformationSection: FormGroup; // Le FormGroup parent
+  @Input() certificateRequest: any; // Pour le mode édition
+
+  // Utilise le mapper pour définir les options des badges
+  sanTypes = [
+    { label: 'DNSNAME', value: 'DNSNAME',    styleClass: StyleMapper['DNSNAME'] },
+    { label: 'Email',   value: 'RFC822NAME', styleClass: StyleMapper['RFC822NAME'] },
+    { label: 'IP',      value: 'IPADDRESS',  styleClass: StyleMapper['IPADDRESS'] },
+    { label: 'URI',     value: 'URI',        styleClass: StyleMapper['URI'] }
+  ];
+
+  constructor(private fb: FormBuilder) {}
+
+  ngOnInit(): void {
+    // S'assure que le FormArray 'sans' existe
+    if (!this.certificateInformationSection.get('sans')) {
+      this.certificateInformationSection.addControl('sans', this.fb.array([ this.createSanGroup() ]));
+    }
+    // Ajoutez ici la logique pour charger les SANs existants si vous êtes en mode édition.
+  }
+
+  // Getter pour un accès facile depuis le template HTML
+  get sans(): FormArray {
+    return this.certificateInformationSection.get('sans') as FormArray;
+  }
+
+  // Crée un groupe de formulaire pour un SAN (valeur + type)
+  // **C'est ici que 'DNSNAME' est défini comme type par défaut.**
+  createSanGroup(value = '', type = 'DNSNAME'): FormGroup {
+    return this.fb.group({
+      value: [value, Validators.required],
+      type: [type, Validators.required]
+    });
+  }
+
+  // Ajoute un nouveau SAN au formulaire
+  addSan(): void {
+    this.sans.push(this.createSanGroup());
+  }
+
+  // Supprime un SAN du formulaire
+  removeSan(index: number): void {
+    // Empêche la suppression du dernier champ
+    if (this.sans.length > 1) {
+      this.sans.removeAt(index);
+    }
+  }
+}
+Use code with caution.
+TypeScript
+Fichier 4 : src/app/.../certificate-detail-section.component.html
+Rôle : C'est l'interface visuelle que l'utilisateur voit.
+Action : Insérer ce bloc de code dans votre formulaire, à l'endroit où vous voulez que les champs SAN apparaissent.
+Generated html
+<!-- BLOC HTML COMPLET POUR LA GESTION DES SANS -->
+<div class="row row-style">
+  <div class="ui-g-4">
+    <label class="pull-right">Noms Alternatifs du Sujet (SANs)
+      <span class="mandatory-field pull-right">*</span>
+    </label>
+  </div>
+  <div class="ui-g-8">
+    <!-- Le conteneur lié au FormArray 'sans' -->
+    <div formArrayName="sans">
+      <!-- Boucle pour afficher une ligne pour chaque SAN -->
+      <div *ngFor="let sanGroup of sans.controls; let i = index" [formGroupName]="i" class="ui-g-12 ui-g-nopad" style="margin-bottom: 15px;">
+        <div class="ui-g ui-fluid p-align-center">
+          <!-- Champ de saisie pour la valeur -->
+          <div class="ui-g-7">
+            <input type="text" pInputText formControlName="value" placeholder="ex: www.site.com ou admin@site.com">
+          </div>
+          <!-- Sélection du type avec les badges -->
+          <div class="ui-g-4">
+            <p-selectButton [options]="sanTypes" formControlName="type" optionValue="value">
+              <ng-template let-item><p-tag [value]="item.label" [styleClass]="item.styleClass"></p-tag></ng-template>
+            </p-selectButton>
+          </div>
+          <!-- Bouton de suppression -->
+          <div class="ui-g-1" style="text-align: right;">
+            <button pButton type="button" icon="pi pi-trash" class="p-button-danger p-button-text" (click)="removeSan(i)" [disabled]="sans.controls.length <= 1"></button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- Bouton pour ajouter une ligne -->
+    <div class="ui-g-12 ui-g-nopad" style="margin-top: 10px;">
+      <button pButton type="button" label="Ajouter un SAN" icon="pi pi-plus" class="p-button-secondary" (click)="addSan()"></button>
+    </div>
+  </div>
+</div>
+Use code with caution.
+Html
+Fichier 5 : src/app/form.component.ts (Le composant Parent)
+Rôle : Transformer le payload final juste avant de l'envoyer au backend pour qu'il corresponde parfaitement à ce que l'API Java attend.
+Action : Modifier votre méthode de soumission (onSubmit, addRequest, etc.).
+Generated typescript
+// Dans la méthode qui envoie les données au backend
+public onSubmit(): void {
+  // Créez une copie profonde pour ne pas altérer le formulaire
+  const payload = JSON.parse(JSON.stringify(this.form.value));
+
+  // Accédez à la section des SANs
+  const sansFromForm = payload.certificateDetails?.sans; // Utilisez le nom de votre form group
+
+  if (sansFromForm && Array.isArray(sansFromForm)) {
+    // **C'est ici qu'on s'assure que `url` et `sanValue` sont synchronisés.**
+    payload.certificateDetails.sans = sansFromForm.map(san => {
+      return {
+        type: san.type,
+        sanValue: san.value,
+        url: san.value // url et sanValue reçoivent la même valeur
+      };
+    });
+  }
+
+  // Maintenant, le `payload` est prêt à être envoyé au service
+  // this.requestService.addRequest(payload).subscribe(...);
+}
