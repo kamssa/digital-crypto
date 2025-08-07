@@ -335,3 +335,27 @@ public onSubmit(): void {
     </div>
   </div>
 </div>
+//////// badges.scss //////////////////////
+
+.badge-info {
+  background-color: $info-color !important;
+  color: white !important;
+}
+.badge-success {
+  background-color: $success-color !important;
+  color: white !important;
+}
+.badge-warning {
+  background-color: $warning-color !important;
+  color: #212529 !important; // Texte sombre pour les fonds clairs
+}
+.badge-danger {
+  background-color: $danger-color !important;
+  color: white !important;
+}
+//// variable //////////////
+// AJOUTEZ CES VARIABLES SI ELLES N'EXISTENT PAS
+$info-color:    #17a2b8;
+$success-color: #28a745;
+$warning-color: #ffc107;
+$danger-color:  #dc3545;
