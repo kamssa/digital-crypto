@@ -656,3 +656,81 @@ onSubmit(): void {
         },
       });
   }
+  //////// froamt ///////////////////
+   createSanGroup(): FormGroup {
+    // On crée le groupe de formulaire pour une ligne SAN
+    const sanGroup = this.fb.group({
+      type: ['DNSNAME', Validators.required], // Type par défaut
+      value: ['', [Validators.required, Validators.pattern(SAN_REGEX_PATTERNS.DNSNAME)]] // Validateur par défaut
+    });
+
+    // On écoute les changements sur le champ 'type' (le dropdown)
+    sanGroup.get('type').valueChanges
+      .pipe(takeUntil(this.onDestroy$)) // Important pour éviter les fuites de mémoire
+      .subscribe(type => {
+        const valueControl = sanGroup.get('value');
+        const regex = SAN_REGEX_PATTERNS[type]; // On récupère la regex depuis notre fichier de config
+
+        if (regex) {
+          // On met à jour les validateurs du champ 'value'
+          valueControl.setValidators([Validators.required, Validators.pattern(regex)]);
+        } else {
+          valueControl.setValidators(Validators.required);
+        }
+        // On force la re-validation du champ
+        valueControl.updateValueAndValidity();
+      });
+
+    return sanGroup;
+  }
+
+  // MODIFIER votre méthode addSan existante pour qu'elle soit plus simple
+  addSan(): void {
+    const sans = this.requestDetailSectionForm.get('sans') as FormArray;
+    sans.push(this.createSanGroup());
+  }
+  ////
+  export class RequestDetailSectionComponent implements OnInit, OnDestroy {
+  // ...
+  private onDestroy$ = new Subject<void>(); // <-- S'IL N'EXISTE PAS, AJOUTEZ-LE
+
+  // ...
+
+  ngOnDestroy() {
+    this.onDestroy$.next();
+    this.onDestroy$.complete();
+    // ... potentiellement d'autres logiques de désinscription déjà présentes
+  }
+}
+///
+<!-- Fichier request-detail-section.component.html -->
+
+<!-- ... -->
+<div formArrayName="sans">
+  <!-- Je me base sur la structure vue dans vos screenshots -->
+  <div *ngFor="let sanGroup of sans.controls; let i = index" [formGroupName]="i">
+    <!-- ... vos divs pour l'input et le dropdown ... -->
+    <div class="div-qui-contient-l-input">
+        <input type="text" pInputText formControlName="value" placeholder="ex: www.site.com">
+    </div>
+    <div class="div-qui-contient-le-dropdown">
+        <p-dropdown [options]="sanTypes" formControlName="type"></p-dropdown>
+    </div>
+
+    <!-- 
+      AJOUTER CE BLOC POUR L'ERREUR 
+      RAISON : Ce bloc affiche un message à l'utilisateur uniquement si
+      le champ 'value' est invalide ET que l'erreur est de type 'pattern'.
+      Ceci est la connexion directe entre la validation par regex dans votre
+      code TypeScript et le feedback visuel pour l'utilisateur.
+    -->
+    <div *ngIf="sanGroup.get('value').invalid && (sanGroup.get('value').dirty || sanGroup.get('value').touched)" 
+         class="p-col-12 p-text-right">
+      <small class="p-error" *ngIf="sanGroup.get('value').errors?.pattern">
+        Format invalide pour le type de SAN sélectionné.
+      </small>
+    </div>
+
+  </div>
+</div>
+<!-- ... -->
