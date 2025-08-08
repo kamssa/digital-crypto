@@ -815,3 +815,32 @@ xport const SAN_REGEX_PATTERNS = {
 
     </div>
 </div>
+//// i18n////////////////////
+{
+  "requestDetailSection": {
+    "errors": {
+      "sanFormat": {
+        "DNSNAME": "Format de nom de domaine invalide. Exemple : www.domaine.com",
+        "IPADDRESS": "Format d'adresse IP invalide. Exemple : 192.168.1.1",
+        "RFC822NAME": "Format d'adresse e-mail invalide. Exemple : utilisateur@domaine.com",
+        "URI": "Format d'URI invalide. Exemple : https://www.domaine.com"
+      }
+    }
+  }
+}
+Use code with caution.
+Json
+en.json
+Generated json
+{
+  "requestDetailSection": {
+    "errors": {
+      "sanFormat": {
+        "DNSNAME": "Invalid domain name format. Example: www.domain.com",
+        "IPADDRESS": "Invalid IP address format. Example: 192.168.1.1",
+        "RFC822NAME": "Invalid email address format. Example: user@domain.com",
+        "URI": "Invalid URI format. Example: https://www.domain.com"
+      }
+    }
+  }
+}
