@@ -932,4 +932,35 @@ request.error.san.incomplete=The SAN is incomplete. Both type and value are requ
 request.error.san.incomplete=Le SAN est incomplet. Le type et la valeur sont obligatoires.
 request.error.san.invalid.format=La valeur ''{0}'' n\u0027est pas un format valide pour un SAN de type {1}.
 request.error.san.incomplete=Le SAN est incomplet. Le type et la valeur sont obligatoires.
+////////// 1430/////////////////
+<!-- Votre structure principale que nous conservons -->
+<div class="row nopad" [hidden]="!certificateRequest?.certificate?.sans?.length">
+    <div class="ui-g-3 nopad">
+        <label class="pull-right">{{'requestDetailsSection.SANS' | translate}} :</label>
+    </div>
+    <div class="ui-g-9 nopad">
+        <!-- La boucle *ngFor est conservée, mais on accède à l'objet 'san' -->
+        <div *ngFor="let san of certificateRequest.certificate.sans" class="row nopad san-item-row">
+            
+            <!-- Cette colonne vide est conservée pour l'alignement -->
+            <div class="ui-g-3 nopad">
+                <label class="pull-right nopad"></label>
+            </div>
+
+            <!-- ========================================================== -->
+            <!--             C'EST ICI QUE LA MODIFICATION OPÈRE            -->
+            <!-- ========================================================== -->
+            <div class="ui-g-9 nopad">
+                <!-- On remplace l'ancien <label> par ce bloc -->
+                <span class="badge" [ngClass]="sanStyleMapper[san.sanType]">
+                    {{ san.sanType }}
+                </span>
+                <span class="san-value">
+                    {{ san.sanValue }}
+                </span>
+            </div>
+
+        </div>
+    </div>
+</div>
 
