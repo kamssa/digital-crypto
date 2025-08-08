@@ -844,3 +844,84 @@ Generated json
     }
   }
 }
+///////////////////////// back ////////////////////////////
+import com.bnpparibas.certis.api.util.SanValidationPatterns; // Vous devrez créer ce fichier
+import org.springframework.util.CollectionUtils;
+import org.springframework.util.StringUtils;
+
+@Service
+public class SanServiceImpl implements SanService {
+
+    // ...
+
+    @Override
+    public void validateSansPerRequest(RequestDto requestDto) {
+        if (this.skipValidationIfDataMissing(requestDto)) {
+            return;
+        }
+
+        // ... code existant ...
+        if (requestDto.getUsage().equalsIgnoreCase(INT_USAGE)) { /* ... */ }
+        if (requestDto.getUsage().equalsIgnoreCase(EXT_USAGE)) { /* ... */ }
+
+        // ↓↓↓ LIGNE À AJOUTER ↓↓↓
+        this.verifySanFormats(requestDto);
+    }
+    
+    // ↓↓↓ NOUVELLE MÉTHODE COMPLÈTE À AJOUTER ↓↓↓
+    private void verifySanFormats(RequestDto requestDto) {
+        if (requestDto.getCertificate() == null || CollectionUtils.isEmpty(requestDto.getCertificate().getSans())) {
+            return;
+        }
+
+        for (San san : requestDto.getCertificate().getSans()) {
+            if (san.getType() == null || !StringUtils.hasText(san.getSanValue())) {
+                throw new CertisRequestException("request.error.san.incomplete", HttpStatus.BAD_REQUEST);
+            }
+
+            boolean isValid = false;
+            switch (san.getType()) {
+                case DNSNAME:
+                    isValid = SanValidationPatterns.DNSNAME.matcher(san.getSanValue()).matches();
+                    break;
+                case IPADDRESS:
+                    isValid = SanValidationPatterns.IPADDRESS.matcher(san.getSanValue()).matches();
+                    break;
+                case RFC822NAME:
+                    isValid = SanValidationPatterns.RFC822NAME.matcher(san.getSanValue()).matches();
+                    break;
+                case URI:
+                    isValid = SanValidationPatterns.URI.matcher(san.getSanValue()).matches();
+                    break;
+                default:
+                    isValid = true;
+                    break;
+            }
+
+            if (!isValid) {
+                Object[] args = { san.getSanValue(), san.getType().name() };
+                throw new CertisRequestException("request.error.san.invalid.format", HttpStatus.BAD_REQUEST, args);
+            }
+        }
+    }
+    
+    // ...
+}
+/////////////////////////////// util///////////////
+package com.bnpparibas.certis.api.util;
+
+import java.util.regex.Pattern;
+
+public final class SanValidationPatterns {
+    public static final Pattern DNSNAME = Pattern.compile("^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\\.)+[a-zA-Z]{2,6}$|^(\\*\\.)(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\\.)+[a-zA-Z]{2,6}$");
+    public static final Pattern RFC822NAME = Pattern.compile("^[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+(?:\\.[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\\.)+[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$");
+    public static final Pattern OTHERNAME_GUID = Pattern.compile("^.*#[a-zA-Z0-9]{32}$");
+    public static final Pattern OTHERNAME_UPN = RFC822NAME;
+    public static final Pattern URI = Pattern.compile("^(https?|ldaps?|ftp|file|tag|urn|data|tel)://[a-zA-Z0-9\\.\\+&#/%?=~_\\-!:,|'*]+$", Pattern.CASE_INSENSITIVE);
+    private static final String IPV4_REGEX = "((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)";
+    private static final String IPV6_REGEX = "((([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,6})|:)|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])))";
+    public static final Pattern IPADDRESS = Pattern.compile("^(" + IPV4_REGEX + "|" + IPV6_REGEX + ")$");
+
+    private SanValidationPatterns() {}
+}
+Use code with caution.
