@@ -930,5 +930,6 @@ request.error.san.invalid.format=La valeur ''{0}'' n''est pas un format valide p
 request.error.san.invalid.format=The value ''{0}'' is not a valid format for a SAN of type {1}.
 request.error.san.incomplete=The SAN is incomplete. Both type and value are required.
 request.error.san.incomplete=Le SAN est incomplet. Le type et la valeur sont obligatoires.
-
+request.error.san.invalid.format=La valeur ''{0}'' n\u0027est pas un format valide pour un SAN de type {1}.
+request.error.san.incomplete=Le SAN est incomplet. Le type et la valeur sont obligatoires.
 
