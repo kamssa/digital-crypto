@@ -742,4 +742,76 @@ xport const SAN_REGEX_PATTERNS = {
   OTHERNAME_GUID: /^.*#[a-zA-Z0-9]{32}$/,
   OTHERNAME_UPN: /^[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?$/,
   URI: /^(https?|ldaps?|ftp|file|tag|urn|data|tel):\/\/[a-zA-Z0-9\.\+&#\/%?=~_\-!:,|'*]+$/i
+  ///////
+  
+  
 };
+/////////////////////////////////////////////////////////////
+<!-- =================== DÉBUT DE LA SECTION À REMPLACER =================== -->
+
+<!-- Titre et explication pour la section SANs (déjà dans votre code) -->
+<div class="row row-style" [hidden]="!constraint?.fields['SANs']">
+    <div class="ui-g-4">
+        <i class="fa fa-info-circle tooltip pull-right" [pTooltip]="'tooltips.SANs' | translate" tooltipPosition="top"></i>
+        <label class="pull-right">{{ 'requestDetailSection.SANs' | translate }}</label>
+        <span class="mandatory-field pull-right">*</span>
+    </div>
+
+    <!-- Conteneur principal pour le FormArray et le bouton d'ajout -->
+    <div class="ui-g-8">
+
+        <!-- Conteneur du FormArray qui contient la boucle -->
+        <div formArrayName="sans">
+            <!-- Boucle qui crée une ligne pour chaque SAN -->
+            <div *ngFor="let sanGroup of sans.controls; let i = index" [formGroupName]="i" class="ui-g-12 ui-g-nopad" style="margin-bottom: 15px;">
+                <div class="ui-g ui-fluid p-align-center">
+                    
+                    <!-- Champ de saisie -->
+                    <div class="ui-g-7">
+                        <input type="text" pInputText formControlName="value" placeholder="ex: www.site.com">
+                    </div>
+
+                    <!-- Dropdown pour le type -->
+                    <div class="ui-g-4">
+                        <p-dropdown [options]="sanTypes" 
+                                    formControlName="type" 
+                                    optionLabel="label" 
+                                    optionValue="value" 
+                                    placeholder="Choisir un type">
+                            <ng-template let-item pTemplate="selectedItem">
+                                <p-tag [value]="item.label" [styleClass]="item.styleClass" style="width: 100%;"></p-tag>
+                            </ng-template>
+                            <ng-template let-item pTemplate="item">
+                                <p-tag [value]="item.label" [styleClass]="item.styleClass" style="width: 100%;"></p-tag>
+                            </ng-template>
+                        </p-dropdown>
+                    </div>
+                    
+                    <!-- Bouton de suppression -->
+                    <div class="ui-g-1" style="text-align: right;">
+                        <button pButton type="button" icon="pi pi-trash" class="p-button-danger p-button-text" (click)="removeSan(i)"></button>
+                    </div>
+
+                    <!-- NOUVEAU BLOC D'ERREUR (À L'INTÉRIEUR de la boucle) -->
+                    <div class="ui-g-12" *ngIf="sanGroup.get('value')?.invalid && (sanGroup.get('value')?.dirty || sanGroup.get('value')?.touched)">
+                        <small class="p-error" *ngIf="sanGroup.get('value')?.errors?.pattern">
+                            {{ 'requestDetailSection.errors.sanFormat' | translate }}
+                        </small>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+        <!-- LE BOUTON addSan() (EN DEHORS de la boucle) -->
+        <div class="ui-g-12 ui-g-nopad" style="margin-top: 10px;">
+            <button pButton type="button" 
+                    label="{{ 'requestDetailSection.addSan' | translate }}" 
+                    icon="pi pi-plus-circle" 
+                    class="p-button-secondary" 
+                    (click)="addSan()">
+            </button>
+        </div>
+
+    </div>
+</div>
