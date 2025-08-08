@@ -538,3 +538,121 @@ $danger-color:  #dc3545;
     });
   }
 }
+//////////onSubmit ////////////////////
+onSubmit(): void {
+    this.form.markAllAsTouched();
+
+    if (this.form.invalid) {
+      console.error('Formulaire invalide. Soumission annulée.');
+      return;
+    }
+
+    this.requestChangeInProgress = true;
+    this.errorMessage = null;
+
+    const formValue = this.form.value;
+
+    const finalPayload = {
+      ...this.certificateRequest,
+      ...formValue.requestDetails,
+      ...formValue.project,
+      certificate: {
+        ...this.certificateRequest?.certificate,
+        ...formValue.certificateDetails
+      }
+    };
+
+    if (finalPayload.certificate?.sans && Array.isArray(finalPayload.certificate.sans)) {
+      finalPayload.certificate.sans = finalPayload.certificate.sans.map(san => ({
+        type: san.type,
+        sanValue: san.value,
+        url: san.value
+      }));
+    }
+
+    console.log('Payload final prêt à être envoyé :', finalPayload);
+
+    let request$: Observable<any>;
+    if (finalPayload.id) {
+      request$ = this.requestService.editRequest(finalPayload);
+    } else {
+      request$ = this.requestService.addRequest(finalPayload);
+    }
+
+    request$.pipe(
+      switchMap((res: any) => {
+        // Votre logique existante pour les fichiers
+        return of(res);
+      })
+    ).subscribe({
+      next: (response) => {
+        console.log('Opération réussie !', response);
+        this.requestChangeInProgress = false;
+        // Gérer la redirection ou le message de succès...
+      },
+      error: (err) => {
+        console.error('Erreur lors de la soumission :', err);
+        this.errorMessage = 'Une erreur est survenue.';
+        this.requestChangeInProgress = false;
+      }
+    });
+}
+//////////////////////////////////////////
+onSubmit(): void {
+    this.form.markAllAsTouched();
+    if (this.form.invalid) {
+      console.error('Formulaire invalide. Soumission annulée.');
+      return;
+    }
+
+    this.requestChangeInProgress = true;
+    this.errorMessage = null;
+
+    const formValue = this.form.value;
+
+    const finalPayload = {
+      ...this.certificateRequest,
+      ...formValue.requestDetails,
+      ...formValue.project,
+      certificate: {
+        ...this.certificateRequest?.certificate,
+        ...formValue.certificateDetails,
+      },
+    };
+
+    if (finalPayload.certificate?.sans && Array.isArray(finalPayload.certificate.sans)) {
+      finalPayload.certificate.sans = finalPayload.certificate.sans.map(san => ({
+        type: san.type,
+        sanValue: san.value,
+        url: san.value,
+      }));
+    }
+
+    console.log('Payload final prêt à être envoyé :', finalPayload);
+
+    let request$: Observable<any>;
+    if (finalPayload.id) {
+      request$ = this.requestService.editRequest(finalPayload);
+    } else {
+      request$ = this.requestService.addRequest(finalPayload);
+    }
+
+    request$.pipe(
+        switchMap((res: any) => {
+          // Votre logique existante pour les fichiers
+          return of(res);
+        })
+      )
+      .subscribe({
+        next: (response) => {
+          console.log('Opération réussie !', response);
+          this.requestChangeInProgress = false;
+          // Gérer la redirection ou le message de succès...
+        },
+        error: (err) => {
+          console.error('Erreur lors de la soumission :', err);
+          this.errorMessage = 'Une erreur est survenue.';
+          this.requestChangeInProgress = false;
+        },
+      });
+  }
