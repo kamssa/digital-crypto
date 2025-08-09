@@ -1746,3 +1746,24 @@ public List<AutomationHubCertificateLightDto> searchCertificates(SearchCertifica
     }
     return allCertificates;
 }
+///
+if (resp != null) {
+    // On réutilise votre mapper existant pour extraire le SearchResultDto.
+    // Assurez-vous que le nom du mapper et de la méthode sont corrects.
+    SearchResultDto searchResult = responseSearchDtoToSearchResultDtoMapper.toSearchResultDtoMapper(resp);
+
+    if (searchResult != null) {
+        // On ajoute les résultats de la page courante à notre liste totale
+        allCertificates.addAll(searchResult.getResults());
+        
+        // On met à jour la variable 'hasMore' pour savoir si on doit continuer la boucle
+        hasMore = searchResult.getHasMore();
+        pageIndex++;
+    } else {
+        // S'il n'y a pas de résultat, on arrête la boucle
+        hasMore = false;
+    }
+} else {
+    // Si la réponse est nulle, on arrête la boucle
+    hasMore = false;
+}
