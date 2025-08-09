@@ -1785,3 +1785,27 @@ private String buildAutomationHubQuery(SearchCertificateRequestDto searchCertifi
 private String buildCondition(ISearchCriterion criterion) {
     // ...
 }
+//////
+public SearchPayloadDto build() {
+    SearchPayloadDto payload = new SearchPayloadDto();
+
+    // On vérifie s'il y a une 'rawQuery' dans la requête d'entrée
+    if (StringUtils.hasText(requestDto.getRawQuery())) {
+        
+        // CORRECTION 1 : Le nom de la méthode est "setQuery", pas "setRawQuery"
+        payload.setQuery(requestDto.getRawQuery());
+
+    } else {
+        
+        // CORRECTION 2 : C'est ici qu'on appelle la méthode "setCriteria"
+        payload.setCriteria(
+            requestDto.getCriterionList().stream()
+                .map(this::mapCriterion)
+                .collect(Collectors.toList())
+        );
+    }
+
+    // Le reste ne change pas
+    payload.setCaseSensitive(requestDto.isCaseSensitive());
+    return payload;
+}
