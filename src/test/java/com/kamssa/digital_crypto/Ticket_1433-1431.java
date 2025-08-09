@@ -1570,3 +1570,136 @@ protected List<EnrollPayloadTemplateSanDto> buildSan() {
 
     return sanList;
 }
+/////////////////// 1282///////////////
+// package com.bnpparibas.certis.automationhub.dto.business.search; // À adapter au besoin
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class CriterionDto {
+    private String field;
+    private String operator;
+    private Object value;
+}
+////////
+import com.bnpparibas.certis.automationhub.dto.business.search.CriterionDto; // Assurez-vous d'importer la classe précédente
+import java.util.List;
+import lombok.Data;
+
+@Data
+public class SearchPayloadDto {
+    private String rawQuery;
+    private List<CriterionDto> criteria;
+    private boolean caseSensitive;
+    private List<String> fields;
+    private int pageSize;
+    private int pageIndex;
+}
+/////////////
+// package com.bnpparibas.certis.automationhub.dto.payload; // À adapter au besoin
+
+import com.bnpparibas.certis.automationhub.dto.business.search.CriterionDto; // Assurez-vous d'importer la classe précédente
+import java.util.List;
+import lombok.Data;
+
+@Data
+public class SearchPayloadDto {
+    private String rawQuery;
+    private List<CriterionDto> criteria;
+    private boolean caseSensitive;
+    private List<String> fields;
+    private int pageSize;
+    private int pageIndex;
+}
+////
+// package com.bnpparibas.certis.automationhub.builder; // À adapter au besoin
+
+import com.bnpparibas.certis.automationhub.dto.business.search.CriterionDto;
+import com.bnpparibas.certis.automationhub.dto.business.search.ISearchCriterion;
+import com.bnpparibas.certis.automationhub.dto.business.search.SearchCertificateRequestDto;
+import com.bnpparibas.certis.automationhub.dto.payload.SearchPayloadDto;
+import org.springframework.util.StringUtils;
+import java.util.stream.Collectors;
+
+public class SearchPayloadBuilder {
+
+    private final SearchCertificateRequestDto requestDto;
+
+    public SearchPayloadBuilder(SearchCertificateRequestDto requestDto) {
+        this.requestDto = requestDto;
+    }
+
+    public SearchPayloadDto build() {
+        SearchPayloadDto payload = new SearchPayloadDto();
+        
+        if (StringUtils.hasText(requestDto.getRawQuery())) {
+            payload.setRawQuery(requestDto.getRawQuery());
+        } else {
+            payload.setCriteria(
+                requestDto.getCriterionList().stream()
+                    .map(this::mapCriterion)
+                    .collect(Collectors.toList())
+            );
+        }
+
+        payload.setCaseSensitive(requestDto.isCaseSensitive());
+        return payload;
+    }
+
+    // Le coeur de la transparence : un mapping direct, sans "calculs"
+    private CriterionDto mapCriterion(ISearchCriterion sourceCriterion) {
+        return new CriterionDto(
+            sourceCriterion.getField().getValue(),
+            sourceCriterion.getOperator().getValue(),
+            sourceCriterion.getValue()
+        );
+    }
+}
+/////
+// Dans le fichier AutomationHubClient.java
+
+// (N'oubliez pas les imports nécessaires pour les nouvelles classes)
+import com.bnpparibas.certis.automationhub.builder.SearchPayloadBuilder;
+import com.bnpparibas.certis.automationhub.dto.payload.SearchPayloadDto;
+// ... autres imports ...
+
+public List<AutomationHubCertificateLightDto> searchCertificates(SearchCertificateRequestDto searchCertificateRequestDto) throws FailedToSearchCertificatesException {
+    List<AutomationHubCertificateLightDto> allCertificates = new ArrayList<>();
+    boolean hasMore = true;
+    int pageIndex = 1;
+
+    // 1. On utilise le nouveau builder pour préparer le payload de manière transparente.
+    SearchPayloadDto payload = new SearchPayloadBuilder(searchCertificateRequestDto).build();
+    payload.setFields(new ArrayList<>(FIELDS_FOR_SEARCH_ENDPOINT)); // On peut garder la liste des champs à retourner
+
+    while (hasMore) {
+        payload.setPageSize(paginationConfig.getPageSize());
+        payload.setPageIndex(pageIndex);
+        
+        LOGGER.info("Searching certificates with payload: {}", payload);
+
+        // 2. On envoie directement l'objet 'payload'. Spring/Jackson le convertit en JSON.
+        // Assurez-vous que ResponseSearchDto est le bon type de classe pour la réponse.
+        ResponseSearchDto resp = automationHubRestTemplate.postForEntity(
+                "/certificates/search",
+                payload,
+                ResponseSearchDto.class
+        ).getBody();
+
+        // Le reste de la logique pour traiter la réponse reste similaire
+        if (resp != null && resp.getSearchResultDto() != null) {
+            allCertificates.addAll(
+                    responseSearchDtoToSearchResultDtoMapper.toSearchResponseDto(resp).getResults()
+            );
+            hasMore = resp.getSearchResultDto().getHasMore();
+            pageIndex++;
+        } else {
+            hasMore = false;
+        }
+    }
+    return allCertificates;
+}
