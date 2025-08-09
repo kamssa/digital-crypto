@@ -1401,3 +1401,39 @@ public List<SanDto> extractSansWithTypesFromCsr(String csrPem) throws Exception 
     
     return sanDtoList;
 }
+///////////////////////////
+// ===                    BLOC DE CODE CORRIGÉ                     ===
+// ===================================================================
+case GeneralName.otherName:
+    // 1. Un "otherName" est une séquence ASN.1. On la récupère.
+    ASN1Sequence otherNameSequence = ASN1Sequence.getInstance(name.getName());
+
+    // 2. Le premier élément de la séquence est l'ObjectID (OID).
+    ASN1ObjectIdentifier oid = (ASN1ObjectIdentifier) otherNameSequence.getObjectAt(0);
+    
+    // 3. Le deuxième élément est la valeur, enveloppée dans un "tag". On l'extrait.
+    if (otherNameSequence.size() > 1) {
+        ASN1Encodable valueEncodable = ((DERTaggedObject) otherNameSequence.getObjectAt(1)).getBaseObject();
+        String otherNameValue = valueEncodable.toString();
+
+        // 4. On compare l'OID avec les valeurs connues pour savoir si c'est un UPN, un GUID, etc.
+        // OID pour User Principal Name (UPN) - Standard Microsoft, très courant.
+        final String upnOid = "1.3.6.1.4.1.311.20.2.3";
+        // OID pour GUID - C'est un exemple, vous devrez peut-être vérifier l'OID exact utilisé dans votre environnement.
+        final String guidOid = "1.3.6.1.4.1.311.25.1"; // ATTENTION: OID d'exemple, à vérifier !
+
+        if (upnOid.equals(oid.getId())) {
+            sanDto.setSanType(SanTypeEnum.OTHERNAME_UPN);
+            sanDto.setSanValue(otherNameValue);
+            sanDtoList.add(sanDto);
+        } else if (guidOid.equals(oid.getId())) {
+            sanDto.setSanType(SanTypeEnum.OTHERNAME_GUID);
+            sanDto.setSanValue(otherNameValue);
+            sanDtoList.add(sanDto);
+        }
+        // Vous pouvez ajouter d'autres 'else if' pour d'autres types d'otherName.
+    }
+    break;
+// ===================================================================
+// ===                     FIN DU BLOC CORRIGÉ                     ===
+// ===================================================================
