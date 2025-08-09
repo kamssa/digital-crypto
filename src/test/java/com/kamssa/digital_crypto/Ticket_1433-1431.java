@@ -1191,4 +1191,37 @@ public class SanDto { // Le nom de votre classe DTO
     // ===                    FIN DU BLOC DE CODE                      ===
     // ===================================================================
 }
+///// version corrige de equal et hascode ///////////
+@Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+
+        SanDto sanDto = (SanDto) o;
+
+        // Étape 1 : On compare le type. Si différent, ce ne sont pas les mêmes objets.
+        if (getSanType() != sanDto.getSanType()) return false;
+        
+        // Étape 2 : On compare la valeur de manière null-safe et insensible à la casse.
+        // Si sanValue est null, on vérifie si l'autre l'est aussi.
+        if (getSanValue() == null) {
+            return sanDto.getSanValue() == null;
+        }
+        // Sinon, on fait la comparaison insensible à la casse.
+        return getSanValue().equalsIgnoreCase(sanDto.getSanValue());
+    }
+
+    @Override
+    public int hashCode() {
+        // On doit utiliser une version normalisée de la valeur pour le hash,
+        // ici, on la passe en minuscule pour être cohérent avec equalsIgnoreCase.
+        String lowerCaseSanValue = (getSanValue() == null) ? null : getSanValue().toLowerCase();
+        
+        // On calcule le hash sur les mêmes champs que equals.
+        return Objects.hash(getSanType(), lowerCaseSanValue);
+    }
+
+    // ===================================================================
+    // ===                 FIN DE LA VERSION CORRIGÉE                  ===
+    // ===================================================================
 
