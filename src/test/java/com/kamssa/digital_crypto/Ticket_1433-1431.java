@@ -1532,3 +1532,41 @@ public RequestDto createRequest(RequestDto requestDto) {
         return enrollPayloadTemplateSanDtos;
     }
 }
+/////////////////////
+
+
+@Override
+protected List<EnrollPayloadTemplateSanDto> buildSan() {
+    
+    List<EnrollPayloadTemplateSanDto> sanList = super.buildSan();
+    
+    String commonName = this.automationHubRequestDto.getCommonName();
+    
+    if (commonName == null || commonName.isEmpty()) {
+        return sanList;
+    }
+
+    EnrollPayloadTemplateSanDto dnsNameDto = null;
+    for (EnrollPayloadTemplateSanDto dto : sanList) {
+        if (SanTypeEnum.DNSNAME.name().equalsIgnoreCase(dto.getType())) {
+            dnsNameDto = dto;
+            break;
+        }
+    }
+
+    if (dnsNameDto != null) {
+        List<String> values = dnsNameDto.getValue() != null ? new ArrayList<>(dnsNameDto.getValue()) : new ArrayList<>();
+        if (!values.contains(commonName)) {
+            values.add(commonName);
+        }
+        dnsNameDto.setValue(values);
+        
+    } else {
+        EnrollPayloadTemplateSanDto newDnsNameDto = new EnrollPayloadTemplateSanDto();
+        newDnsNameDto.setType(SanTypeEnum.DNSNAME.name());
+        newDnsNameDto.setValue(Collections.singletonList(commonName));
+        sanList.add(newDnsNameDto);
+    }
+
+    return sanList;
+}
