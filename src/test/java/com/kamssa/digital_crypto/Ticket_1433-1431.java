@@ -1838,3 +1838,37 @@ public enum SearchCriterionDateOperatorEnum implements ISearchCriterionOperatorE
         return AllOperatorEnum.valueOf(this.name());
     }
 }
+//////
+
+public enum SearchCriterionTextOperatorEnum implements ISearchCriterionOperatorEnum {
+
+    // 1. Associez une valeur textuelle à chaque membre
+    EQ("EQ"),
+    NOT_EQ("NOT_EQ"),
+    IN("IN"),
+    NOT_IN("NOT_IN"),
+    CONTAINS("CONTAINS"),
+    NOT_CONTAINS("NOT_CONTAINS"),
+    IN_CONTAINS("IN_CONTAINS"); // Note : Ce nom est inhabituel, vérifiez s'il est correct
+
+    // 2. Ajoutez le champ pour stocker la valeur
+    private final String value;
+
+    // 3. Ajoutez le constructeur
+    SearchCriterionTextOperatorEnum(String value) {
+        this.value = value;
+    }
+
+    // 4. Implémentez la méthode de l'interface pour corriger l'erreur
+    @Override
+    public String getValue() {
+        return this.value;
+    }
+    
+    // Votre autre méthode ne change pas
+    public AllOperatorEnum getBaseOperatorEnum() {
+        // La logique ici dépend de ce que fait votre AllOperatorEnum
+        // C'est probablement quelque chose comme ça :
+        return AllOperatorEnum.valueOf(this.name());
+    }
+}
