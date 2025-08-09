@@ -1767,3 +1767,21 @@ if (resp != null) {
     // Si la réponse est nulle, on arrête la boucle
     hasMore = false;
 }
+/////
+/**
+ * @deprecated Remplacé par la logique du {@link SearchPayloadBuilder}.
+ * Cette méthode sera supprimée dans une future version.
+ */
+@Deprecated
+private String buildAutomationHubQuery(SearchCertificateRequestDto searchCertificateRequestDto) {
+    // ... le code original reste ici pour le moment ...
+}
+
+/**
+ * @deprecated Fait partie de l'ancienne logique de construction de query.
+ * À supprimer avec buildAutomationHubQuery.
+ */
+@Deprecated
+private String buildCondition(ISearchCriterion criterion) {
+    // ...
+}
