@@ -1703,3 +1703,46 @@ public List<AutomationHubCertificateLightDto> searchCertificates(SearchCertifica
     }
     return allCertificates;
 }
+////
+import com.bnpparibas.certis.automationhub.builder.SearchPayloadBuilder;
+import com.bnpparibas.certis.automationhub.dto.payload.SearchPayloadDto;
+// ... vos autres imports ...
+
+// REMPLACEZ VOTRE MÉTHODE EXISTANTE PAR CELLE-CI :
+public List<AutomationHubCertificateLightDto> searchCertificates(SearchCertificateRequestDto searchCertificateRequestDto) throws FailedToSearchCertificatesException {
+    List<AutomationHubCertificateLightDto> allCertificates = new ArrayList<>();
+    boolean hasMore = true;
+    int pageIndex = 1;
+
+    // 1. On utilise le nouveau builder pour préparer le payload de manière transparente.
+    SearchPayloadDto payload = new SearchPayloadBuilder(searchCertificateRequestDto).build();
+    payload.setFields(new ArrayList<>(FIELDS_FOR_SEARCH_ENDPOINT)); // Garde la liste des champs à retourner
+
+    while (hasMore) {
+        payload.setPageSize(paginationConfig.getPageSize());
+        payload.setPageIndex(pageIndex);
+        
+        LOGGER.info("Searching certificates with payload: {}", payload);
+
+        // 2. On envoie directement l'objet 'payload'. Spring s'occupe de la conversion en JSON.
+        // Assurez-vous que ResponseSearchDto est la bonne classe pour la réponse de l'API.
+        ResponseSearchDto resp = automationHubRestTemplate.postForEntity(
+                "/certificates/search",
+                payload,
+                ResponseSearchDto.class
+        ).getBody();
+
+        // 3. Le reste de la logique pour traiter la réponse et gérer la pagination
+        if (resp != null && resp.getSearchResultDto() != null) {
+            // Assurez-vous que votre mapper est compatible avec le nouveau format si nécessaire
+            allCertificates.addAll(
+                    responseSearchDtoToSearchResultDtoMapper.toSearchResponseDto(resp).getResults()
+            );
+            hasMore = resp.getSearchResultDto().getHasMore();
+            pageIndex++;
+        } else {
+            hasMore = false;
+        }
+    }
+    return allCertificates;
+}
