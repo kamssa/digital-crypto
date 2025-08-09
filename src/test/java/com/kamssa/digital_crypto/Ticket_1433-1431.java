@@ -1487,3 +1487,48 @@ public RequestDto createRequest(RequestDto requestDto) {
     
     return requestDtoResult;
 }
+////////////////////// EnrollBuider //////////////////////
+  @Override
+    protected List<EnrollPayloadTemplateSanDto> buildSan() {
+
+        List<SanDto> inputSans = automationHubRequestDto.getSanList();
+        List<EnrollPayloadTemplateSanDto> enrollPayloadTemplateSanDtos = new ArrayList<>();
+
+        // CAS 1 : La liste de SANs est vide ou nulle. On tente le fallback sur le Common Name.
+        if (inputSans == null || inputSans.isEmpty()) {
+            String commonName = automationHubRequestDto.getCommonName();
+            
+            // On applique la règle de validation sur le commonName.
+            if (commonName != null && !commonName.isEmpty() && !commonName.contains("|")) {
+                EnrollPayloadTemplateSanDto payloadSan = new EnrollPayloadTemplateSanDto();
+                payloadSan.setType(SanTypeEnum.DNSNAME.name());
+                payloadSan.setValue(Collections.singletonList(commonName));
+                enrollPayloadTemplateSanDtos.add(payloadSan);
+            }
+        } 
+        // CAS 2 : La liste de SANs est fournie. On applique la logique de regroupement par type.
+        else {
+            // On utilise une Map pour regrouper les valeurs.
+            Map<String, List<String>> sanBuildingMap = new HashMap<>();
+
+            // Étape 1 : Remplir la map.
+            for (SanDto san : inputSans) {
+                if (san != null && san.getSanType() != null && san.getSanValue() != null) {
+                    String sanType = san.getSanType().name();
+                    List<String> currentValues = sanBuildingMap.computeIfAbsent(sanType, k -> new ArrayList<>());
+                    currentValues.add(san.getSanValue());
+                }
+            }
+
+            // Étape 2 : Construire les DTOs finaux à partir de la map.
+            for (Map.Entry<String, List<String>> entry : sanBuildingMap.entrySet()) {
+                EnrollPayloadTemplateSanDto dto = new EnrollPayloadTemplateSanDto();
+                dto.setType(entry.getKey());
+                dto.setValue(entry.getValue());
+                enrollPayloadTemplateSanDtos.add(dto);
+            }
+        }
+
+        return enrollPayloadTemplateSanDtos;
+    }
+}
