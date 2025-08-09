@@ -1809,3 +1809,32 @@ public SearchPayloadDto build() {
     payload.setCaseSensitive(requestDto.isCaseSensitive());
     return payload;
 }
+///////
+public enum SearchCriterionDateOperatorEnum implements ISearchCriterionOperatorEnum {
+
+    // 1. Associez une valeur textuelle à chaque membre de l'énumération
+    EQ("EQ"),
+    AFTER("AFTER"),
+    BEFORE("BEFORE");
+
+    // 2. Ajoutez un champ privé pour stocker cette valeur
+    private final String value;
+
+    // 3. Créez un constructeur pour initialiser ce champ
+    SearchCriterionDateOperatorEnum(String value) {
+        this.value = value;
+    }
+
+    // 4. Implémentez la méthode requise par l'interface (ce qui corrige l'erreur)
+    @Override
+    public String getValue() {
+        return this.value;
+    }
+    
+    // Votre autre méthode existante ne change pas
+    public AllOperatorEnum getBaseOperatorEnum() {
+        // La logique ici dépend de ce que fait votre AllOperatorEnum
+        // C'est probablement quelque chose comme ça :
+        return AllOperatorEnum.valueOf(this.name());
+    }
+}
