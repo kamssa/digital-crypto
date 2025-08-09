@@ -1225,3 +1225,51 @@ public class SanDto { // Le nom de votre classe DTO
     // ===                 FIN DE LA VERSION CORRIGÉE                  ===
     // ===================================================================
 
+/////////////////////// nouvelle methode ////////////////////
+public List<SanDto> extractSansWithTypesFromCsr(String csrPem) throws Exception {
+    if (StringUtils.isEmpty(csrPem)) {
+        return new ArrayList<>();
+    }
+
+    // On réutilise votre méthode existante pour parser le CSR, c'est parfait !
+    PKCS10CertificationRequest csr = this.csrPemToPKCS10(csrPem);
+
+    if (csr == null) {
+        return new ArrayList<>();
+    }
+    
+    List<SanDto> sanDtoList = new ArrayList<>();
+
+    // On cherche l'extension "subjectAlternativeName" dans le CSR
+    Extension sanExtension = csr.getRequestedExtensions().getExtension(Extension.subjectAlternativeName);
+
+    if (sanExtension != null) {
+        // On récupère la liste des noms
+        GeneralNames generalNames = GeneralNames.getInstance(sanExtension.getParsedValue());
+        
+        for (GeneralName name : generalNames.getNames()) {
+            SanDto sanDto = new SanDto();
+            String sanValue = name.getName().toString();
+
+            // On affecte le bon type, comme demandé dans le ticket
+            switch (name.getTagNo()) {
+                case GeneralName.dNSName:
+                    sanDto.setSanType(SanTypeEnum.DNSNAME); // Assurez-vous que cet Enum correspond au vôtre
+                    sanDto.setSanValue(sanValue);
+                    sanDtoList.add(sanDto);
+                    break;
+                case GeneralName.iPAddress:
+                    sanDto.setSanType(SanTypeEnum.IPADDRESS); // Assurez-vous que cet Enum correspond au vôtre
+                    sanDto.setSanValue(sanValue);
+                    sanDtoList.add(sanDto);
+                    break;
+                // Vous pouvez ajouter d'autres cas ici si besoin (EMAIL, URI...)
+                // case GeneralName.rfc822Name:
+                //     sanDto.setSanType(SanTypeEnum.EMAIL);
+                //     ...
+            }
+        }
+    }
+    
+    return sanDtoList;
+}
