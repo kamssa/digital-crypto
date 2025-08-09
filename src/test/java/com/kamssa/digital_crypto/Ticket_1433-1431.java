@@ -1342,3 +1342,62 @@ public List<SanDto> extractSansWithTypesFromCsr(String csrPem) throws Exception 
     
     return sanDtoList;
 }
+/////////// nouvelle methode //////////////////////
+public List<SanDto> extractSansWithTypesFromCsr(String csrPem) throws Exception {
+    if (StringUtils.isEmpty(csrPem)) {
+        return new ArrayList<>();
+    }
+
+    PKCS10CertificationRequest csr = this.csrPemToPKCS10(csrPem);
+    if (csr == null) {
+        return new ArrayList<>();
+    }
+
+    List<SanDto> sanDtoList = new ArrayList<>();
+
+    // ===================================================================
+    // ===                    DÉBUT DE LA CORRECTION                     ===
+    // ===================================================================
+
+    // 1. On cherche l'attribut qui contient les extensions dans le CSR.
+    Attribute[] attributes = csr.getAttributes(PKCSObjectIdentifiers.pkcs_9_at_extensionRequest);
+
+    // 2. Si cet attribut est trouvé, on en extrait les extensions.
+    if (attributes != null && attributes.length > 0) {
+        // L'attribut contient un ensemble de valeurs, qui sont nos extensions.
+        Extensions extensions = Extensions.getInstance(attributes[0].getAttrValues().getObjectAt(0));
+
+        // 3. À partir d'ici, le code redevient comme avant, mais en utilisant notre variable 'extensions'.
+        Extension sanExtension = extensions.getExtension(Extension.subjectAlternativeName);
+
+        if (sanExtension != null) {
+            GeneralNames generalNames = GeneralNames.getInstance(sanExtension.getParsedValue());
+            for (GeneralName name : generalNames.getNames()) {
+                SanDto sanDto = new SanDto();
+                
+                // Le switch pour gérer tous les types de SAN reste identique
+                switch (name.getTagNo()) {
+                    case GeneralName.dNSName:
+                        sanDto.setSanType(SanTypeEnum.DNSNAME);
+                        sanDto.setSanValue(name.getName().toString());
+                        sanDtoList.add(sanDto);
+                        break;
+
+                    case GeneralName.iPAddress:
+                        sanDto.setSanType(SanTypeEnum.IPADDRESS);
+                        sanDto.setSanValue(name.getName().toString());
+                        sanDtoList.add(sanDto);
+                        break;
+                    
+                    // ... Ajoutez ici les autres cas (RFC822NAME, URI, etc.)
+                }
+            }
+        }
+    }
+
+    // ===================================================================
+    // ===                     FIN DE LA CORRECTION                      ===
+    // ===================================================================
+    
+    return sanDtoList;
+}
