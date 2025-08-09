@@ -1273,3 +1273,72 @@ public List<SanDto> extractSansWithTypesFromCsr(String csrPem) throws Exception 
     
     return sanDtoList;
 }
+//////////// decoder repris //////////////////
+public List<SanDto> extractSansWithTypesFromCsr(String csrPem) throws Exception {
+    if (StringUtils.isEmpty(csrPem)) {
+        return new ArrayList<>();
+    }
+
+    PKCS10CertificationRequest csr = this.csrPemToPKCS10(csrPem);
+    if (csr == null) { return new ArrayList<>(); }
+    
+    List<SanDto> sanDtoList = new ArrayList<>();
+    Extension sanExtension = csr.getRequestedExtensions().getExtension(Extension.subjectAlternativeName);
+
+    if (sanExtension != null) {
+        GeneralNames generalNames = GeneralNames.getInstance(sanExtension.getParsedValue());
+        
+        for (GeneralName name : generalNames.getNames()) {
+            SanDto sanDto = new SanDto();
+            
+            switch (name.getTagNo()) {
+                case GeneralName.dNSName:
+                    sanDto.setSanType(SanTypeEnum.DNSNAME);
+                    sanDto.setSanValue(name.getName().toString());
+                    sanDtoList.add(sanDto);
+                    break;
+                
+                case GeneralName.iPAddress:
+                    sanDto.setSanType(SanTypeEnum.IPADDRESS);
+                    sanDto.setSanValue(name.getName().toString());
+                    sanDtoList.add(sanDto);
+                    break;
+                
+                case GeneralName.rfc822Name: // Le type pour les emails
+                    sanDto.setSanType(SanTypeEnum.RFC822NAME);
+                    sanDto.setSanValue(name.getName().toString());
+                    sanDtoList.add(sanDto);
+                    break;
+                    
+                case GeneralName.uniformResourceIdentifier: // Le type pour les URI
+                    sanDto.setSanType(SanTypeEnum.URI);
+                    sanDto.setSanValue(name.getName().toString());
+                    sanDtoList.add(sanDto);
+                    break;
+
+                case GeneralName.otherName: // Cas plus complexe pour GUID et UPN
+                    // otherName est une séquence : [ObjectID, Valeur]
+                    ASN1ObjectIdentifier objectId = (ASN1ObjectIdentifier) ((DERTaggedObject) name.getName()).getBaseObject();
+                    String otherNameValue = ((DERTaggedObject) objectId.getBaseObject()).getBaseObject().toString();
+                    
+                    // L'ObjectID nous dit si c'est un GUID ou un UPN. Vous devrez trouver les bons OIDs.
+                    // Exemple d'OIDs (à vérifier !)
+                    String upnOid = "1.3.6.1.4.1.311.20.2.3";
+                    // ... trouvez l'OID pour le GUID
+                    
+                    if (upnOid.equals(objectId.getId())) {
+                        sanDto.setSanType(SanTypeEnum.OTHERNAME_UPN);
+                        sanDto.setSanValue(otherNameValue);
+                        sanDtoList.add(sanDto);
+                    } 
+                    // else if (guidOid.equals(objectId.getId())) {
+                    //     sanDto.setSanType(SanTypeEnum.OTHERNAME_GUID);
+                    //     ...
+                    // }
+                    break;
+            }
+        }
+    }
+    
+    return sanDtoList;
+}
