@@ -1437,3 +1437,53 @@ case GeneralName.otherName:
 // ===================================================================
 // ===                     FIN DU BLOC CORRIGÉ                     ===
 // ===================================================================
+
+/////// createRquest ///////////////////////
+@Override
+public RequestDto createRequest(RequestDto requestDto) {
+
+    List<SanDto> sansFromAngular = new ArrayList<>();
+    if (requestDto.getCertificateDto() != null && requestDto.getCertificateDto().getSanDto() != null) {
+        sansFromAngular.addAll(requestDto.getCertificateDto().getSanDto());
+    }
+
+    List<SanDto> sansFromCsr = new ArrayList<>();
+    final String csr = this.fileManagerService.extractCsr(requestDto, Boolean.TRUE);
+    if (!StringUtils.isEmpty(csr)) {
+        try {
+            sansFromCsr = this.certificateCsrDecoder.extractSansWithTypesFromCsr(csr);
+        } catch (Exception e) {
+            throw new CertisRequestException("error.request.csr.invalid_format", HttpStatus.BAD_REQUEST);
+        }
+    }
+
+    Set<SanDto> finalUniqueSans = new LinkedHashSet<>();
+    finalUniqueSans.addAll(sansFromAngular);
+    finalUniqueSans.addAll(sansFromCsr);
+
+    if (requestDto.getCertificateDto() != null) {
+        requestDto.getCertificateDto().setSanDto(new ArrayList<>(finalUniqueSans));
+    }
+
+    if (requestDto.getComment() != null && requestDto.getComment().length() > 3999) {
+        requestDto.setComment(requestDto.getComment().substring(0, 3998));
+    }
+
+    Request request = dtoToEntity(requestDto);
+
+    if (!CollectionUtils.isEmpty(requestDto.getCertificate().getSans())) {
+        for (San san : requestDto.getCertificate().getSans()) {
+            san.setCertificate(requestDto.getCertificate());
+        }
+    }
+
+    if (!CollectionUtils.isEmpty(requestDto.getContacts())) {
+        for (Contact cont : requestDto.getContacts()) {
+            cont.setRequests(request);
+        }
+    }
+
+    RequestDto requestDtoResult = entityToDto(requestDao.save(request));
+    
+    return requestDtoResult;
+}
