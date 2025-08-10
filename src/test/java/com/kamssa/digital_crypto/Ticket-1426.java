@@ -137,3 +137,42 @@ public class RequestController {
 
     // ... (gardez toutes vos autres méthodes de contrôleur existantes)
 }
+//////////////////////////////////////
+ @Override
+    @Transactional
+    public void updateCertificateComment(Long requestId, String newCertificateComment, String username) {
+        
+        // 1. Récupérer l'entité Request via le DAO en utilisant la méthode moderne `findById`.
+        //    .orElseThrow() gère élégamment le cas où la requête n'est pas trouvée.
+        Request request = requestDao.findById(requestId)
+                .orElseThrow(() -> new EntityNotFoundException("Request not found with id: " + requestId));
+
+        // 2. Vérifier les permissions de l'utilisateur pour cette action.
+        //    (Adaptez ActionRequestType si vous avez une permission plus spécifique).
+        checkAccessibilityForRequest(request, username, ActionRequestType.UPDATE_REQUEST);
+
+        // 3. Accéder à l'entité Certificate qui est liée à la Request.
+        Certificate certificate = request.getCertificate();
+        if (certificate == null) {
+            throw new IllegalStateException("Critical error: Certificate associated with request id " + requestId + " is null.");
+        }
+        
+        // 4. MODIFIER le commentaire principal du certificat.
+        certificate.setComment(newCertificateComment);
+
+        // 5. TRACER l'action dans le champ d'historique de la Request.
+        //    On utilise votre CommentService pour une logique cohérente.
+        RequestDto requestDto = entityToDto(request); // Convertir l'entité en DTO.
+        String traceMessage = "Le commentaire du certificat a été mis à jour.";
+
+        // On appelle la méthode de votre service de commentaire existant.
+        commentService.processComment(requestDto, null, username, traceMessage);
+        
+        // 6. Appliquer le nouvel historique (qui a été mis à jour dans le DTO) sur notre entité.
+        request.setComment(requestDto.getComment());
+
+        // 7. SAUVEGARDER les modifications.
+        // L'annotation @Transactional garantit que les changements sur 'request' ET 'certificate'
+        // seront sauvegardés dans la même transaction.
+        requestDao.save(request);
+    }
