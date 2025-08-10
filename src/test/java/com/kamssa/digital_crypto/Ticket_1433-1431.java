@@ -1877,38 +1877,60 @@ private void createOrUpdateIncident(
     AutomationHubCertificateLightDto dto, 
     ReferenceRefiDto referenceRefiDto, 
     IncidentPriority priority, 
+    // On suppose que le ProcessingContext est un champ de la classe, accessible via 'this.context'
+    // ou qu'il faut le passer en paramètre pour accéder aux compteurs/listes.
+    // Pour cet exemple, je vais le passer en paramètre.
     ProcessingContext<AutomationHubCertificateLightDto> context
 ) {
     
-    // --- 1. Récupération de l'état actuel de l'incident ---
-    List<AutoItsmTaskDtoImpl> existingTasks = itsmTaskService.findByAutomationhubIdAndTypeAndCreationDate(
-        dto.getAutomationHubId(), 
-        InciTypeEnum.AUTOENROLL, 
-        null
-    );
+    // 1. Récupération de l'état actuel
+    List<AutoItsmTaskDtoImpl> existingTasks = itsmTaskService.findByAutomationhubIdAndTypeAndCreationDate(...);
     AutoItsmTaskDtoImpl existingTask = itsmTaskService.getIncNumberByAutoItsmTaskList(existingTasks);
     SnowIncidentReadResponseDto snowIncident = (existingTask == null) ? null : snowService.getIncidentBySysId(existingTask.getItsmId());
 
-    // --- 2. Logique de décision principale (suivant la structure de l'image) ---
+    // 2. Préparation des données communes (comme dans vos images)
+    String summary = dto.getAutomationHubId() + " : " + (existingTask == null ? "None" : existingTask.getItsmId()) + " : " + dto.getCommonName();
+    String warningInfo = dto.getAutomationHubId() + " : " + dto.getCommonName();
 
-    // CAS 1 : Aucun incident n'a jamais été créé.
-    if (snowIncident == null) {
-        LOGGER.info("Aucun incident précédent trouvé pour le certificat {}. Création d'un nouvel incident.", dto.getAutomationHubId());
-        this.createNewInc(dto, referenceRefiDto, priority, context, null);
+    // 3. Logique de décision principale (avec try-catch et les bonnes signatures)
+    try {
+        // CAS 1 : Aucun incident
+        if (snowIncident == null) {
+            String actionMessage = "Création INC " + priority.name();
+            LOGGER.info("Aucun INC actif pour {}. {}.", dto.getAutomationHubId(), actionMessage);
+            
+            // APPEL AVEC LA SIGNATURE DE VOS IMAGES
+            this.createNewInc(dto, referenceRefiDto, priority, summary, warningInfo, actionMessage, context, null);
+
+        // CAS 2 : Incident résolu
+        } else if (isIncidentResolved(snowIncident)) {
+            String actionMessage = "Recréation INC " + priority.name();
+            LOGGER.info("L'INC précédent {} est résolu. {}.", snowIncident.getNumber(), actionMessage);
+            
+            // APPEL AVEC LA SIGNATURE DE VOS IMAGES
+            this.recreateInc(dto, referenceRefiDto, priority, summary, warningInfo, actionMessage, context, existingTask);
+
+        // CAS 3 : Incident ouvert et déjà prioritaire
+        } else if (Integer.parseInt(snowIncident.getPriority()) <= IncidentPriority.URGENT.getValue()) {
+            LOGGER.info("L'INC existant {} a déjà une priorité suffisante ({}). Aucune action requise.", snowIncident.getNumber(), snowIncident.getPriority());
+            // Aucune action
+
+        // CAS 4 : Incident ouvert, priorité basse -> Mise à jour
+        } else {
+            String actionMessage = "Mise à jour INC vers " + priority.name();
+            LOGGER.info("L'INC existant {} (priorité {}) doit être mis à jour vers {}.", snowIncident.getNumber(), snowIncident.getPriority(), priority.name());
+            
+            // APPEL AVEC LA SIGNATURE DE VOS IMAGES
+            this.updateInc(priority, actionMessage, context, existingTask);
+        }
+    } catch (NumberFormatException e) {
+        // Gestion de l'erreur de parsing, comme vous l'avez implémenté
+        LOGGER.error("Impossible de parser la priorité '{}' pour l'incident {}. La mise à jour est annulée.", snowIncident.getPriority(), snowIncident.getNumber(), e);
+        context.recordError("Mise à jour annulée", "Priorité ITSM invalide", dto, null);
     
-    // CAS 2 : Un incident existe, mais il a été résolu ou fermé.
-    } else if (isIncidentResolved(snowIncident)) { // isIncidentResolved vérifie si l'état est >= RESOLVED
-        LOGGER.info("L'incident précédent {} est fermé (état={}). Création d'un nouvel incident.", snowIncident.getNumber(), snowIncident.getState());
-        this.recreateInc(dto, referenceRefiDto, priority, context, existingTask);
-    
-    // CAS 3 : Un incident est ouvert, mais sa priorité est déjà URGENT (ou plus critique).
-    } else if (Integer.parseInt(snowIncident.getPriority()) <= IncidentPriority.URGENT.getValue()) {
-        LOGGER.info("L'incident précédent {} a déjà une priorité suffisante ({}). Aucune action requise.", snowIncident.getNumber(), snowIncident.getPriority());
-        // On ne fait rien pour ne pas "rétrograder" ou modifier inutilement un incident déjà prioritaire.
-    
-    // CAS 4 : Un incident est ouvert, sa priorité est basse, et il faut le mettre à jour.
-    } else {
-        LOGGER.info("L'incident précédent {} est toujours ouvert (état={}). Mise à jour vers la priorité {}.", snowIncident.getNumber(), snowIncident.getState(), priority.name());
-        this.updateInc(dto, referenceRefiDto, priority, context, existingTask);
+    } catch (Exception e) {
+        // Un catch-all pour les erreurs vraiment inattendues
+        LOGGER.error("Une erreur inattendue est survenue lors de la décision create/update pour le certificat {}.", dto.getAutomationHubId(), e);
+        context.recordError("Erreur inattendue", e.getMessage(), dto, null);
     }
 }
