@@ -1934,3 +1934,289 @@ private void createOrUpdateIncident(
         context.recordError("Erreur inattendue", e.getMessage(), dto, null);
     }
 }
+/////////////////////////
+import com.bnpparibas.certis.api.enums.IncidentPriority;
+import com.bnpparibas.certis.api.enums.InciTypeEnum;
+import com.bnpparibas.certis.api.enums.SnowIncStateEnum;
+import com.bnpparibas.certis.api.utils.ProcessingContext;
+import com.bnpparibas.certis.automationhub.dto.AutomationHubCertificateLightDto;
+import com.bnpparibas.certis.automationhub.dto.CertificateLabelDto;
+import com.bnpparibas.certis.itsm.dto.AutoItsmTaskDto;
+import com.bnpparibas.certis.itsm.dto.AutoItsmTaskDtoImpl;
+import com.bnpparibas.certis.referential.dto.OwnerAndReferenceRefiResult;
+import com.bnpparibas.certis.referential.dto.ReferenceRefiDto;
+import com.bnpparibas.certis.snow.dto.SnowIncidentReadResponseDto;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Component;
+
+import javax.annotation.Nullable;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+
+@Component
+public class IncidentAutoEnrollTask {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(IncidentAutoEnrollTask.class);
+
+    // --- Dépendances (injectées par constructeur) ---
+    private final ItsmTaskService itsmTaskService;
+    private final CertificateOwnerService certificateOwnerService;
+    private final AutomationHubService automationHubService;
+    private final SnowService snowService;
+    private final SendMailUtils sendMailUtils;
+
+    // --- Configuration ---
+    @Value("${incident.autoenroll.enabled:true}")
+    private boolean isAutoEnrollEnabled;
+    
+    @Value("${autoenroll.priority.urgent.threshold.days:3}")
+    private int urgentPriorityThresholdDays;
+
+    @Value("${autoenroll.processing.window.days:15}")
+    private int processingWindowDays;
+    
+    @Value("${certis.mail.ipkiTeam}")
+    private String ipkiTeam;
+
+    @Autowired
+    public IncidentAutoEnrollTask(ItsmTaskService itsmTaskService, CertificateOwnerService certificateOwnerService, AutomationHubService automationHubService, SnowService snowService, SendMailUtils sendMailUtils) {
+        this.itsmTaskService = itsmTaskService;
+        this.certificateOwnerService = certificateOwnerService;
+        this.automationHubService = automationHubService;
+        this.snowService = snowService;
+        this.sendMailUtils = sendMailUtils;
+    }
+
+    @Scheduled(cron = "${cron.task.incidentAutoEnroll:0 30 9 * * *}")
+    public void processExpireCertificates() {
+        if (!isAutoEnrollEnabled) {
+            LOGGER.warn("La tâche IncidentAutoEnrollTask est désactivée par configuration. Aucune action ne sera effectuée.");
+            return;
+        }
+        
+        LOGGER.info("Démarrage de la tâche de traitement de l'expiration des certificats.");
+        Instant startTime = Instant.now();
+        
+        Function<AutomationHubCertificateLightDto, Map<String, Object>> certificateMapper = cert -> {
+            Map<String, Object> data = new HashMap<>();
+            if (cert != null) {
+                data.put("automationHubId", cert.getAutomationHubId());
+                data.put("commonName", cert.getCommonName());
+                data.put("expiryDate", formatDate(cert.getExpiryDate()));
+                data.put("codeAp", getLabelByKey(cert, "APCode"));
+            }
+            return data;
+        };
+        
+        ProcessingContext<AutomationHubCertificateLightDto> context = new ProcessingContext<>(certificateMapper);
+
+        try {
+            List<AutomationHubCertificateLightDto> certificates = automationHubService.searchAutoEnrollExpiring(processingWindowDays);
+            if (certificates == null || certificates.isEmpty()) {
+                LOGGER.info("Aucun certificat à traiter pour cette exécution.");
+            } else {
+                LOGGER.info("{} certificat(s) trouvé(s) à traiter.", certificates.size());
+                this.processAllCertificates(certificates, context);
+            }
+        } catch (Exception e) {
+            LOGGER.error("La tâche de traitement a échoué de manière critique. Impossible de continuer.", e);
+            throw new RuntimeException("Échec critique de la tâche planifiée processExpiredCertificates", e);
+        } finally {
+            this.sendSummaryReports(context);
+            Duration duration = Duration.between(startTime, Instant.now());
+            LOGGER.info("Fin de la tâche de traitement. Temps d'exécution total : {} ms.", duration.toMillis());
+        }
+    }
+
+    private void processAllCertificates(List<AutomationHubCertificateLightDto> certificates, ProcessingContext<AutomationHubCertificateLightDto> context) {
+        for (AutomationHubCertificateLightDto certificate : certificates) {
+            try {
+                this.processSingleCertificate(certificate, context);
+            } catch (Exception e) {
+                LOGGER.error("Erreur système inattendue lors du traitement du certificat ID: {}. Le traitement continue.", certificate.getAutomationHubId(), e);
+                context.recordError("Traitement échoué", "Erreur système : " + e.getMessage(), certificate, null);
+            }
+        }
+    }
+
+    private void processSingleCertificate(AutomationHubCertificateLightDto certificate, ProcessingContext<AutomationHubCertificateLightDto> context) {
+        String environment = getLabelByKey(certificate, "ENVIRONMENT");
+        if (!"PROD".equalsIgnoreCase(String.valueOf(environment))) {
+            return;
+        }
+        
+        String codeAp = getLabelByKey(certificate, "APCode");
+        if (codeAp == null || codeAp.trim().isEmpty() || "N/A".equals(codeAp)) {
+            LOGGER.warn("Traitement annulé pour certificat ID '{}': le label 'APCode' est manquant.", certificate.getAutomationHubId());
+            context.recordValidationError(certificate);
+            return;
+        }
+        
+        OwnerAndReferenceRefiResult ownerResult = certificateOwnerService.findBestAvailableCertificateOwner(certificate, codeAp);
+
+        if (ownerResult == null || ownerResult.getOwnerDTO() == null) {
+            if (ownerResult == null) {
+                LOGGER.warn("Traitement annulé pour certificat ID '{}': codeAp '{}' invalide.", certificate.getAutomationHubId(), codeAp);
+            } else {
+                LOGGER.warn("Traitement annulé pour certificat ID '{}': codeAp '{}' valide mais aucun propriétaire trouvé.", certificate.getAutomationHubId(), codeAp);
+            }
+            context.recordValidationError(certificate);
+            return;
+        }
+        
+        ReferenceRefiDto referenceRefiDto = ownerResult.getReferenceRefiDto();
+        boolean isExpiringUrgently = certificate.getExpiryDate().compareTo(DateUtils.addDays(new Date(), urgentPriorityThresholdDays)) <= 0;
+        IncidentPriority priority = isExpiringUrgently ? IncidentPriority.URGENT : IncidentPriority.STANDARD;
+        
+        createOrUpdateIncident(certificate, referenceRefiDto, priority, context);
+    }
+    
+    private void createOrUpdateIncident(AutomationHubCertificateLightDto dto, ReferenceRefiDto referenceRefiDto, IncidentPriority priority, ProcessingContext<AutomationHubCertificateLightDto> context) {
+        List<AutoItsmTaskDtoImpl> existingTasks = itsmTaskService.findByAutomationhubIdAndTypeAndCreationDate(dto.getAutomationHubId(), InciTypeEnum.AUTOENROLL, null);
+        AutoItsmTaskDtoImpl existingTask = itsmTaskService.getIncNumberByAutoItsmTaskList(existingTasks);
+        SnowIncidentReadResponseDto snowIncident = (existingTask == null) ? null : snowService.getIncidentBySysId(existingTask.getItsmId());
+
+        if (snowIncident == null) {
+            createNewInc(dto, referenceRefiDto, priority, context, null);
+            return;
+        }
+        
+        if (isIncidentResolved(snowIncident)) {
+            recreateInc(dto, referenceRefiDto, priority, context, existingTask);
+            return;
+        }
+
+        try {
+            int existingPriorityValue = Integer.parseInt(snowIncident.getPriority());
+            if (existingPriorityValue <= IncidentPriority.URGENT.getValue()) {
+                LOGGER.info("L'INC existant {} a déjà une priorité élevée ({}). Aucune action requise.", snowIncident.getNumber(), existingPriorityValue);
+            } else if (existingPriorityValue == priority.getValue()) {
+                LOGGER.info("L'INC existant {} a déjà la priorité requise ({}). Aucune action requise.", snowIncident.getNumber(), priority.name());
+            } else {
+                updateInc(dto, referenceRefiDto, priority, context, existingTask);
+            }
+        } catch (NumberFormatException e) {
+            LOGGER.error("Impossible de parser la priorité '{}' pour l'incident {}. La mise à jour est annulée.", snowIncident.getPriority(), snowIncident.getNumber(), e);
+            Map<String, Object> errorDetails = new HashMap<>();
+            errorDetails.put("priority", "INVALIDE (" + snowIncident.getPriority() + ")");
+            context.recordError("Mise à jour annulée", "Priorité ITSM invalide", dto, errorDetails);
+        }
+    }
+
+    private void createNewInc(AutomationHubCertificateLightDto dto, ReferenceRefiDto refiDto, IncidentPriority priority, ProcessingContext<AutomationHubCertificateLightDto> context, @Nullable AutoItsmTaskDtoImpl relatedTask) {
+        String actionMessage = (relatedTask == null) ? "Création INC " : "Recréation INC ";
+        actionMessage += priority.name();
+        try {
+            String title = ...; // Générer le titre, par ex: "[AUTOENROLL] Certificat " + dto.getCommonName()
+            String description = ...; // Générer la description via un template Velocity
+            
+            AutoItsmTaskDto createdTask = itsmTaskService.createIncidentAutoEnroll(dto, refiDto, priority.getValue(), title, description, InciTypeEnum.AUTOENROLL, relatedTask);
+
+            Map<String, Object> successDetails = new HashMap<>();
+            successDetails.put("supportGroup", refiDto.getGroupSupportDto().getName());
+            successDetails.put("priority", priority.name());
+            successDetails.put("incidentNumber", createdTask.getItsmId());
+            context.recordSuccess(actionMessage, dto, successDetails);
+        } catch (Exception e) {
+            LOGGER.error("Échec de l'action '{}' pour le certificat {}: {}", actionMessage, dto.getAutomationHubId(), e.getMessage());
+            Map<String, Object> errorDetails = new HashMap<>();
+            errorDetails.put("supportGroup", (refiDto.getGroupSupportDto() != null) ? refiDto.getGroupSupportDto().getName() : "N/A");
+            errorDetails.put("priority", priority.name());
+            context.recordError(actionMessage, e.getMessage(), dto, errorDetails);
+        }
+    }
+
+    private void recreateInc(AutomationHubCertificateLightDto dto, ReferenceRefiDto refiDto, IncidentPriority priority, ProcessingContext<AutomationHubCertificateLightDto> context, AutoItsmTaskDtoImpl existingTask) {
+        createNewInc(dto, refiDto, priority, context, existingTask);
+    }
+    
+    private void updateInc(AutomationHubCertificateLightDto dto, ReferenceRefiDto refiDto, IncidentPriority priority, ProcessingContext<AutomationHubCertificateLightDto> context, AutoItsmTaskDtoImpl existingTask) {
+        String actionMessage = "Mise à jour INC vers " + priority.name();
+        try {
+            AutoItsmTaskDto updatedTask = itsmTaskService.upgradeIncidentAutoEnroll(priority.getValue(), existingTask);
+            Map<String, Object> successDetails = new HashMap<>();
+            successDetails.put("supportGroup", refiDto.getGroupSupportDto().getName());
+            successDetails.put("priority", priority.name());
+            successDetails.put("incidentNumber", updatedTask.getItsmId());
+            context.recordSuccess(actionMessage, dto, successDetails);
+        } catch (Exception e) {
+            LOGGER.error("Échec de la mise à jour pour l'incident {}: {}", existingTask.getItsmId(), e.getMessage());
+            Map<String, Object> errorDetails = new HashMap<>();
+            errorDetails.put("supportGroup", refiDto.getGroupSupportDto().getName());
+            errorDetails.put("priority", priority.name());
+            context.recordError(actionMessage, e.getMessage(), dto, errorDetails);
+        }
+    }
+
+    private void sendSummaryReports(ProcessingContext<AutomationHubCertificateLightDto> context) {
+        sendFinalReport(context);
+        sendAutoEnrollCertificateNoCodeApReport(context);
+    }
+    
+    private void sendFinalReport(ProcessingContext<AutomationHubCertificateLightDto> context) {
+        if (!context.hasItemsForFinalReport()) {
+            LOGGER.info("Rapport de synthèse non envoyé : aucune action de création/erreur à signaler.");
+            return;
+        }
+        Map<String, Object> data = new HashMap<>();
+        List<Map<String, Object>> allSuccesses = context.getSuccessReportItems();
+        data.put("urgentSuccessItems", allSuccesses.stream().filter(i -> "URGENT".equals(i.get("priority"))).collect(Collectors.toList()));
+        data.put("standardSuccessItems", allSuccesses.stream().filter(i -> "STANDARD".equals(i.get("priority"))).collect(Collectors.toList()));
+        data.put("errorItems", context.getErrorReportItems());
+        data.put("date", new Date());
+        try {
+            sendMailUtils.sendEmail("template/report-incident-summary.vm", data, List.of(ipkiTeam), "Rapport de Synthèse - Incidents Auto-Enroll");
+            LOGGER.info("Rapport de synthèse envoyé avec {} succès et {} erreurs.", context.getSuccessCounter().get(), context.getErrorCounter().get());
+        } catch (Exception e) {
+            LOGGER.error("Échec de l'envoi de l'e-mail de synthèse.", e);
+        }
+    }
+    
+    private void sendAutoEnrollCertificateNoCodeApReport(ProcessingContext<AutomationHubCertificateLightDto> context) {
+        List<AutomationHubCertificateLightDto> certsInError = context.getItemsWithValidationError();
+        if (certsInError.isEmpty()) {
+            LOGGER.info("Rapport d'alerte non envoyé : aucune erreur de validation à signaler.");
+            return;
+        }
+        Map<String, Object> data = new HashMap<>();
+        data.put("certsWithoutCodeAp", certsInError);
+        data.put("date", new Date());
+        try {
+            sendMailUtils.sendEmail("template/report-no-codeap.vm", data, List.of(ipkiTeam), "ALERTE : Action Manuelle Requise - Certificats sans Propriétaire Valide");
+            LOGGER.info("Rapport d'alerte envoyé avec succès.");
+        } catch (Exception e) {
+            LOGGER.error("Échec de l'envoi de l'e-mail d'alerte.", e);
+        }
+    }
+
+    private boolean isIncidentResolved(SnowIncidentReadResponseDto snowIncident) {
+        try {
+            return snowIncident != null && Integer.parseInt(snowIncident.getState()) >= SnowIncStateEnum.RESOLVED.getValue();
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
+    private String getLabelByKey(AutomationHubCertificateLightDto dto, String key) {
+        if (dto == null || dto.getLabels() == null || key == null) return null;
+        return dto.getLabels().stream()
+                  .filter(label -> key.equalsIgnoreCase(label.getKey()))
+                  .map(CertificateLabelDto::getValue)
+                  .findFirst()
+                  .orElse(null);
+    }
+    
+    private String formatDate(Date date) {
+        if (date == null) return "N/A";
+        return date.toInstant().atZone(ZoneId.systemDefault()).toLocalDate().format(DateTimeFormatter.ofPattern("dd/MM/yyyy"));
+    }
+}
