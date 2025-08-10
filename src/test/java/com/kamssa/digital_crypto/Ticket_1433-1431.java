@@ -1872,3 +1872,43 @@ public enum SearchCriterionTextOperatorEnum implements ISearchCriterionOperatorE
         return AllOperatorEnum.valueOf(this.name());
     }
 }
+///////////////////////////// incident ///////////////////////////
+private void createOrUpdateIncident(
+    AutomationHubCertificateLightDto dto, 
+    ReferenceRefiDto referenceRefiDto, 
+    IncidentPriority priority, 
+    ProcessingContext<AutomationHubCertificateLightDto> context
+) {
+    
+    // --- 1. Récupération de l'état actuel de l'incident ---
+    List<AutoItsmTaskDtoImpl> existingTasks = itsmTaskService.findByAutomationhubIdAndTypeAndCreationDate(
+        dto.getAutomationHubId(), 
+        InciTypeEnum.AUTOENROLL, 
+        null
+    );
+    AutoItsmTaskDtoImpl existingTask = itsmTaskService.getIncNumberByAutoItsmTaskList(existingTasks);
+    SnowIncidentReadResponseDto snowIncident = (existingTask == null) ? null : snowService.getIncidentBySysId(existingTask.getItsmId());
+
+    // --- 2. Logique de décision principale (suivant la structure de l'image) ---
+
+    // CAS 1 : Aucun incident n'a jamais été créé.
+    if (snowIncident == null) {
+        LOGGER.info("Aucun incident précédent trouvé pour le certificat {}. Création d'un nouvel incident.", dto.getAutomationHubId());
+        this.createNewInc(dto, referenceRefiDto, priority, context, null);
+    
+    // CAS 2 : Un incident existe, mais il a été résolu ou fermé.
+    } else if (isIncidentResolved(snowIncident)) { // isIncidentResolved vérifie si l'état est >= RESOLVED
+        LOGGER.info("L'incident précédent {} est fermé (état={}). Création d'un nouvel incident.", snowIncident.getNumber(), snowIncident.getState());
+        this.recreateInc(dto, referenceRefiDto, priority, context, existingTask);
+    
+    // CAS 3 : Un incident est ouvert, mais sa priorité est déjà URGENT (ou plus critique).
+    } else if (Integer.parseInt(snowIncident.getPriority()) <= IncidentPriority.URGENT.getValue()) {
+        LOGGER.info("L'incident précédent {} a déjà une priorité suffisante ({}). Aucune action requise.", snowIncident.getNumber(), snowIncident.getPriority());
+        // On ne fait rien pour ne pas "rétrograder" ou modifier inutilement un incident déjà prioritaire.
+    
+    // CAS 4 : Un incident est ouvert, sa priorité est basse, et il faut le mettre à jour.
+    } else {
+        LOGGER.info("L'incident précédent {} est toujours ouvert (état={}). Mise à jour vers la priorité {}.", snowIncident.getNumber(), snowIncident.getState(), priority.name());
+        this.updateInc(dto, referenceRefiDto, priority, context, existingTask);
+    }
+}
