@@ -551,3 +551,17 @@ export class UpdateInformationsFormComponent implements OnInit {
     <!-- ... (le reste de vos champs, comme le CSR, etc.) ... -->
 
 </fieldset>
+////////// css 
+:host ::ng-deep .san-type-column {
+  flex-grow: 0;
+  width: auto;
+  min-width: 150px;
+}
+<!-- MODIFIEZ CETTE LIGNE -->
+<div class="ui-g-4" style="flex-grow: 0; width: auto; min-width: 150px;">
+  <p-dropdown 
+      [options]="sanTypes"
+      ...>
+      <!-- ... -->
+  </p-dropdown>
+</div>
