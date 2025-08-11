@@ -196,45 +196,24 @@ export class UpdateInformationsFormComponent implements OnInit {
             return this.updateRequestWithoutValidation(previousRequest);
         }
     ////////////////////////////////
-	<div class="row row-style">
-    <div class="ui-g-4">
-        <label class="pull-right">
-            <!-- Vous devrez ajouter cette clé de traduction à vos fichiers JSON (ex: fr.json) -->
-            {{ 'certificateInformationSection.certificateComment' | translate }}:
-        </label>
-    </div>
-    <div class="ui-g-8">
-        <!-- Champ de texte pour le commentaire -->
-        <textarea pInputTextarea 
-                  formControlName="certificateComment" 
-                  [rows]="4" 
-                  [autoResize]="true"
-                  style="width: 100%;"
-                  placeholder="Saisissez un commentaire pour ce certificat...">
-        </textarea>
-        
-        <!-- Bloc d'erreur (optionnel mais recommandé) -->
-        <!-- Il ne s'affichera que si l'utilisateur dépasse la longueur maximale -->
-        <div *ngIf="form.get('certificateComment')?.invalid && form.get('certificateComment')?.touched" class="alert-error">
-            <small *ngIf="form.get('certificateComment').errors?.maxlength">
-                Le commentaire ne doit pas dépasser 4000 caractères.
-            </small>
+	 <div class="row row-style">
+            <div class="ui-g-4">
+                <label class="pull-right">
+                    {{ 'certificateInformationSection.certificateComment' | translate }}:
+                </label>
+            </div>
+            <div class="ui-g-8">
+                <textarea pInputTextarea 
+                          formControlName="certificateComment" 
+                          [rows]="4" 
+                          [autoResize]="true"
+                          style="width: 100%;"
+                          placeholder="Saisissez un commentaire pour ce certificat...">
+                </textarea>
+                <div *ngIf="form.get('certificateComment')?.invalid && form.get('certificateComment')?.touched" class="alert-error">
+                    <small *ngIf="form.get('certificateComment').errors?.maxlength">
+                        Le commentaire ne doit pas dépasser 4000 caractères.
+                    </small>
+                </div>
+            </div>
         </div>
-    </div>
-</div>
-
-<!-- Ici se termine votre <form> -->
-</form> 
-
-<!-- La section des boutons reste inchangée -->
-<div class="pull-right">
-    <p-button styleClass="addButton"
-              label="{{ 'form.buttons.save' | translate }}"
-              [disabled]="!form.valid || !hasChange"
-              (onClick)="onSubmit()">
-    </p-button>
-    <p-button styleClass="addButton"
-              label="{{ 'form.buttons.cancel' | translate }}"
-              (onClick)="onCancel()">
-    </p-button>
-</div>
