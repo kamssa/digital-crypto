@@ -455,3 +455,99 @@ export class UpdateInformationsFormComponent implements OnInit {
         {{ 'projectSection.errorMessages.certificateComment.maxlength' | translate }}
     </small>
 </div>
+////////////////////////// affichage de commentaire ////////////////
+<!-- CHEMIN : src/app/content/dashboard/certificate-details/certificate-details.component.html -->
+
+<!-- Ce composant est purement pour l'affichage des détails -->
+<fieldset>
+    <legend>Détail de la demande</legend>
+
+    <!-- 
+      Je reconstitue ici la structure de vos champs existants pour que le placement soit clair.
+      Vous n'avez pas besoin de modifier ces parties, elles sont là pour le contexte.
+    -->
+    <div class="row">
+        <div class="ui-g-3"><label class="pull-right">Date :</label></div>
+        <div class="ui-g-9">{{ certificateRequest?.requestDate | date:'dd/MM/yyyy' }}</div>
+    </div>
+    <div class="row">
+        <div class="ui-g-3"><label class="pull-right">Nouveau certificat ou renouvellement? :</label></div>
+        <div class="ui-g-9">{{ certificateRequest?.requestType }}</div>
+    </div>
+    <div class="row">
+        <div class="ui-g-3"><label class="pull-right">Usage :</label></div>
+        <div class="ui-g-9">{{ certificateRequest?.usage }}</div>
+    </div>
+    <div class="row">
+        <div class="ui-g-3"><label class="pull-right">Environnement :</label></div>
+        <div class="ui-g-9">{{ certificateRequest?.certificate?.environment }}</div>
+    </div>
+    <div class="row">
+        <div class="ui-g-3"><label class="pull-right">Type du certificat :</label></div>
+        <div class="ui-g-9">{{ certificateRequest?.certificate?.certificateType?.name }}</div>
+    </div>
+    <div class="row">
+        <div class="ui-g-3"><label class="pull-right">Nom du certificat ou Common name :</label></div>
+        <div class="ui-g-9">{{ certificateRequest?.certificate?.commonName }}</div>
+    </div>
+    <div class="row">
+        <div class="ui-g-3"><label class="pull-right">Statut de la demande :</label></div>
+        <div class="ui-g-9">{{ certificateRequest?.requestStatus?.name }}</div>
+    </div>
+
+    <!-- =================================================================== -->
+    <!--     ▼▼▼   ANCIEN CHAMP "COMMENTAIRES", RENOMMÉ EN "HISTORIQUE"   ▼▼▼ -->
+    <!-- =================================================================== -->
+    <div class="row">
+        <div class="ui-g-3">
+            <label class="pull-right" style="font-weight: bold;">
+                {{ 'certificateInformationSection.history' | translate }}:
+            </label>
+        </div>
+        <div class="ui-g-9">
+            <!-- Ce champ affiche l'historique de l'entité Request -->
+            <div [innerHTML]="certificateRequest?.comment"></div>
+        </div>
+    </div>
+</fieldset>
+
+
+<fieldset>
+    <legend>Détail du certificat</legend>
+    
+    <!-- Champs existants de cette section -->
+    <div class="row">
+        <div class="ui-g-3"><label class="pull-right">Expire :</label></div>
+        <div class="ui-g-9">{{ certificateRequest?.certificate?.expiryDate | date:'dd/MM/yyyy' }}</div>
+    </div>
+    <div class="row">
+        <div class="ui-g-3"><label class="pull-right">AutomationHub Id :</label></div>
+        <div class="ui-g-9">{{ certificateRequest?.certificate?.automationHubCertificateId }}</div>
+    </div>
+    <div class="row">
+        <div class="ui-g-3"><label class="pull-right">Plateforme :</label></div>
+        <div class="ui-g-9">{{ certificateRequest?.certificate?.platform?.name }}</div>
+    </div>
+    <div class="row">
+        <div class="ui-g-3"><label class="pull-right">Statut :</label></div>
+        <div class="ui-g-9">{{ certificateRequest?.certificate?.certificateStatus?.name }}</div>
+    </div>
+
+    <!-- ===================================================================== -->
+    <!--     ▼▼▼   NOUVEAU CHAMP "COMMENTAIRE" AJOUTÉ ICI   ▼▼▼                -->
+    <!-- ===================================================================== -->
+    <div class="row">
+        <div class="ui-g-3">
+            <label class="pull-right" style="font-weight: bold;">
+                {{ 'certificateInformationSection.certificateComment' | translate }}:
+            </label>
+        </div>
+        <div class="ui-g-9">
+            <!-- Ce champ affiche le commentaire principal de l'entité Certificat -->
+            <span [innerHTML]="certificateRequest?.certificate?.comment || 'Aucun commentaire.'"></span>
+        </div>
+    </div>
+
+    <!-- ... (le reste de vos champs, comme le CSR, etc.) ... -->
+
+</fieldset>
