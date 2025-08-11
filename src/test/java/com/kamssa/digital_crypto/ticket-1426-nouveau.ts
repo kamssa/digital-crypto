@@ -172,3 +172,27 @@ export class UpdateInformationsFormComponent implements OnInit {
               (onClick)="onCancel()">
     </p-button>
 </div>
+////////
+  String newCertificateComment = updateRequest.getCertificateComment();
+        
+        // On compare avec l'ancien commentaire pour voir s'il y a eu un changement,
+        // en utilisant Objects.equals pour gérer les cas où l'un des deux est null.
+        if (!Objects.equals(previousCertificate.getComment(), newCertificateComment)) {
+            // Le commentaire a changé, on le met à jour sur l'objet Certificate.
+            previousCertificate.setComment(newCertificateComment);
+            
+            // On ajoute une mention spécifique dans la trace de la Request pour cette modification
+            traceModification += " Le commentaire du certificat a été mis à jour;";
+        }
+        
+        // --- Fin du bloc ajouté ---
+
+        this.commentService.processComment(previousRequest, null, connectedUser, traceModification);
+        
+        boolean infoValidateRequest = true; // Supposition basée sur le code
+        if (infoValidateRequest) {
+            return this.updateRequest(previousRequest);
+        } else {
+            return this.updateRequestWithoutValidation(previousRequest);
+        }
+    }
