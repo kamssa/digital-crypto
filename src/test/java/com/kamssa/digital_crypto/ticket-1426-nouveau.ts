@@ -450,8 +450,8 @@ export class UpdateInformationsFormComponent implements OnInit {
   get applicationNameField() { return this.form.get('applicationName'); }
 }
 ///////
-<div *ngIf="certificateCommentField?.invalid && certificateCommentField?.touched" class="alert-error">
-    <small *ngIf="certificateCommentField.errors?.maxlength">
+<div *ngIf="form.get('certificateComment')?.invalid && form.get('certificateComment')?.touched" class="alert-error">
+    <small *ngIf="form.get('certificateComment').errors?.maxlength">
         {{ 'projectSection.errorMessages.certificateComment.maxlength' | translate }}
     </small>
 </div>
