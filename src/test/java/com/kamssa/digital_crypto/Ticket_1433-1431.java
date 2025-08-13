@@ -2360,6 +2360,103 @@ public class SanServiceImpl implements SanService {
     
     // ... (toutes les autres méthodes de votre classe restent ici) ...
 }
+/////// controller //////////////////
+
+@RestController
+// ... (autres annotations de votre contrôleur)
+public class RequestController {
+    
+    // --- Vos injections de dépendances (@Autowired) restent ici ---
+    @Autowired private RequestService requestService;
+    @Autowired private SanService sanService;
+    // ... etc.
+
+    /**
+     * Endpoint principal pour la création et la mise à jour des requêtes.
+     */
+    @Transactional
+    @PostMapping("/save") // ou le chemin de votre endpoint
+    public ResponseEntity<?> saveRequest(
+            // =========================================================================
+            // ### CHANGEMENT 1 : La signature de la méthode est modifiée ###
+            // On reçoit le JSON en tant que String brute pour le contrôler manuellement.
+            // =========================================================================
+            @RequestBody String jsonPayload, 
+            UriComponentsBuilder uriComponentsBuilder, 
+            ServletRequest servletRequest, 
+            ApiAuthentication apiAuthentication) throws Exception {
+
+        // =========================================================================
+        // ### CHANGEMENT 2 : Mapping manuel en deux temps ###
+        // =========================================================================
+        ObjectMapper objectMapper = new ObjectMapper();
+        
+        // Premier passage : On utilise Jackson pour remplir tous les champs de RequestDtoImpl
+        // SAUF le champ 'certificate', grâce à l'annotation @JsonIgnoreProperties.
+        RequestDtoImpl requestDto = objectMapper.readValue(jsonPayload, RequestDtoImpl.class);
+        
+        // Deuxième passage : On appelle notre nouvelle méthode privée pour construire l'entité Certificate
+        // à partir du JSON, puis on l'attache à notre DTO.
+        Certificate certificateEntity = buildCertificateFromPayload(jsonPayload);
+        requestDto.setCertificate(certificateEntity);
+
+        // --- À PARTIR D'ICI, LE RESTE DE VOTRE MÉTHODE EST INCHANGÉ ---
+        // Le reste de votre code peut maintenant utiliser `requestDto` comme si
+        // tout avait été mappé automatiquement, car nous avons fait le travail pour lui.
+        
+        RequestDto requestDtoOngoing = requestService.findOngoingRequestByCommonName(requestDto.getCertificate().getCommonName());
+        // ... (toute votre logique de validation, d'appels aux services, etc.)
+        sanService.validateSansPerRequest(requestDto);
+        sanService.buildSANs(requestDto);
+        RequestDto requestDtoResult = requestService.createRequest(requestDto);
+        // ... (toute votre logique post-création, envoi d'emails, etc.)
+        
+        return new ResponseEntity<>(/* ... votre objet de réponse ... */);
+    }
+    
+    /**
+     * =========================================================================
+     * ### CHANGEMENT 3 : Nouvelle méthode privée pour le mapping manuel ###
+     * Le rôle de cette méthode est de lire le JSON et de construire l'entité
+     * Certificate avec sa liste d'entités San.
+     * =========================================================================
+     */
+    private Certificate buildCertificateFromPayload(String jsonPayload) throws IOException {
+        ObjectMapper objectMapper = new ObjectMapper();
+        JsonNode rootNode = objectMapper.readTree(jsonPayload);
+        JsonNode certificateNode = rootNode.path("certificate");
+    
+        if (certificateNode.isMissingNode()) {
+            return null; // ou lever une exception si le certificat est obligatoire
+        }
+    
+        // On peut utiliser un DTO temporaire pour laisser Jackson faire une partie du travail.
+        CertificateDtoImpl certDto = objectMapper.treeToValue(certificateNode, CertificateDtoImpl.class);
+
+        // On construit l'entité finale à partir des données du DTO temporaire.
+        Certificate certificateEntity = new Certificate();
+        certificateEntity.setCommonName(certDto.getCommonName());
+        certificateEntity.setPassword(certDto.getPassword());
+        // ... mappez ici les autres champs simples du certificat ...
+    
+        List<San> sanEntitiesFromDto = certDto.getSans(); // Récupère la List<San> créée par Jackson
+        if (!CollectionUtils.isEmpty(sanEntitiesFromDto)) {
+            // Il faut absolument re-lier chaque SAN à son parent Certificate.
+            for (San san : sanEntitiesFromDto) {
+                // Règle du backend : si le type est null, on met DNSNAME par défaut.
+                if (san.getType() == null) {
+                    san.setType(SanTypeEnum.DNSNAME);
+                }
+                san.setCertificate(certificateEntity);
+            }
+            certificateEntity.setSans(sanEntitiesFromDto);
+        }
+    
+        return certificateEntity;
+    }
+
+    // --- Le reste de vos méthodes (comme updateRequestInfo, isDraftRequest, etc.) est INCHANGÉ ---
+}
 
     private boolean isIncidentResolved(SnowIncidentReadResponseDto snowIncident) {
         try {
