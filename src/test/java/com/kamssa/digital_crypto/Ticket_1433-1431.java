@@ -2197,6 +2197,169 @@ public class IncidentAutoEnrollTask {
             LOGGER.error("Échec de l'envoi de l'e-mail d'alerte.", e);
         }
     }
+	/////////////////////////////////
+	import com.bnpparibas.certis.certificate.request.San; // L'entité JPA
+import com.bnpparibas.certis.certificate.request.service.SanService;
+// ... Ajoutez tous les autres imports nécessaires ...
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.util.CollectionUtils;
+import org.apache.commons.lang3.StringUtils; // Assurez-vous d'avoir cet import
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
+@Service
+public class SanServiceImpl implements SanService {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(SanServiceImpl.class);
+    
+    // ... Vos dépendances (@Autowired) et constantes restent ici ...
+
+    /**
+     * Méthode principale de validation des SANs.
+     * Elle orchestre les différentes vérifications.
+     */
+    @Override
+    public void validateSansPerRequest(RequestDto requestDto) {
+        if (this.skipValidationIfDataMissing(requestDto)) {
+            return;
+        }
+
+        // =========================================================================
+        // ### CHANGEMENT 1 : Appel à la nouvelle méthode de validation de base ###
+        // On vérifie la structure des entités San avant toute autre logique.
+        // =========================================================================
+        verifySanEntities(requestDto.getCertificate().getSans());
+
+        if ("INT_USAGE".equalsIgnoreCase(requestDto.getUsage())) {
+            this.verifySansLimitForInternalCertificates(requestDto);
+        }
+
+        if ("EXT_USAGE".equalsIgnoreCase(requestDto.getUsage())) {
+            this.verifySansLimitForExternalCertificates(requestDto);
+        }
+    }
+
+    /**
+     * Vérifie la validité des SANs par rapport à la base de référence Refweb.
+     */
+    @Override
+    public List<String> validateSansOnRefweb(RequestDto requestDto) throws Exception {
+        ArrayList<String> sansInvalid = new ArrayList<>();
+        // ... (logique de bypass inchangée) ...
+
+        // =========================================================================
+        // ### CHANGEMENT 2 : Utilisation de la liste d'entités `San` ###
+        // Avant : On travaillait avec une List<SanDto> ou une List<String>.
+        // Maintenant : On travaille directement avec la List<San> de l'entité Certificate.
+        // =========================================================================
+        List<San> sanList = requestDto.getCertificate().getSans();
+        
+        boolean hasNoSans = CollectionUtils.isEmpty(sanList);
+        // ... (logique isWhitelistedPlatform inchangée) ...
+
+        if (hasNoSans || isWhitelistedPlatform) {
+            return Collections.emptyList();
+        }
+
+        for (San sanEntity : sanList) {
+            // On utilise le getter de l'entité pour récupérer la valeur à valider.
+            String valueToValidate = sanEntity.getSanValue(); 
+            
+            // Le reste de la logique est INCHANGÉ car les méthodes enfants attendent déjà une String.
+            if (this.evaluateCnAndCertTypeForCheckRefWebSan(requestDto, valueToValidate)) {
+                if (!this.checkSanUrlOnRefweb(valueToValidate)) {
+                    sansInvalid.add(valueToValidate);
+                }
+            }
+        }
+        return sansInvalid;
+    }
+
+    /**
+     * Applique la logique métier, comme l'ajout du "www." au Common Name si nécessaire.
+     */
+    @Override
+    public RequestDto buildSANs(RequestDto requestDto) throws Exception {
+        try {
+            if (/* ... votre logique de condition existante ... */) {
+                evaluateSan3W(requestDto); // Appel à la méthode privée adaptée
+            }
+        } catch (Exception e) {
+            LOGGER.error("Exception in buildSANs {}", e.getMessage());
+        }
+        return requestDto;
+    }
+    
+    // --- MÉTHODES PRIVÉES ---
+
+    /**
+     * =========================================================================
+     * ### CHANGEMENT 3 : Adaptation de `evaluateSan3W` ###
+     * Cette méthode manipule et crée maintenant des ENTITÉS `San` et non des DTOs.
+     * =========================================================================
+     */
+    private void evaluateSan3W(RequestDto requestDto) {
+        List<San> sanEntityList = requestDto.getCertificate().getSans();
+        if (sanEntityList == null) {
+            sanEntityList = new ArrayList<>();
+            requestDto.getCertificate().setSans(sanEntityList);
+        }
+
+        String cn = requestDto.getCertificate().getCommonName();
+        String domainWWW = cn.startsWith("www.") ? cn : "www." + cn;
+        final String finalDomainWWW = domainWWW;
+
+        boolean alreadyExists = sanEntityList.stream()
+                .anyMatch(san -> finalDomainWWW.equalsIgnoreCase(san.getSanValue()));
+
+        if (!alreadyExists) {
+            San sanEntityWWW = new San(); // On crée une NOUVELLE ENTITÉ
+            sanEntityWWW.setType(SanTypeEnum.DNSNAME);
+            sanEntityWWW.setSanValue(finalDomainWWW);
+            sanEntityWWW.setUrl(finalDomainWWW);
+            sanEntityWWW.setCertificate(requestDto.getCertificate()); // On lie l'entité à son parent
+            
+            sanEntityList.add(0, sanEntityWWW);
+        }
+    }
+
+    /**
+     * =========================================================================
+     * ### CHANGEMENT 4 : NOUVELLE méthode privée de validation ###
+     * Cette méthode a été ajoutée pour vérifier la structure de base de chaque SAN
+     * (type non null, valeur non vide).
+     * =========================================================================
+     */
+    private void verifySanEntities(List<San> sanList) {
+        if (CollectionUtils.isEmpty(sanList)) {
+            return;
+        }
+        for (San san : sanList) {
+            // Règle du ticket JIRA : "Soit la clé type est presente => doit etre un des type de san definit et donc pas etre null"
+            if (san.getType() == null || StringUtils.isEmpty(san.getSanValue())) {
+                throw new CertisRequestException("Type ou valeur de SAN invalide.", HttpStatus.BAD_REQUEST);
+            }
+        }
+    }
+    
+    /**
+     * =========================================================================
+     * ### INCHANGÉ ###
+     * Cette méthode n'a pas besoin de changer car son contrat (elle reçoit un DTO et une String)
+     * est toujours respecté par la méthode qui l'appelle.
+     * =========================================================================
+     */
+    private Boolean evaluateCnAndCertTypeForCheckRefWebSan(RequestDto requestDto, String san) {
+        // ... (votre code existant ici) ...
+        return result;
+    }
+    
+    // ... (toutes les autres méthodes de votre classe restent ici) ...
+}
 
     private boolean isIncidentResolved(SnowIncidentReadResponseDto snowIncident) {
         try {
