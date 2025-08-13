@@ -2672,3 +2672,98 @@ public class CertificateDeserializer extends StdDeserializer<Certificate> {
     
     // ...
 }
+////////// 
+@Override
+@Transactional
+public RequestDto updateRequestInfo(UpdateRequestInfoDto updateRequest, Long requestId, String connectedUser, ActionRequestType action) {
+    
+    RequestDto previousRequest = this.findRequestByIdAndAccessibility(requestId, connectedUser, action);
+    Certificate previousCertificate = previousRequest.getCertificate();
+    String traceModification = "Request information has been modified:";
+
+    if (!org.apache.commons.lang3.StringUtils.equalsIgnoreCase(updateRequest.getApplicationCode(), previousCertificate.getApplicationCode())) {
+        traceModification += " ApplicationCode set to " + updateRequest.getApplicationCode() + ";";
+        certificateService.setApplicationCodeAndSupportGroup(previousCertificate, updateRequest.getApplicationCode());
+    }
+
+    if (StringUtils.isEmpty(updateRequest.getApplicationName())) {
+        if (StringUtils.isEmpty(previousCertificate.getApplicationName()) || !updateRequest.getApplicationName().equalsIgnoreCase(previousCertificate.getApplicationName())) {
+            traceModification += " ApplicationName set to " + updateRequest.getApplicationName() + ";";
+            previousCertificate.setApplicationName(updateRequest.getApplicationName());
+        }
+    }
+
+    if (StringUtils.isEmpty(updateRequest.getHostname())) {
+        if (previousRequest.getHostname() == null || !updateRequest.getHostname().equalsIgnoreCase(previousRequest.getHostname())) {
+            traceModification += " Hostname set to " + updateRequest.getHostname() + ";";
+            previousCertificate.setHostname(updateRequest.getHostname());
+        }
+    }
+
+    if (updateRequest.getEnvironment() != null) {
+        if (previousRequest.getEnvironment() == null || previousRequest.getEnvironment() != updateRequest.getEnvironment()) {
+            traceModification += " Environment set to " + updateRequest.getEnvironment().name() + ";";
+            previousRequest.setEnvironment(updateRequest.getEnvironment());
+        }
+    }
+    
+    if (updateRequest.getCertificate().getUnknownCodeAP() != null) {
+        if (previousRequest.getCertificate().getUnknownCodeAP() == null || updateRequest.getCertificate().getUnknownCodeAP() != previousRequest.getCertificate().getUnknownCodeAP()) {
+            traceModification += " Unknown Code AP set to " + updateRequest.getCertificate().getUnknownCodeAP().toString() + ";";
+            previousRequest.getCertificate().setUnknownCodeAP(updateRequest.getCertificate().getUnknownCodeAP());
+        }
+    }
+
+    if (traceModification.contains("ApplicationCode") || traceModification.contains("ApplicationName")) {
+        traceModification += " Application after Certis verification:" 
+            + " " + Optional.ofNullable(previousCertificate.getApplicationCode()).orElse("") 
+            + " " + Optional.ofNullable(previousCertificate.getApplicationName()).orElse("") + ";";
+    }
+
+    if (updateRequest.getCertisEntity() != null && StringUtils.isEmpty(updateRequest.getCertisEntity().getName())) {
+        CertisEntity entity = this.entityDao.findByName(updateRequest.getCertisEntity().getName());
+        if (entity != null) {
+            if (previousCertificate.getCertisEntity() == null || !entity.getName().equalsIgnoreCase(previousCertificate.getCertisEntity().getName())) {
+                traceModification += " Entity set to " + entity.getName() + ";";
+                previousCertificate.setCertisEntity(entity);
+            }
+        }
+    }
+
+    if (updateRequest.getGroupSupport() != null && !StringUtils.isEmpty(updateRequest.getGroupSupport().getName())) {
+        List<GroupSupport> groupSupportList = groupSupportDao.findByName(updateRequest.getGroupSupport().getName().trim());
+        if (!CollectionUtils.isEmpty(groupSupportList)) {
+            GroupSupport gs = groupSupportList.get(0);
+            if (previousCertificate.getGroupSupport() == null || !gs.getName().equalsIgnoreCase(previousCertificate.getGroupSupport().getName())) {
+                traceModification += " Group support set to " + gs.getName() + ";";
+                previousCertificate.setGroupSupport(gs);
+            }
+        }
+    }
+
+    if (updateRequest.getCountry() != null && !StringUtils.isEmpty(updateRequest.getCountry().getIsoCode())) {
+        GnsCountry country = this.countryDao.findByIsoCode(updateRequest.getCountry().getIsoCode());
+        if (country != null) {
+            if (previousCertificate.getGnsCountry() == null || !country.getEnName().equalsIgnoreCase(previousCertificate.getGnsCountry().getEnName())) {
+                traceModification += " Country set to " + country.getEnName() + ";";
+                previousCertificate.setGnsCountry(country);
+            }
+        }
+    }
+
+    String newCertificateComment = updateRequest.getCertificateComment();
+    
+    if (!Objects.equals(previousCertificate.getComment(), newCertificateComment)) {
+        previousCertificate.setComment(newCertificateComment);
+        traceModification += " Le commentaire du certificat a été mis à jour;";
+    }
+    
+    this.commentService.processComment(previousRequest, null, connectedUser, traceModification);
+    
+    boolean infoValidateRequest = true; 
+    if (infoValidateRequest) {
+        return this.updateRequest(previousRequest);
+    } else {
+        return this.updateRequestWithoutValidation(previousRequest);
+    }
+}
