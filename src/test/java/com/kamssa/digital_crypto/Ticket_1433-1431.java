@@ -2457,6 +2457,66 @@ public class RequestController {
 
     // --- Le reste de vos méthodes (comme updateRequestInfo, isDraftRequest, etc.) est INCHANGÉ ---
 }
+/////// decoder ///////////////////////////
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.deser.std.StdDeserializer;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+import org.springframework.util.CollectionUtils;
+
+public class CertificateDeserializer extends StdDeserializer<Certificate> {
+
+    public CertificateDeserializer() {
+        this(null);
+    }
+
+    public CertificateDeserializer(Class<?> vc) {
+        super(vc);
+    }
+
+    @Override
+    public Certificate deserialize(JsonParser jp, DeserializationContext ctxt) throws IOException {
+        // On récupère le JsonNode qui correspond à l'objet "certificate"
+        JsonNode certificateNode = jp.getCodec().readTree(jp);
+
+        // On crée notre entité vide
+        Certificate certificateEntity = new Certificate();
+
+        // On mappe manuellement les champs simples
+        if (certificateNode.has("commonName")) {
+            certificateEntity.setCommonName(certificateNode.get("commonName").asText());
+        }
+        if (certificateNode.has("password")) {
+            certificateEntity.setPassword(certificateNode.get("password").asText());
+        }
+        // ... mappez ici tous les autres champs simples du certificat ...
+
+        // On mappe la liste des SANs
+        JsonNode sansNode = certificateNode.path("sans");
+        if (sansNode.isArray()) {
+            List<San> sanEntities = new ArrayList<>();
+            for (JsonNode sanNode : sansNode) {
+                San sanEntity = new San();
+                
+                if (sanNode.has("type") && !sanNode.get("type").isNull()) {
+                    sanEntity.setType(SanTypeEnum.valueOf(sanNode.get("type").asText()));
+                } else {
+                    sanEntity.setType(SanTypeEnum.DNSNAME); // Règle du backend : défaut DNSNAME
+                }
+                
+                if (sanNode.has("sanValue")) sanEntity.setSanValue(sanNode.get("sanValue").asText());
+                if (sanNode.has("url")) sanEntity.setUrl(sanNode.get("url").asText());
+                
+                sanEntity.setCertificate(certificateEntity); // On lie le SAN à son parent
+                sanEntities.add(sanEntity);
+            }
+            certificateEntity.setSans(sanEntities);
+        }
+
+        return certificateEntity;
+    }
+}
 
     private boolean isIncidentResolved(SnowIncidentReadResponseDto snowIncident) {
         try {
