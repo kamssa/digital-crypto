@@ -2767,3 +2767,53 @@ public RequestDto updateRequestInfo(UpdateRequestInfoDto updateRequest, Long req
         return this.updateRequestWithoutValidation(previousRequest);
     }
 }
+//////////////////////////////
+  public void integrateCsrSans(RequestDto requestDto) {
+        if (requestDto == null || StringUtils.isEmpty(requestDto.getCsr())) {
+            return; // Pas de CSR, rien à faire
+        }
+
+        try {
+            String decodedCsr = new String(Base64.getDecoder().decode(requestDto.getCsr()), StandardCharsets.UTF_8);
+
+            CertificateCsrDecoder csrDecoder = new CertificateCsrDecoder();
+            
+            // 1. Extraire les SANs du fichier CSR
+            List<San> sansInCsr = csrDecoder.getSansList(decodedCsr).stream()
+                    .map(sanString -> new San(sanString)) // On suppose que le constructeur de San prend une String
+                    .collect(Collectors.toList());
+
+            // 2. Récupérer les SANs du formulaire (payload)
+            List<San> sansFromForm = requestDto.getCertificate().getSans();
+            if (sansFromForm == null) {
+                sansFromForm = new ArrayList<>();
+            }
+
+            // 3. Fusionner les deux listes en un seul flux (Stream)
+            List<San> combinedSans = Stream.of(sansInCsr, sansFromForm)
+                    .flatMap(List::stream)
+                    .collect(Collectors.toList());
+
+            // 4. DÉDUPLIQUER la liste fusionnée en utilisant une clé composite "TYPE:VALEUR"
+            //    C'est la partie corrigée et la plus importante.
+            Collection<San> uniqueSans = combinedSans.stream()
+                    .filter(san -> san != null && san.getType() != null && san.getValue() != null) // Sécurité
+                    .collect(Collectors.toMap(
+                        san -> san.getType().toUpperCase() + ":" + san.getValue().toLowerCase(), // Clé unique : "DNSNAME:site.com"
+                        Function.identity(), // Garder l'objet San original comme valeur
+                        (existing, replacement) -> existing // En cas de doublon, on garde le premier qu'on a vu
+                    ))
+                    .values(); // On récupère la collection de San uniques
+
+            // 5. Mettre à jour le DTO avec la liste finale et unique de SANs
+            List<San> allSans = new ArrayList<>(uniqueSans);
+            requestDto.getCertificate().setSans(allSans);
+
+            LOGGER.info("All SANS after merge and deduplication = " + allSans.toString());
+
+        } catch (Exception e) {
+            LOGGER.error("Error when trying to associate CSR SANs: ", e);
+            // Optionnel : vous pourriez vouloir lancer une exception ici pour invalider la requête
+            // throw new CertisRequestException("Invalid CSR SANs provided.", HttpStatus.BAD_REQUEST);
+        }
+    }
