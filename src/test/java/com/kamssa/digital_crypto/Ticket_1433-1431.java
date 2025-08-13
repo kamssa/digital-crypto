@@ -2599,3 +2599,76 @@ public class CertificateDeserializer extends StdDeserializer<Certificate> {
         return certificateEntity;
     }
 }
+////update ///
+
+    @Override
+    @Transactional
+    public RequestDto updateRequestInfo(UpdateRequestInfoDto updateRequest, Long requestId, String username, ActionRequestType action) {
+        
+        // 1. Récupérer l'entité Request (et non le DTO)
+        Request requestToUpdate = requestDao.findOne(requestId);
+        if (requestToUpdate == null) {
+            throw new EntityNotFoundException("Request not found with id: " + requestId);
+        }
+
+        // 2. Faire les vérifications de sécurité sur l'entité
+        checkAccessibilityForRequest(requestToUpdate, username, action);
+
+        // 3. Récupérer l'entité Certificate liée
+        Certificate certificateToUpdate = requestToUpdate.getCertificate();
+        if (certificateToUpdate == null) {
+            throw new IllegalStateException("Certificate not found for request id: " + requestId);
+        }
+
+        // On garde une copie des anciennes valeurs pour la trace
+        String oldCertificateComment = certificateToUpdate.getComment();
+        
+        // --- Début de la logique de mise à jour (adaptée pour travailler avec les entités) ---
+        String traceModification = "Request information has been modified:";
+
+        // ... (votre logique existante pour mettre à jour les infos : hostname, country, etc.)
+        // IMPORTANT : Cette logique doit maintenant modifier les objets `requestToUpdate` et `certificateToUpdate`
+        // Exemple pour le hostname:
+        if (!Objects.equals(certificateToUpdate.getHostname(), updateRequest.getHostname())) {
+            traceModification += " Hostname set to " + updateRequest.getHostname() + ";";
+            certificateToUpdate.setHostname(updateRequest.getHostname());
+        }
+        // ... Répétez pour les autres champs (country, environment, etc.)
+        
+        
+        // =========================================================================
+        //     ▼▼▼   BLOC DE CODE AJOUTÉ POUR LE COMMENTAIRE DU CERTIFICAT   ▼▼▼
+        // =========================================================================
+        
+        // On récupère le nouveau commentaire depuis le DTO de la requête
+        String newCertificateComment = updateRequest.getCertificateComment();
+        
+        // On compare avec l'ancien commentaire pour voir s'il y a eu un changement
+        if (!Objects.equals(oldCertificateComment, newCertificateComment)) {
+            // Le commentaire a changé, on le met à jour DIRECTEMENT sur l'entité Certificate.
+            certificateToUpdate.setComment(newCertificateComment);
+            
+            traceModification += " Le commentaire du certificat a été mis à jour;";
+        }
+        
+        // --- Fin du bloc ajouté ---
+        
+        
+        // --- Mise à jour de l'historique de la Request ---
+        // On convertit l'entité en DTO juste pour pouvoir utiliser le CommentService
+        RequestDto requestDtoForComment = entityToDto(requestToUpdate); 
+        commentService.processComment(requestDtoForComment, null, username, traceModification);
+        // On ré-applique le nouvel historique sur notre entité
+        requestToUpdate.setComment(requestDtoForComment.getComment());
+
+        // --- Sauvegarde finale ---
+        // On sauvegarde l'entité Request. @Transactional s'assurera que les modifications
+        // sur l'entité Certificate liée sont aussi persistées.
+        Request updatedRequest = requestDao.save(requestToUpdate);
+
+        // On retourne le DTO de l'entité mise à jour
+        return entityToDto(updatedRequest);
+    }
+    
+    // ...
+}
