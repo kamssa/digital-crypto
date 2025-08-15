@@ -291,3 +291,51 @@ public RequestDto updateRequestInfo(UpdateRequesUpdateRquestInfotDto updateReque
     // Retourner un DTO de l'entité mise à jour, comme le contrat de la méthode l'exige.
     return this.entityToDto(updatedRequest);
 }
+/////
+
+@Override
+public RequestDto updateRequestInfo(UpdateRequesUpdateRquestInfotDto updateRequestInfoDto, Long requestId, String connectedUser, String username, ActionRequestType action) throws Exception {
+    
+    // Étape 1 : Charger l'entité managée et vérifier l'accès
+    Request requestToUpdate = this.requestDao.findById(requestId)
+            .orElseThrow(() -> new EntityNotFoundException("Request not found with id: " + requestId));
+
+    this.checkAccessibilityForRequest(requestToUpdate, connectedUser, action);
+
+    Certificate certificateToUpdate = requestToUpdate.getCertificate();
+    if (certificateToUpdate == null) {
+        throw new IllegalStateException("Critical error: Certificate associated with request id " + requestId + " is null.");
+    }
+    
+    String traceModification = "Request information has been modified:";
+
+    // Étape 2 : Appliquer les modifications sur les entités managées...
+    // ... (toutes les sections if pour ApplicationCode, Environment, UnknownCodeAP, etc.) ...
+    
+    // [COLLEZ ICI TOUTES LES SECTIONS DE MISE À JOUR QUE NOUS AVONS CORRIGÉES PRÉCÉDEMMENT]
+    // Par exemple :
+    // Application Name
+    if (StringUtils.hasText(updateRequestInfoDto.getApplicationName())) {
+        if (!updateRequestInfoDto.getApplicationName().equalsIgnoreCase(certificateToUpdate.getApplicationName())) {
+            traceModification += " ApplicationName set to " + updateRequestInfoDto.getApplicationName() + ";";
+            certificateToUpdate.setApplicationName(updateRequestInfoDto.getApplicationName());
+        }
+    }
+    // ... et toutes les autres ...
+
+    // --- CORRECTION APPLIQUÉE ICI ---
+    // Traitement du commentaire sur la demande.
+    // La méthode attend un DTO, nous convertissons donc notre entité `requestToUpdate` en DTO.
+    RequestDto requestDtoForComment = this.entityToDto(requestToUpdate);
+    this.commentService.processComment(requestDtoForComment, null, connectedUser, traceModification);
+    // --- FIN DE LA CORRECTION ---
+    
+    // Mettre à jour l'indicateur "code AP vérifié"
+    certificateToUpdate.setCodeAPChecked(true);
+
+    // Étape 3 : Sauvegarder l'entité qui a été directement modifiée.
+    Request updatedRequest = this.requestDao.save(requestToUpdate);
+
+    // Retourner un DTO de l'entité mise à jour, comme le contrat de la méthode l'exige.
+    return this.entityToDto(updatedRequest);
+}
