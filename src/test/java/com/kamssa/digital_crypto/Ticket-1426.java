@@ -952,3 +952,27 @@ Pour chaque autre endpoint de mise à jour que nous avons identifié (comme addC
 Créer une méthode métier spécifique et sécurisée dans RequestServiceImpl si elle n'existe pas déjà (par exemple, addCertificateToRequest(Long requestId, ...)).
 Remplacer le corps de la méthode du contrôleur pour qu'elle appelle cette nouvelle méthode de service.
 Orchestrer les appels à actionService et sendMailUtils dans le contrôleur, après l'appel au service principal.
+///////////////////////
+ @Override
+    @Transactional
+    public RequestDto updateRequestComment(Long requestId, String newComment, String user) throws Exception {
+        
+        // 1. Charger l'entité managée depuis la base de données
+        Request requestToUpdate = requestDao.findById(requestId)
+                .orElseThrow(() -> new EntityNotFoundException("Request not found with id: " + requestId));
+
+        // 2. Préparer le DTO temporaire pour le CommentService
+        // On prend l'état AVANT la modification pour que `processComment` puisse comparer.
+        RequestDto oldRequestStateDto = entityToDto(requestToUpdate);
+
+        // 3. Utiliser le CommentService pour formater et appliquer le commentaire
+        // Le service va modifier le DTO `oldRequestStateDto` directement
+        commentService.processComment(oldRequestStateDto, oldRequestStateDto, user, newComment);
+
+        // 4. Appliquer le commentaire finalisé à notre entité managée
+        requestToUpdate.setComment(oldRequestStateDto.getComment());
+        
+        // 5. Laisser @Transactional sauvegarder les changements.
+        // On retourne un DTO frais de l'entité mise à jour.
+        return entityToDto(requestToUpdate);
+    }
