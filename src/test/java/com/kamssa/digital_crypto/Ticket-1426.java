@@ -786,3 +786,169 @@ public RequestDto updateFullRequest(Long requestId, RequestDto updatedDto, Strin
     // --- ÉTAPE 5: RETOURNER LE RÉSULTAT ---
     return this.entityToDto(requestToUpdate);
 }
+///////////////////////controller /////////////
+Fichier à modifier : RequestController.java
+1. Méthode updateRequest (Endpoint: POST /requests/{id})
+Cette méthode est la plus complexe. Elle fusionne deux DTOs avant d'appeler le service.
+REMPLACEZ PAR :
+code
+Java
+@PostMapping("/requests/{id}")
+@Transactional
+public ResponseEntity<?> updateRequest(@PathVariable("id") Long id, 
+                                     @Valid @RequestBody RequestDtoImpl newRequestDto, 
+                                     UriComponentsBuilder uriComponentsBuilder, 
+                                     ServletRequest servletRequest) throws Exception {
+
+    RequestDto oldRequest = requestService.findById(id);
+    if (oldRequest.getId() == 0) {
+        return utilityService.certisResponse(ResponseType.ERROR, HttpStatus.NOT_FOUND, "request.not.exists");
+    }
+
+    String refoguid = utilityService.getConnectedUserOrApi(servletRequest);
+    utilityService.checkUserAccessOnRequest(servletRequest, oldRequest, ActionRequestType.UPDATE_REQUEST);
+
+    // --- Début de votre logique de fusion métier (reste dans le contrôleur) ---
+    // (Cette partie prépare le DTO final à envoyer au service)
+    String newRequestCsr = this.fileManageService.extractCsr(newRequestDto, Boolean.TRUE);
+    // ...
+    // ... Toute votre logique existante pour préparer l'objet `oldRequest` ...
+    oldRequest.setContacts(newRequestDto.getContacts());
+    oldRequest.getCertificate().setComment(newRequestDto.getCertificate().getComment());
+    // ... etc.
+    // --- Fin de la logique de fusion ---
+
+    // --- APPEL À LA NOUVELLE MÉTHODE DE SERVICE SÉCURISÉE ---
+    RequestDto requestDtoResult = requestService.updateFullRequest(id, oldRequest, refoguid);
+
+    LOGGER.info("Request modified " + requestDtoResult.getId());
+    
+    HttpHeaders headers = new HttpHeaders();
+    headers.setLocation(uriComponentsBuilder.path(URL_READ_REQUEST).buildAndExpand(requestDtoResult.getId()).toUri());
+
+    return new ResponseEntity<>(
+        new DefaultResponse<>(requestDtoResult.getId(), requestDtoResult.getRequestStatus().getName()),
+        headers,
+        HttpStatus.OK
+    );
+}
+2. Méthode rejectRequest (Endpoint: PATCH /admin/reject/{requestId})
+REMPLACEZ PAR :
+code
+Java
+@PatchMapping("/admin/reject/{requestId}")
+@PreAuthorize("hasRole('ROLE_ADMIN')")
+public ResponseEntity<?> rejectRequest(@PathVariable("requestId") Long requestId, @RequestBody(required = false) RequestDtoImpl requestDtoCom, Principal principal, ServletRequest servletRequest) throws Exception {
+    String refoguid = principal.getName();
+    String comment = (requestDtoCom != null) ? requestDtoCom.getComment() : "";
+    String authorComment = String.format("Reject reason: %s", org.apache.commons.lang3.StringUtils.defaultIfEmpty(comment, ""));
+
+    // 1. Appel au service pour la mise à jour BDD
+    RequestDto updatedDto = requestService.updateRequestStatus(requestId, "REJECTED", refoguid, authorComment);
+
+    // 2. Orchestration des actions post-mise à jour
+    sendMailUtils.prepareAndSendEmail(SUBJECT_REJECT, "template/request-refuse-for-user.vm", updatedDto, null, null);
+    this.actionService.buildAndSaveAction(ActionRequestType.REJECTED_ADMIN_REQUEST, refoguid, updatedDto, this.utilityService.getGatewayName());
+
+    return utilityService.certisResponse(ResponseType.OK, HttpStatus.OK, "resp.reject");
+}
+3. Méthode takeRequest (Endpoint: PATCH /admin/take/{requestId})
+REMPLACEZ PAR :
+code
+Java
+@PatchMapping("/admin/take/{requestId}")
+@PreAuthorize("hasRole('ROLE_ADMIN')")
+public ResponseEntity<?> takeRequest(@PathVariable("requestId") Long requestId, @RequestParam("uid") String uid) throws Exception {
+    RequestDto requestDto = requestService.findById(requestId);
+    if (StringUtils.isEmpty(uid) || requestDto == null) {
+        return utilityService.certisResponse(ResponseType.ERROR, HttpStatus.NOT_FOUND, "request.not.exists");
+    }
+
+    // 1. Appel au service pour la mise à jour BDD
+    RequestDto updatedRequestDto = requestService.takeRequest(requestId, uid);
+    
+    // 2. Enregistrer l'action
+    this.actionService.buildAndSaveAction(ActionRequestType.AFFECT_REQUEST, uid, updatedRequestDto, this.utilityService.getGatewayName());
+    
+    // 3. Envoyer l'email
+    sendMailUtils.prepareAndSendEmail("template/request-taken-for-user.vm", updatedRequestDto, null, null);
+    
+    return utilityService.certisResponse(ResponseType.OK, HttpStatus.OK, "resp.take");
+}
+4. Méthode cancelRequest (Endpoint: PATCH /cancel/{requestId})
+REMPLACEZ PAR :
+code
+Java
+@PatchMapping("/cancel/{requestId}")
+public ResponseEntity<?> cancelRequest(@PathVariable("requestId") Long requestId, ServletRequest servletRequest) throws Exception {
+    String refoguid = utilityService.getConnectedUserOrApi(servletRequest);
+    RequestDto requestDto = requestService.findById(requestId);
+    utilityService.checkUserAccessOnRequest(servletRequest, requestDto, ActionRequestType.ANNULER_REQUEST);
+
+    if (!"DONE".equals(requestDto.getRequestStatus().getName()) && !"TO_REVOKE".equals(requestDto.getRequestStatus().getName()) && !"VALIDATED".equals(requestDto.getRequestStatus().getName())) {
+        
+        RequestDto updatedDto = requestService.updateRequestStatus(requestId, "CANCELED", refoguid, "Request canceled by user.");
+        
+        this.actionService.buildAndSaveAction(ActionRequestType.ANNULER_REQUEST, refoguid, updatedDto, this.utilityService.getGatewayName());
+        
+        return utilityService.certisResponse(ResponseType.OK, HttpStatus.OK, "resp.cancel");
+    }
+    return utilityService.certisResponse(ResponseType.NOT_ACCEPTABLE, HttpStatus.NOT_ACCEPTABLE, "error.request.cancel");
+}
+5. Méthode validateRequest (Endpoint: PATCH /admin/validate/{requestId})
+REMPLACEZ PAR :
+code
+Java
+@PatchMapping("/admin/validate/{requestId}")
+@Transactional
+public ResponseEntity<?> validateRequest(@PathVariable("requestId") Long requestId, ServletRequest servletRequest) throws Exception {
+    String refoguid = this.utilityService.getConnectedUserOrApi(servletRequest);
+    RequestDto requestDto = requestService.findById(requestId);
+
+    if (requestDto == null) {
+        return utilityService.certisResponse(ResponseType.ERROR, HttpStatus.NOT_FOUND, "request.not.exists");
+    }
+
+    if (!"TAKEN".equals(requestDto.getRequestStatus().getName())) {
+        return utilityService.certisResponse(ResponseType.NOT_ACCEPTABLE, HttpStatus.NOT_ACCEPTABLE, "request.error.reject");
+    }
+
+    RequestDto updatedDto = requestService.updateRequestStatus(requestId, "VALIDATED", refoguid, "Request validated.");
+    
+    sendMailUtils.prepareAndSendEmail(SUBJECT_VALIDATION, "template/request-validate-for-user.vm", updatedDto, null, null);
+    
+    this.actionService.buildAndSaveAction(ActionRequestType.VALIDATE_REQUEST, refoguid, updatedDto, this.utilityService.getGatewayName());
+
+    return utilityService.certisResponse(ResponseType.OK, HttpStatus.OK, "resp.validate");
+}
+6. Méthode updateComment (Endpoint: POST /comment/{requestId})
+Cette méthode est complexe et appelle saveOrUpdateComment qui doit être revue.
+REMPLACEZ PAR (créez une nouvelle méthode de service updateRequestComment) :
+code
+Java
+@PostMapping("/comment/{requestId}")
+public ResponseEntity<?> updateComment(@PathVariable("requestId") Long id, @RequestBody RequestDtoImpl requestDtoComImpl, ServletRequest servletRequest) throws Exception {
+    String refoguid = utilityService.getConnectedUserOrApi(servletRequest);
+    RequestDto oldRequest = requestService.findById(id);
+    // ... vérifications ...
+
+    // Appel à une nouvelle méthode de service dédiée
+    RequestDto requestDtoResult = requestService.updateRequestComment(id, requestDtoComImpl.getComment(), refoguid);
+
+    // ... logique d'envoi d'email
+    return new ResponseEntity<>(requestDtoResult, HttpStatus.OK);
+}
+
+// N'oubliez pas d'ajouter `updateRequestComment` dans RequestServiceImpl
+@Transactional
+public RequestDto updateRequestComment(Long requestId, String comment, String user) {
+    Request request = requestDao.findById(requestId).orElseThrow(...);
+    request.setComment(comment);
+    // La transaction sauvegarde
+    return entityToDto(request);
+}
+Résumé de votre tâche
+Pour chaque autre endpoint de mise à jour que nous avons identifié (comme addCertificate, notRenewCertificate, submitWafRequest, etc.), vous devez suivre ce même patron :
+Créer une méthode métier spécifique et sécurisée dans RequestServiceImpl si elle n'existe pas déjà (par exemple, addCertificateToRequest(Long requestId, ...)).
+Remplacer le corps de la méthode du contrôleur pour qu'elle appelle cette nouvelle méthode de service.
+Orchestrer les appels à actionService et sendMailUtils dans le contrôleur, après l'appel au service principal.
