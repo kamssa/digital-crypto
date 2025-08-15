@@ -575,3 +575,145 @@ public class RequestServiceImpl implements RequestService {
 
     // ... (Gardez toutes vos autres méthodes existantes : findById, dtoToEntity, etc.)
 }
+////// new/////////////////////////
+@Service
+public class RequestServiceImpl implements RequestService {
+
+    // --- TOUTES VOS DÉPENDANCES INJECTÉES ---
+    // (Assurez-vous que toutes celles utilisées dans le code ci-dessous sont présentes)
+    @Autowired
+    private RequestDao requestDao;
+    
+    @Autowired
+    private RequestStatusDao requestStatusDao;
+    
+    @Autowired
+    private CommentService commentService;
+
+    @Autowired
+    private ActionService actionService;
+
+    // ... etc pour tous vos DAOs et Services.
+
+    
+    // --- MÉTHODE DE CRÉATION (INCHANGÉE) ---
+    // Correcte pour la création, ne pas utiliser pour une mise à jour.
+    @Override
+    @Transactional
+    public RequestDto createRequest(RequestDto requestDto) throws Exception {
+        // ... (votre logique de création existante, qui est probablement correcte)
+        // Par exemple:
+        this.validateRequest(requestDto);
+        Request request = dtoToEntity(requestDto);
+        Request savedRequest = requestDao.save(request);
+        return entityToDto(savedRequest);
+    }
+
+
+    // --- ANCIENNES MÉTHODES DE MISE À JOUR - DÉPRÉCIÉES ---
+    // Elles lèvent une exception pour vous obliger à utiliser les nouvelles méthodes spécifiques.
+
+    @Override
+    public RequestDto updateRequest(RequestDto requestDto) {
+        throw new UnsupportedOperationException("DEPRECATED: Use a specific service method for the business action instead (e.g., updateRequestStatus). This method causes bugs.");
+    }
+
+    @Override
+    public RequestDto updateRequestWithoutValidation(RequestDto requestDto) {
+        throw new UnsupportedOperationException("DEPRECATED: Use a specific service method for the business action instead (e.g., updateRequestStatus). This method causes bugs.");
+    }
+
+
+    // --- MÉTHODE DE MISE À JOUR D'INFORMATIONS SPÉCIFIQUE (CORRIGÉE) ---
+    @Override
+    @Transactional
+    public RequestDto updateRequestInfo(UpdateRequesUpdateRquestInfotDto updateRequestInfoDto, Long requestId, String connectedUser, String username, ActionRequestType action) throws Exception {
+        Request requestToUpdate = this.requestDao.findById(requestId)
+                .orElseThrow(() -> new EntityNotFoundException("Request not found with id: " + requestId));
+        this.checkAccessibilityForRequest(requestToUpdate, connectedUser, action);
+
+        Certificate certificateToUpdate = requestToUpdate.getCertificate();
+        if (certificateToUpdate == null) {
+            throw new IllegalStateException("Critical error: Certificate associated with request id " + requestId + " is null.");
+        }
+        
+        String traceModification = "Request information has been modified:";
+
+        // (Collez ici TOUTE votre logique de mise à jour des champs de 'updateRequestInfo')
+        // ...
+        // ...
+        // ...
+
+        // Utilisation correcte du CommentService
+        RequestDto tempDto = this.entityToDto(requestToUpdate);
+        this.commentService.processComment(tempDto, null, connectedUser, traceModification);
+        requestToUpdate.setComment(tempDto.getComment());
+        
+        certificateToUpdate.setCodeAPChecked(true);
+
+        // La transaction sauvegarde automatiquement. On retourne le DTO à jour.
+        return this.entityToDto(requestToUpdate);
+    }
+
+
+    // --- NOUVELLES MÉTHODES DE SERVICE POUR LES ACTIONS MÉTIER ---
+
+    /**
+     * Met à jour le statut et le commentaire d'une requête.
+     * C'est la nouvelle méthode sécurisée pour la plupart des changements d'état.
+     * @return Le RequestDto mis à jour.
+     */
+    @Override
+    @Transactional
+    public RequestDto updateRequestStatus(Long requestId, String newStatusName, String user, String comment) {
+        Request requestToUpdate = requestDao.findById(requestId)
+                .orElseThrow(() -> new EntityNotFoundException("Request not found with id: " + requestId));
+
+        RequestStatus newStatus = requestStatusDao.findByName(newStatusName);
+        if (newStatus == null) {
+            throw new EntityNotFoundException("RequestStatus not found with name: " + newStatusName);
+        }
+        requestToUpdate.setRequestStatus(newStatus);
+
+        if (StringUtils.hasText(comment)) {
+            RequestDto tempDto = entityToDto(requestToUpdate);
+            // On passe un DTO temporaire au service de commentaire
+            commentService.processComment(tempDto, null, user, comment);
+            // On récupère le résultat et on l'applique à notre VRAIE entité
+            requestToUpdate.setComment(tempDto.getComment());
+        }
+        
+        // La transaction sauvegarde. On retourne le DTO à jour pour le contrôleur.
+        return entityToDto(requestToUpdate);
+    }
+
+    /**
+     * Prend en charge une requête. Ne gère que la modification en base de données.
+     * @return Le RequestDto mis à jour pour que le contrôleur orchestre le reste.
+     */
+    @Override
+    @Transactional
+    public RequestDto takeRequest(Long requestId, String userId) {
+        Request request = requestDao.findById(requestId)
+            .orElseThrow(() -> new EntityNotFoundException("Request not found: ".concat(requestId.toString())));
+            
+        if (!"SUBMITTED".equals(request.getRequestStatus().getName()) && !"TAKEN".equals(request.getRequestStatus().getName())) {
+            throw new IllegalStateException("Request cannot be taken in its current state.");
+        }
+
+        request.setRequestStatus(findRequestStatusByName("TAKEN"));
+        request.setTakedBy(userId);
+        
+        return entityToDto(request);
+    }
+    
+    // --- CONSERVEZ TOUTES VOS AUTRES MÉTHODES EXISTANTES ---
+    // (Toutes les méthodes de recherche comme findById, findBySerialNumber, 
+    // les convertisseurs comme entityToDto, dtoToEntity, etc. doivent être gardées)
+
+    // ...
+    // ...
+    // (Le reste de votre fichier)
+    // ...
+    // ...
+}
