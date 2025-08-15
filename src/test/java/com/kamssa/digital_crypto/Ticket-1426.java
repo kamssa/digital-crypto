@@ -339,3 +339,239 @@ public RequestDto updateRequestInfo(UpdateRequesUpdateRquestInfotDto updateReque
     // Retourner un DTO de l'entité mise à jour, comme le contrat de la méthode l'exige.
     return this.entityToDto(updatedRequest);
 }
+////// correction bug ////////////////////
+@Service
+public class RequestServiceImpl implements RequestService {
+
+    // ... (tous vos @Autowired DAOs et Services : requestDao, requestStatusDao, commentService, etc.)
+    // Assurez-vous que toutes les dépendances sont bien injectées.
+    
+    // --- MÉTHODE DE CRÉATION (RESTE INCHANGÉE MAIS NE DOIT PAS ÊTRE UTILISÉE POUR UPDATE) ---
+    @Override
+    @Transactional
+    public RequestDto createRequest(RequestDto requestDto) throws Exception {
+        // ... (votre logique de création existante)
+        // Cette méthode est correcte pour la CRÉATION, mais ne doit JAMAIS être appelée pour une MISE À JOUR.
+        Request request = dtoToEntity(requestDto);
+        Request savedRequest = requestDao.save(request);
+        return entityToDto(savedRequest);
+    }
+
+    // --- ANCIENNES MÉTHODES DE MISE À JOUR - MAINTENANT OBSOLÈTES ---
+    @Override
+    public RequestDto updateRequest(RequestDto requestDto) {
+        throw new UnsupportedOperationException("DEPRECATED: Use a specific service method for the business action instead (e.g., updateRequestStatus, takeRequest).");
+    }
+
+    @Override
+    public RequestDto updateRequestWithoutValidation(RequestDto requestDto) {
+        throw new UnsupportedOperationException("DEPRECATED: Use a specific service method for the business action instead (e.g., updateRequestStatus, takeRequest).");
+    }
+
+    // --- MÉTHODE DE MISE À JOUR D'INFORMATIONS (CORRIGÉE) ---
+    @Override
+    @Transactional
+    public RequestDto updateRequestInfo(UpdateRequesUpdateRquestInfotDto updateRequestInfoDto, Long requestId, String connectedUser, String username, ActionRequestType action) throws Exception {
+        Request requestToUpdate = this.requestDao.findById(requestId)
+                .orElseThrow(() -> new EntityNotFoundException("Request not found with id: " + requestId));
+        this.checkAccessibilityForRequest(requestToUpdate, connectedUser, action);
+
+        Certificate certificateToUpdate = requestToUpdate.getCertificate();
+        if (certificateToUpdate == null) {
+            throw new IllegalStateException("Critical error: Certificate associated with request id " + requestId + " is null.");
+        }
+        
+        String traceModification = "Request information has been modified:";
+
+        // (Collez ici TOUTE votre logique de mise à jour des champs de 'updateRequestInfo')
+        // Exemple :
+        if (StringUtils.hasText(updateRequestInfoDto.getApplicationName())) {
+            //... etc.
+        }
+
+        RequestDto requestDtoForComment = this.entityToDto(requestToUpdate);
+        this.commentService.processComment(requestDtoForComment, null, connectedUser, traceModification);
+        requestToUpdate.setComment(requestDtoForComment.getComment());
+        
+        certificateToUpdate.setCodeAPChecked(true);
+
+        // La transaction sauvegarde automatiquement les modifications sur requestToUpdate.
+        return this.entityToDto(requestToUpdate);
+    }
+
+
+    // --- NOUVELLES MÉTHODES DE SERVICE POUR LES ACTIONS MÉTIER ---
+
+    @Transactional
+    public RequestDto updateRequestStatus(Long requestId, String newStatusName, String user, String comment) {
+        Request requestToUpdate = requestDao.findById(requestId)
+                .orElseThrow(() -> new EntityNotFoundException("Request not found with id: " + requestId));
+
+        RequestStatus newStatus = requestStatusDao.findByName(newStatusName);
+        if (newStatus == null) {
+            throw new EntityNotFoundException("RequestStatus not found with name: " + newStatusName);
+        }
+        requestToUpdate.setRequestStatus(newStatus);
+
+        if (StringUtils.hasText(comment)) {
+            RequestDto tempDto = entityToDto(requestToUpdate);
+
+            commentService.processComment(tempDto, null, user, comment);
+            requestToUpdate.setComment(tempDto.getComment());
+        }
+        
+        return entityToDto(requestToUpdate);
+    }
+
+    @Transactional
+    public void takeRequest(Long requestId, String userId) throws Exception {
+        Request request = requestDao.findById(requestId)
+            .orElseThrow(() -> new EntityNotFoundException("Request not found: " + requestId));
+            
+        if (!"SUBMITTED".equals(request.getRequestStatus().getName()) && !"TAKEN".equals(request.getRequestStatus().getName())) {
+            // Gérer le cas où la requête ne peut pas être prise
+            throw new IllegalStateException("Request cannot be taken in its current state.");
+        }
+
+        request.setRequestStatus(findRequestStatusByName("TAKEN"));
+        request.setTakedBy(userId);
+        
+        RequestDto dto = entityToDto(request);
+        sendMailUtils.prepareAndSendEmail("template/request-taken-for-user.vm", dto, null, null);
+        actionService.buildAndSaveAction(ActionRequestType.AFFECT_REQUEST, userId, dto, this.utilityService.getGatewayName());
+    }
+
+    @Transactional
+    public void updateStatusAndSendEmail(Long requestId, String statusName, ActionRequestType actionType, String user, String templatePath, String subject) throws Exception {
+        Request requestToUpdate = requestDao.findById(requestId)
+                .orElseThrow(() -> new EntityNotFoundException("Request not found with id: " + requestId));
+
+        RequestStatus newStatus = requestStatusDao.findByName(statusName);
+        requestToUpdate.setRequestStatus(newStatus);
+        
+        RequestDto requestDto = entityToDto(requestToUpdate);
+
+        sendMailUtils.prepareAndSendEmail(subject, templatePath, requestDto, null, null);
+        actionService.buildAndSaveAction(actionType, user, requestDto, this.utilityService.getGatewayName());
+    }
+
+    // ... (Gardez toutes vos autres méthodes existantes : findById, dtoToEntity, etc.)
+}
+/////////////
+@Service
+public class RequestServiceImpl implements RequestService {
+
+    // ... (tous vos @Autowired DAOs et Services : requestDao, requestStatusDao, commentService, etc.)
+    // Assurez-vous que toutes les dépendances sont bien injectées.
+    
+    // --- MÉTHODE DE CRÉATION (RESTE INCHANGÉE MAIS NE DOIT PAS ÊTRE UTILISÉE POUR UPDATE) ---
+    @Override
+    @Transactional
+    public RequestDto createRequest(RequestDto requestDto) throws Exception {
+        // ... (votre logique de création existante)
+        // Cette méthode est correcte pour la CRÉATION, mais ne doit JAMAIS être appelée pour une MISE À JOUR.
+        Request request = dtoToEntity(requestDto);
+        Request savedRequest = requestDao.save(request);
+        return entityToDto(savedRequest);
+    }
+
+    // --- ANCIENNES MÉTHODES DE MISE À JOUR - MAINTENANT OBSOLÈTES ---
+    @Override
+    public RequestDto updateRequest(RequestDto requestDto) {
+        throw new UnsupportedOperationException("DEPRECATED: Use a specific service method for the business action instead (e.g., updateRequestStatus, takeRequest).");
+    }
+
+    @Override
+    public RequestDto updateRequestWithoutValidation(RequestDto requestDto) {
+        throw new UnsupportedOperationException("DEPRECATED: Use a specific service method for the business action instead (e.g., updateRequestStatus, takeRequest).");
+    }
+
+    // --- MÉTHODE DE MISE À JOUR D'INFORMATIONS (CORRIGÉE) ---
+    @Override
+    @Transactional
+    public RequestDto updateRequestInfo(UpdateRequesUpdateRquestInfotDto updateRequestInfoDto, Long requestId, String connectedUser, String username, ActionRequestType action) throws Exception {
+        Request requestToUpdate = this.requestDao.findById(requestId)
+                .orElseThrow(() -> new EntityNotFoundException("Request not found with id: " + requestId));
+        this.checkAccessibilityForRequest(requestToUpdate, connectedUser, action);
+
+        Certificate certificateToUpdate = requestToUpdate.getCertificate();
+        if (certificateToUpdate == null) {
+            throw new IllegalStateException("Critical error: Certificate associated with request id " + requestId + " is null.");
+        }
+        
+        String traceModification = "Request information has been modified:";
+
+        // (Collez ici TOUTE votre logique de mise à jour des champs de 'updateRequestInfo')
+        // Exemple :
+        if (StringUtils.hasText(updateRequestInfoDto.getApplicationName())) {
+            //... etc.
+        }
+
+        RequestDto requestDtoForComment = this.entityToDto(requestToUpdate);
+        this.commentService.processComment(requestDtoForComment, null, connectedUser, traceModification);
+        requestToUpdate.setComment(requestDtoForComment.getComment());
+        
+        certificateToUpdate.setCodeAPChecked(true);
+
+        // La transaction sauvegarde automatiquement les modifications sur requestToUpdate.
+        return this.entityToDto(requestToUpdate);
+    }
+
+
+    // --- NOUVELLES MÉTHODES DE SERVICE POUR LES ACTIONS MÉTIER ---
+
+    @Transactional
+    public RequestDto updateRequestStatus(Long requestId, String newStatusName, String user, String comment) {
+        Request requestToUpdate = requestDao.findById(requestId)
+                .orElseThrow(() -> new EntityNotFoundException("Request not found with id: " + requestId));
+
+        RequestStatus newStatus = requestStatusDao.findByName(newStatusName);
+        if (newStatus == null) {
+            throw new EntityNotFoundException("RequestStatus not found with name: " + newStatusName);
+        }
+        requestToUpdate.setRequestStatus(newStatus);
+
+        if (StringUtils.hasText(comment)) {
+            RequestDto tempDto = entityToDto(requestToUpdate);
+
+            commentService.processComment(tempDto, null, user, comment);
+            requestToUpdate.setComment(tempDto.getComment());
+        }
+        
+        return entityToDto(requestToUpdate);
+    }
+
+    @Transactional
+    public void takeRequest(Long requestId, String userId) throws Exception {
+        Request request = requestDao.findById(requestId)
+            .orElseThrow(() -> new EntityNotFoundException("Request not found: " + requestId));
+            
+        if (!"SUBMITTED".equals(request.getRequestStatus().getName()) && !"TAKEN".equals(request.getRequestStatus().getName())) {
+            // Gérer le cas où la requête ne peut pas être prise
+            throw new IllegalStateException("Request cannot be taken in its current state.");
+        }
+
+        request.setRequestStatus(findRequestStatusByName("TAKEN"));
+        request.setTakedBy(userId);
+        
+        RequestDto dto = entityToDto(request);
+        sendMailUtils.prepareAndSendEmail("template/request-taken-for-user.vm", dto, null, null);
+        actionService.buildAndSaveAction(ActionRequestType.AFFECT_REQUEST, userId, dto, this.utilityService.getGatewayName());
+    }
+
+    @Transactional
+    public void updateStatusAndSendEmail(Long requestId, String statusName, ActionRequestType actionType, String user, String templatePath, String subject) throws Exception {
+        Request requestToUpdate = requestDao.findById(requestId)
+                .orElseThrow(() -> new EntityNotFoundException("Request not found with id: " + requestId));
+
+        RequestStatus newStatus = requestStatusDao.findByName(statusName);
+        requestToUpdate.setRequestStatus(newStatus);
+        
+        RequestDto requestDto = entityToDto(requestToUpdate);
+
+        sendMailUtils.prepareAndSendEmail(subject, templatePath, requestDto, null, null);
+        actionService.buildAndSaveAction(actionType, user, requestDto, this.utilityService.getGatewayName());
+    }
+
+    // ... (Gardez toutes vos autres méthodes existantes : findById, dtoToEntity, etc.)
+}
