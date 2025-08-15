@@ -717,3 +717,72 @@ public class RequestServiceImpl implements RequestService {
     // ...
     // ...
 }
+/////////////////////////
+@Override
+@Transactional
+public RequestDto updateFullRequest(Long requestId, RequestDto updatedDto, String user) throws Exception {
+    
+    // --- ÉTAPE 1: CHARGER L'ENTITÉ MANAGÉE ---
+    Request requestToUpdate = requestDao.findById(requestId)
+            .orElseThrow(() -> new EntityNotFoundException("Request to update not found with id: " + requestId));
+
+    // --- ÉTAPE 2: VALIDER (SI NÉCESSAIRE) ---
+    this.validateRequest(updatedDto);
+
+    // --- ÉTAPE 3: FUSIONNER LES DONNÉES DU DTO VERS L'ENTITÉ ---
+    // ** Champs simples de l'entité Request **
+    requestToUpdate.setComment(updatedDto.getComment());
+    requestToUpdate.setUsage(updatedDto.getUsage());
+    requestToUpdate.setEndDate(updatedDto.getEndDate());
+    // ... Ajoutez ici tous les autres champs simples de Request que vous devez mettre à jour.
+
+    // ** Gestion des relations (objets liés) **
+    if (updatedDto.getRequestStatus() != null) {
+        RequestStatus newStatus = requestStatusDao.findByName(updatedDto.getRequestStatus().getName());
+        requestToUpdate.setRequestStatus(newStatus);
+    }
+
+    // ** Fusion de l'entité Certificate associée **
+    Certificate certificateToUpdate = requestToUpdate.getCertificate();
+    CertificateDto certificateDto = updatedDto.getCertificate();
+    if (certificateToUpdate != null && certificateDto != null) {
+        // Mettre à jour les champs simples du certificat
+        certificateToUpdate.setCommonName(certificateDto.getCommonName());
+        // ... Ajoutez tous les autres champs simples du certificat.
+
+        // ** GESTION SÉCURISÉE DE LA COLLECTION `sans` **
+        // 1. Vider l'ancienne collection
+        certificateToUpdate.getSans().clear(); // `orphanRemoval=true` va supprimer les anciens en BDD
+
+        // 2. Ajouter les nouveaux éléments depuis le DTO
+        if (certificateDto.getSans() != null) {
+            for (SanDto sanDto : certificateDto.getSans()) {
+                San newSan = new San();
+                newSan.setType(sanDto.getType());
+                newSan.setSanValue(sanDto.getValue());
+                newSan.setCertificate(certificateToUpdate); // Lier au parent
+                certificateToUpdate.getSans().add(newSan);
+            }
+        }
+    }
+
+    // ** GESTION SÉCURISÉE DE LA COLLECTION `contacts` **
+    // 1. Vider l'ancienne collection
+    requestToUpdate.getContacts().clear(); // `orphanRemoval=true` va supprimer les anciens en BDD
+
+    // 2. Ajouter les nouveaux éléments depuis le DTO
+    if (updatedDto.getContacts() != null) {
+        for (ContactDto contactDto : updatedDto.getContacts()) {
+            Contact newContact = new Contact();
+            // ... mapper les champs de contactDto vers newContact ...
+            newContact.setRequest(requestToUpdate); // Lier à la requête parente
+            requestToUpdate.getContacts().add(newContact);
+        }
+    }
+    
+    // --- ÉTAPE 4: PERSISTANCE ---
+    // La transaction se chargera de la sauvegarde.
+
+    // --- ÉTAPE 5: RETOURNER LE RÉSULTAT ---
+    return this.entityToDto(requestToUpdate);
+}
