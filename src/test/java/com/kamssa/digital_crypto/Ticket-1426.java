@@ -176,3 +176,118 @@ public class RequestController {
         // seront sauvegardés dans la même transaction.
         requestDao.save(request);
     }
+	@Override
+public RequestDto updateRequestInfo(UpdateRequesUpdateRquestInfotDto updateRequestInfoDto, Long requestId, String connectedUser, String username, ActionRequestType action) throws Exception {
+    
+    // Étape 1 : Charger l'entité managée directement depuis la base de données.
+    // Nous ne chargeons plus un DTO, mais l'objet `Request` lui-même.
+    // La vérification d'accessibilité est conservée.
+    this.checkAccessibilityForRequest(requestId, connectedUser, action);
+    Request requestToUpdate = this.requestDao.findById(requestId)
+            .orElseThrow(() -> new EntityNotFoundException("Request not found with id: " + requestId));
+
+    Certificate certificateToUpdate = requestToUpdate.getCertificate();
+    if (certificateToUpdate == null) {
+        // Cette vérification est cruciale pour éviter les NullPointerException.
+        throw new IllegalStateException("Critical error: Certificate associated with request id " + requestId + " is null.");
+    }
+    
+    // On garde une trace des modifications pour le commentaire.
+    String traceModification = "Request information has been modified:";
+
+    // Étape 2 : Appliquer les modifications du DTO directement sur l'entité managée.
+    
+    // Application Code
+    if (!StringUtils.equalsIgnoreCase(updateRequestInfoDto.getApplicationCode(), certificateToUpdate.getApplicationCode())) {
+        traceModification += " ApplicationCode set to " + updateRequestInfoDto.getApplicationCode() + ";";
+        // L'appel au service qui gère la logique métier est conservé.
+        certificateService.setApplicationCodeAndSupportGroup(certificateToUpdate, updateRequestInfoDto.getApplicationCode());
+    }
+
+    // Application Name
+    if (StringUtils.isNotEmpty(updateRequestInfoDto.getApplicationName())) {
+        if (!updateRequestInfoDto.getApplicationName().equalsIgnoreCase(certificateToUpdate.getApplicationName())) {
+            traceModification += " ApplicationName set to " + updateRequestInfoDto.getApplicationName() + ";";
+            certificateToUpdate.setApplicationName(updateRequestInfoDto.getApplicationName());
+        }
+    }
+
+    // Hostname
+    if (StringUtils.isNotEmpty(updateRequestInfoDto.getHostname())) {
+        if (certificateToUpdate.getHostname() == null || !updateRequestInfoDto.getHostname().equalsIgnoreCase(certificateToUpdate.getHostname())) {
+            traceModification += " Hostname set to " + updateRequestInfoDto.getHostname() + ";";
+            certificateToUpdate.setHostname(updateRequestInfoDto.getHostname());
+        }
+    }
+
+    // Environment
+    if (updateRequestInfoDto.getEnvironment() != null) {
+        if (certificateToUpdate.getEnvironment() == null || !updateRequestInfoDto.getEnvironment().equals(certificateToUpdate.getEnvironment())) {
+            traceModification += " Environment set to " + updateRequestInfoDto.getEnvironment().getName() + ";";
+            certificateToUpdate.setEnvironment(updateRequestInfoDto.getEnvironment());
+        }
+    }
+
+    // Unknown Code AP
+    if (updateRequestInfoDto.getUnknownCodeAP() != null) {
+        if (certificateToUpdate.getUnknownCodeAP() == null || !updateRequestInfoDto.getUnknownCodeAP().equals(certificateToUpdate.getUnknownCodeAP())) {
+            traceModification += " Unknown Code AP set to " + updateRequestInfoDto.getUnknownCodeAP().toString() + ";";
+            certificateToUpdate.setUnknownCodeAP(updateRequestInfoDto.getUnknownCodeAP());
+        }
+    }
+
+    // Certis Entity
+    if (updateRequestInfoDto.getCertisEntity() != null && StringUtils.isNotEmpty(updateRequestInfoDto.getCertisEntity().getName())) {
+        CertisEntity entity = this.entityDao.findByName(updateRequestInfoDto.getCertisEntity().getName());
+        if (entity != null) {
+             if (certificateToUpdate.getCertisEntity() == null || !entity.getName().equalsIgnoreCase(certificateToUpdate.getCertisEntity().getName())) {
+                traceModification += " Entity set to " + entity.getName() + ";";
+                certificateToUpdate.setCertisEntity(entity);
+            }
+        }
+    }
+
+    // Group Support
+    if (updateRequestInfoDto.getGroupSupport() != null && StringUtils.isNotEmpty(updateRequestInfoDto.getGroupSupport().getName())) {
+        List<GroupSupport> groupSupportList = groupSupportDao.findByName(updateRequestInfoDto.getGroupSupport().getName().trim());
+        if (!CollectionUtils.isEmpty(groupSupportList)) {
+            GroupSupport gs = groupSupportList.get(0);
+            if (certificateToUpdate.getGroupSupport() == null || !gs.getName().equalsIgnoreCase(certificateToUpdate.getGroupSupport().getName())) {
+                traceModification += " Group support set to " + gs.getName() + ";";
+                certificateToUpdate.setGroupSupport(gs);
+            }
+        }
+    }
+
+    // Country
+    if (updateRequestInfoDto.getCountry() != null && StringUtils.isNotEmpty(updateRequestInfoDto.getCountry().getIsoCode())) {
+        GnsCountry country = this.countryDao.findByIsoCode(updateRequestInfoDto.getCountry().getIsoCode());
+        if (country != null) {
+            if (certificateToUpdate.getGnsCountry() == null || !country.getEnName().equalsIgnoreCase(certificateToUpdate.getGnsCountry().getEnName())) {
+                traceModification += " Country set to " + country.getEnName() + ";";
+                certificateToUpdate.setGnsCountry(country);
+            }
+        }
+    }
+
+    // Certificate Comment
+    String newCertificateComment = updateRequestInfoDto.getCertificateComment();
+    if (!Objects.equals(certificateToUpdate.getComment(), newCertificateComment)) {
+        certificateToUpdate.setComment(newCertificateComment);
+        traceModification += " Le commentaire du certificat a été mis à jour;";
+    }
+
+    // Traitement du commentaire sur la demande
+    this.commentService.processComment(requestToUpdate, null, connectedUser, traceModification);
+    
+    // Mettre à jour l'indicateur "code AP vérifié"
+    certificateToUpdate.setCodeAPChecked(true);
+
+    // Étape 3 : Sauvegarder l'entité qui a été directement modifiée.
+    // L'appel à requestDao.save() persiste toutes les modifications apportées à requestToUpdate et à ses relations (comme certificateToUpdate).
+    // @Transactional s'occupera de la propagation des changements.
+    Request updatedRequest = this.requestDao.save(requestToUpdate);
+
+    // Retourner un DTO de l'entité mise à jour, comme le contrat de la méthode l'exige.
+    return this.entityToDto(updatedRequest);
+}
