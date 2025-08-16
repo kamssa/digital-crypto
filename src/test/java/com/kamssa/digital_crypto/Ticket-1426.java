@@ -1253,3 +1253,11 @@ Html
         </div>
     </div>
 </div>
+////////////////////
+// La constante pour la regex IPv4 est conservée.
+    private static final String IPV4_REGEX = "((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)";
+
+    // L'ancienne constante IPV6_REGEX a été supprimée.
+
+    // MODIFIÉ : La constante IPADDRESS ne compile plus que la regex pour IPv4.
+    public static final Pattern IPADDRESS = Pattern.compile("^" + IPV4_REGEX + "$");
