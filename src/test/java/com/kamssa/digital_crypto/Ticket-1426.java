@@ -999,3 +999,88 @@ enregistrerDemande() {
   // L'URL incorrecte est probablement dans ce service
   this.monApiService.enregistrer(donneesDuFormulaire).subscribe(...); 
 }
+//////////
+Rapprocher le champ de saisie (input) et la liste déroulante (dropdown).
+Arrondir les bords des badges à l'intérieur de la liste.
+Réduire la largeur de la liste déroulante pour qu'elle s'adapte à la taille du texte des badges.
+Nous pouvons faire tout cela avec quelques modifications dans vos fichiers HTML et CSS.
+Étape 1 : Préparer le HTML
+Pour pouvoir cibler précisément nos éléments avec le CSS, nous allons nous assurer que nos classes personnalisées sont bien en place.
+Ouvrez votre fichier request-detail-section.component.html et vérifiez que la ligne des SANs ressemble à ceci (avec san-input-row et san-type-column) :
+code
+Html
+<!-- DANS request-detail-section.component.html -->
+
+<!-- ... à l'intérieur de la boucle *ngFor ... -->
+<div class="ui-g ui-fluid p-align-center san-input-row">
+  
+  <!-- Champ de saisie -->
+  <div class="ui-g-7">
+    <input type="text" pInputText formControlName="value" ...>
+  </div>
+
+  <!-- Conteneur du Dropdown -->
+  <div class="ui-g-4 san-type-column">
+    <p-dropdown 
+        [options]="sanTypes" 
+        formControlName="type"
+        optionLabel="label"
+        optionValue="value">
+      
+      <ng-template let-item pTemplate="selectedItem">
+          <p-tag [value]="item.label" [styleClass]="item.styleClass"></p-tag>
+      </ng-template>
+      <ng-template let-item pTemplate="item">
+          <p-tag [value]="item.label" [styleClass]="item.styleClass"></p-tag>
+      </ng-template>
+    </p-dropdown>
+  </div>
+
+  <!-- ... bouton de suppression ... -->
+</div>
+Étape 2 : Ajouter le Code CSS Complet
+Maintenant, ouvrez votre fichier de style request-detail-section.component.css et ajoutez le bloc de code suivant. Ce bloc unique va gérer les trois modifications que vous avez demandées.
+code
+Css
+/* DANS request-detail-section.component.css */
+
+/* 
+  On utilise :host ::ng-deep pour s'assurer que nos styles peuvent
+  modifier les composants de PrimeNG sans être bloqués par l'encapsulation d'Angular.
+*/
+
+/* --- 1. Rapprocher l'input et le dropdown --- */
+:host ::ng-deep .san-input-row .ui-g-7 {
+  padding-right: 2px; /* Réduit l'espace à droite de l'input */
+}
+:host ::ng-deep .san-input-row .ui-g-4 {
+  padding-left: 2px;  /* Réduit l'espace à gauche du dropdown */
+}
+
+
+/* --- 2. Arrondir les bords des badges --- */
+/* On cible les badges (p-tag) à l'intérieur de notre dropdown */
+:host ::ng-deep .san-type-column .p-tag {
+  border-radius: 12px; /* Donne une forme de "pilule" arrondie. Ajustez la valeur si besoin. */
+}
+
+
+/* --- 3. Réduire la largeur du dropdown --- */
+/* On cible la colonne qui contient le dropdown */
+:host ::ng-deep .san-type-column {
+  /* On dit à la grille de ne pas étirer cette colonne */
+  flex-grow: 0; 
+  /* La largeur s'adaptera à son contenu */
+  width: auto;
+  /* On garantit une largeur minimale pour un bon affichage */
+  min-width: 130px; 
+}
+Explication du Code CSS
+Pour rapprocher les éléments : On réduit le padding (marge intérieure) des colonnes de la grille PrimeNG (.ui-g-7 et .ui-g-4), mais uniquement à l'intérieur de notre ligne san-input-row.
+Pour arrondir les badges : On cible les composants <p-tag> (qui deviennent des .p-tag en CSS) et on leur applique un border-radius généreux.
+Pour réduire la largeur du dropdown : On modifie le comportement de la colonne qui le contient (.san-type-column).
+width: auto; lui demande de prendre juste la place nécessaire pour son contenu (le badge sélectionné).
+flex-grow: 0; l'empêche de s'étirer pour remplir l'espace vide.
+min-width: 130px; assure qu'il ne deviendra pas trop petit si un badge a un texte très court (comme "IP").
+Après avoir ajouté ce code, sauvegardez et rechargez votre page avec un rechargement forcé (Ctrl+F5 ou Cmd+Shift+R) pour vous assurer que le navigateur charge bien le nouveau fichier CSS. Vous devriez voir les trois changements de design appliqués.
+91,4s
