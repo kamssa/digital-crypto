@@ -1261,3 +1261,16 @@ Html
 
     // MODIFIÉ : La constante IPADDRESS ne compile plus que la regex pour IPv4.
     public static final Pattern IPADDRESS = Pattern.compile("^" + IPV4_REGEX + "$");
+
+/////////////////////////
+export const SANS_REGEX_PATTERNS = {
+  DNSNAME: /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,6}$|^(\*\.)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,6}$/i,
+  RFC822NAME: /^[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i,
+  
+  // MODIFIÉ : La regex ne valide plus que les adresses IPv4.
+  IPADDRESS: /^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/,
+
+  OTHERNAME_GUID: /^#?[a-z0-9]{32}$/i,
+  OTHERNAME_UPN: /^[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i,
+  URI: /^(https?|ldaps?|ftp|file|tag|urn|data|tel):\/\/[\w\.\+&#\/%?=~_\-!:,|'*]+$/i
+};
