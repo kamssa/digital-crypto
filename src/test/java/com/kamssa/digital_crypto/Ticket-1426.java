@@ -1084,3 +1084,102 @@ flex-grow: 0; l'empêche de s'étirer pour remplir l'espace vide.
 min-width: 130px; assure qu'il ne deviendra pas trop petit si un badge a un texte très court (comme "IP").
 Après avoir ajouté ce code, sauvegardez et rechargez votre page avec un rechargement forcé (Ctrl+F5 ou Cmd+Shift+R) pour vous assurer que le navigateur charge bien le nouveau fichier CSS. Vous devriez voir les trois changements de design appliqués.
 91,4s
+////////////////////
+Étape 1 : Choisir une clé de traduction
+Une clé claire et descriptive serait :
+certificateInformationSection.noComment
+Étape 2 : Ajouter la clé à vos fichiers de traduction
+Ouvrez vos fichiers fr.json et en.json et ajoutez la nouvelle clé.
+Dans fr.json :
+code
+JSON
+{
+  "certificateInformationSection": {
+    "title": "Détail du certificat",
+    "history": "Historique",
+    "certificateComment": "Commentaire du certificat",
+    // ... vos autres clés
+
+    // =======================================================
+    //     ▼▼▼   AJOUTEZ CETTE NOUVELLE CLÉ ICI   ▼▼▼
+    // =======================================================
+    "noComment": "Aucun commentaire."
+  }
+}
+Dans en.json :
+code
+JSON
+{
+  "certificateInformationSection": {
+    "title": "Certificate Details",
+    "history": "History",
+    "certificateComment": "Certificate Comment",
+    // ... your other keys
+
+    // =======================================================
+    //     ▼▼▼   ADD THIS NEW KEY HERE   ▼▼▼
+    // =======================================================
+    "noComment": "No comment."
+  }
+}
+Étape 3 : Mettre à jour le fichier HTML
+Maintenant, nous allons modifier le fichier certificate-details.component.html pour qu'il utilise cette nouvelle clé de traduction.
+L'astuce consiste à utiliser le pipe translate comme "valeur par défaut" si certificateRequest.certificate.comment est vide ou nul. Malheureusement, le pipe translate seul ne peut pas faire ça. Nous avons besoin d'une petite astuce dans le composant .ts.
+Dans certificate-details.component.ts :
+Nous allons ajouter une méthode "getter" qui gère cette logique. C'est la manière la plus propre de le faire.
+code
+TypeScript
+// CHEMIN : src/app/content/dashboard/certificate-details/certificate-details.component.ts
+
+import { TranslateService } from '@ngx-translate/core'; // Assurez-vous que c'est importé
+
+@Component({ /* ... */ })
+export class CertificateDetailsComponent implements OnInit {
+
+  // ... (vos propriétés existantes)
+  certificateRequest: any;
+
+  constructor(
+    private translate: TranslateService, // Assurez-vous que TranslateService est injecté
+    // ... vos autres services
+  ) {}
+
+  // ... (vos autres méthodes)
+
+  // =======================================================
+  //     ▼▼▼   AJOUTEZ CE GETTER À VOTRE CLASSE   ▼▼▼
+  // =======================================================
+  /**
+   * Retourne le commentaire du certificat, ou une clé de traduction par défaut
+   * si le commentaire est vide.
+   */
+  get displayCertificateComment(): string {
+    const comment = this.certificateRequest?.certificate?.comment;
+    // Si le commentaire est "falsy" (null, undefined, ou une chaîne vide),
+    // on retourne la clé de traduction. Sinon, on retourne le commentaire lui-même.
+    return comment ? comment : this.translate.instant('certificateInformationSection.noComment');
+  }
+
+}
+Dans certificate-details.component.html :
+Maintenant, le template devient très simple. On appelle juste notre nouveau getter.
+code
+Html
+<!-- CHEMIN : src/app/content/dashboard/certificate-details/certificate-details.component.html -->
+
+<!-- ... -->
+
+<!-- NOUVEAU CHAMP "COMMENTAIRE" -->
+<div class="row">
+    <div class="ui-g-3">
+        <label class="pull-right" style="font-weight: bold;">
+            {{ 'certificateInformationSection.certificateComment' | translate }}:
+        </label>
+    </div>
+    <div class="ui-g-9">
+        <!-- On utilise le nouveau getter qui gère la logique -->
+        <span [innerHTML]="displayCertificateComment"></span>
+    </div>
+</div>
+
+<!-- ... -->
