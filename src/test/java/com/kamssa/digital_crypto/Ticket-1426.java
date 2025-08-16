@@ -1183,3 +1183,73 @@ Html
 </div>
 
 <!-- ... -->
+///////////
+Fichier : src/assets/i18n/fr.json (ou l'équivalent)
+code
+JSON
+{
+  "requestDetailSection": {
+    "addSan": "Ajouter un SAN",
+    "errors": {
+      "sanFormat": {
+        "DEFAULT": "Format invalide pour le type sélectionné.",
+        "DNSNAME": "Format DNS invalide. Exemple : www.domaine.com ou *.domaine.com",
+        "IPADDRESS": "Format d'adresse IP invalide. Exemple : 192.168.1.1 ou 2001:db8::1",
+        "RFC822NAME": "Format d'email invalide. Exemple : utilisateur@domaine.com",
+        "URI": "Format d'URI invalide. Exemple : https://www.domaine.com",
+        "OTHERNAME_UPN": "Format UPN invalide. Exemple : utilisateur@corp.domaine.com",
+        "OTHERNAME_GUID": "Format GUID invalide. Doit se terminer par # suivi de 32 caractères alphanumériques."
+      }
+    }
+  }
+}
+en.json (exemple)
+code
+JSON
+{
+  "requestDetailSection": {
+    "addSan": "Add a SAN",
+    "errors": {
+      "sanFormat": {
+        "DEFAULT": "Invalid format for the selected type.",
+        "DNSNAME": "Invalid DNS format. Example: www.domain.com or *.domain.com",
+        "IPADDRESS": "Invalid IP address format. Example: 192.168.1.1 or 2001:db8::1",
+        "RFC822NAME": "Invalid email format. Example: user@domain.com",
+        "URI": "Invalid URI format. Example: https://www.domain.com",
+        "OTHERNAME_UPN": "Invalid UPN format. Example: user@corp.domain.com",
+        "OTHERNAME_GUID": "Invalid GUID format. Must end with # followed by 32 alphanumeric characters."
+      }
+    }
+  }
+}
+Étape 2 : Modifier le template HTML
+Nous allons modifier le template pour qu'il construise dynamiquement la bonne clé de traduction en se basant sur le type de SAN sélectionné.
+Fichier : src/app/form/request-detail-section/request-detail-section.component.html
+code
+Html
+<!-- Localisez la boucle *ngFor des SANs -->
+<div formArrayName="sans">
+    <div *ngFor="let sanGroup of sans.controls; let i = index" [formGroupName]="i" class="ui-g-12 ui-g-nopad" style="margin-bottom: 15px;">
+        <div class="ui-g ui-fluid p-align-center">
+            
+            <!-- ... Vos divs pour l'input, le dropdown et le bouton de suppression ... -->
+            
+            <!-- MODIFIER LE BLOC D'ERREUR -->
+            <div class="ui-g-12" *ngIf="sanGroup.get('value')?.invalid && (sanGroup.get('value')?.dirty || sanGroup.get('value')?.touched)">
+                
+                <!-- On vérifie spécifiquement l'erreur 'pattern' -->
+                <small class="p-error" *ngIf="sanGroup.get('value')?.errors?.pattern">
+                    <!-- 
+                      CONSTRUCTION DYNAMIQUE DE LA CLÉ :
+                      On prend la base 'requestDetailSection.errors.sanFormat.'
+                      et on y ajoute la valeur du champ 'type' du formulaire (ex: 'DNSNAME').
+                      Le pipe 'translate' fera le reste.
+                    -->
+                    {{ 'requestDetailSection.errors.sanFormat.' + sanGroup.get('type').value | translate }}
+                </small>
+                
+            </div>
+
+        </div>
+    </div>
+</div>
