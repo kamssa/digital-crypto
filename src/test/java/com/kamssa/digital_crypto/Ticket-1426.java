@@ -976,3 +976,26 @@ Orchestrer les appels à actionService et sendMailUtils dans le contrôleur, apr
         // On retourne un DTO frais de l'entité mise à jour.
         return entityToDto(requestToUpdate);
     }
+	////// file ///////////////////
+	code
+Html
+<p-fileUpload name="myfile[]" 
+              url="https://www.primefaces.org/primeng-v10-lts/upload.php">
+</p-fileUpload>
+Exemple de code corrigé :
+Remplacez l'URL par le point de terminaison (endpoint) de votre propre API. L'URL exacte dépend de votre architecture backend.
+code
+Html
+<!-- Remplacer par l'URL de votre propre API ! -->
+<p-fileUpload name="myfile[]" 
+              url="/api/v1/demandes/enregistrer">
+</p-fileUpload>
+ou si vous le gérez dans le fichier .ts :
+code
+TypeScript
+// Dans votre fichier .ts
+enregistrerDemande() {
+  const donneesDuFormulaire = this.form.value;
+  // L'URL incorrecte est probablement dans ce service
+  this.monApiService.enregistrer(donneesDuFormulaire).subscribe(...); 
+}
