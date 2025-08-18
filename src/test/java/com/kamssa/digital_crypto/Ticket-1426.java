@@ -1511,3 +1511,176 @@ Html
   // Empêche le bouton de se rétrécir.
   flex-shrink: 0;
 }
+//////////////// san enum //////////////////
+code
+TypeScript
+// =======================================================================
+// 1. L'ENUM : NOTRE UNIQUE SOURCE DE VÉRITÉ
+// Pour ajouter un nouveau type, vous l'ajoutez UNIQUEMENT ICI.
+// =======================================================================
+export enum SanType {
+  DNSNAME        = 'DNSNAME',
+  RFC822NAME     = 'RFC822NAME',
+  IPADDRESS      = 'IPADDRESS',
+  URI            = 'URI',
+  OTHERNAME_GUID = 'OTHERNAME_GUID',
+  OTHERNAME_UPN  = 'OTHERNAME_UPN',
+}
+
+// =======================================================================
+// 2. STYLE MAPPER : TYPÉ ET SÉCURISÉ PAR L'ENUM
+// `Record<SanType, string>` force une entrée pour chaque SanType.
+// Si vous ajoutez un type à l'enum sans l'ajouter ici, TypeScript criera !
+// =======================================================================
+export const styleMapper: Record<SanType, string> = {
+  [SanType.DNSNAME]:        'badge-dnsname',
+  [SanType.RFC822NAME]:     'badge-rfc822name',
+  [SanType.IPADDRESS]:      'badge-ipaddress',
+  [SanType.URI]:            'badge-uri',
+  [SanType.OTHERNAME_GUID]: 'badge-othername', // Style regroupé
+  [SanType.OTHERNAME_UPN]:  'badge-othername',  // Style regroupé
+};
+
+// =======================================================================
+// 3. OPTIONS POUR LE DROPDOWN : GÉNÉRÉES AUTOMATIQUEMENT
+// Ce code ne change jamais. Il s'adapte à l'enum.
+// =======================================================================
+export const SAN_TYPE_OPTIONS = Object.values(SanType).map(type => ({
+  label: type,
+  value: type,
+  styleClass: styleMapper[type] // Récupère le style correspondant
+}));
+
+// =======================================================================
+// 4. REGEX PATTERNS : ÉGALEMENT SÉCURISÉ PAR L'ENUM
+// =======================================================================
+export const SANS_REGEX_PATTERNS: Record<SanType, RegExp> = {
+  [SanType.DNSNAME]:        /^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])$/,
+  [SanType.RFC822NAME]:     /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/,
+  [SanType.IPADDRESS]:      /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/,
+  [SanType.URI]:            /^(https?|ftp|file):\/\/.+$/,
+  [SanType.OTHERNAME_GUID]: /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/,
+  [SanType.OTHERNAME_UPN]:  /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/,
+};
+(Note : J'ai mis des regex plus simples pour l'exemple, conservez les vôtres qui sont plus complètes).
+Étape 2 : Mettre à jour votre Composant
+Maintenant, dans votre composant, vous devez importer et utiliser ces nouvelles variables.
+Fichier : request-detail-section.component.ts
+code
+TypeScript
+import { Component, OnInit } from '@angular/core';
+// Importez l'enum et les options du dropdown
+import { SanType, SAN_TYPE_OPTIONS } from 'src/app/shared/ts.utils';
+
+@Component({
+  // ...
+})
+export class RequestDetailSectionComponent implements OnInit {
+  
+  // Expose les options au template HTML. Le nom de la variable est plus clair.
+  public sanTypes = SAN_TYPE_OPTIONS;
+
+  // Vous pouvez aussi exposer l'enum elle-même si besoin dans votre logique
+  public SanTypeEnum = SanType;
+
+  // ... reste de votre composant
+
+  // Exemple d'utilisation dans votre code TypeScript :
+  someMethod(type: SanType) {
+    if (type === SanType.IPADDRESS) { // <-- BEAUCOUP plus sûr que 'IPADDRESS'
+      console.log('This is an IP Address!');
+    }
+  }
+}
+////////////////////////////
+En haut de votre fichier, changez les anciens imports pour les nouveaux.
+code
+TypeScript
+// Fichier: request-detail-section.component.ts
+
+// ... autres imports
+// AVANT (ce que vous aviez probablement):
+// import { SAN_TYPE, SANS_REGEX_PATTERNS } from 'src/app/shared/ts.utils';
+
+// APRÈS (ce que vous devez avoir maintenant):
+import { SanType, SAN_TYPE_OPTIONS, SANS_REGEX_PATTERNS } from 'src/app/shared/ts.utils';
+// ...
+2. Mettre à jour les propriétés de la classe
+Trouvez la ligne où vous déclarez public sanTypes et mettez-la à jour.
+code
+TypeScript
+// Fichier: request-detail-section.component.ts
+
+export class RequestDetailSectionComponent implements OnInit, OnDestroy {
+  // ... autres propriétés
+
+  // AVANT:
+  // public sanTypes: any; // ou SAN_TYPE
+
+  // APRÈS:
+  public sanTypes = SAN_TYPE_OPTIONS;
+
+  // ...
+}
+3. Mettre à jour la méthode createSanGroup()
+C'est un changement crucial. Nous allons remplacer les chaînes de caractères par les valeurs de l'enum pour la sécurité.
+code
+TypeScript
+// Fichier: request-detail-section.component.ts
+
+createSanGroup(): FormGroup {
+  const sanGroup = this.fb.group({
+    
+    // AVANT:
+    // type: ['DNSNAME', Validators.required],
+    // value: ['', [Validators.required, Validators.pattern(SANS_REGEX_PATTERNS.DNSNAME)]],
+    
+    // APRÈS:
+    type: [SanType.DNSNAME, Validators.required],
+    value: ['', [Validators.required, Validators.pattern(SANS_REGEX_PATTERNS[SanType.DNSNAME])]],
+
+  });
+
+  // La logique qui suit pour la mise à jour dynamique est PARFAITE.
+  // Elle fonctionnera directement avec l'enum, car la valeur du formulaire (type)
+  // sera une des valeurs de l'enum (ex: 'DNSNAME').
+  sanGroup.get('type').valueChanges
+    .pipe(takeUntil(this.onDestroy$))
+    .subscribe((type: SanType) => { // Le type est maintenant SanType
+      const valueControl = sanGroup.get('value');
+      const regex = SANS_REGEX_PATTERNS[type]; // Ça fonctionne toujours !
+
+      if (regex) {
+        valueControl.setValidators([Validators.required, Validators.pattern(regex)]);
+      } else {
+        valueControl.setValidators(Validators.required);
+      }
+      valueControl.updateValueAndValidity();
+    });
+
+  return sanGroup;
+}
+Étape 3 : Vérifier le fichier HTML (request-detail-section.component.html)
+Ici, il ne devrait y avoir aucun changement nécessaire. Votre code HTML est déjà prêt.
+code
+Html
+<!-- Fichier: request-detail-section.component.html -->
+
+<!-- ... -->
+<p-dropdown 
+  [options]="sanTypes" <!-- Cette variable existe toujours et contient les bonnes données -->
+  formControlName="type" 
+  optionLabel="label" 
+  optionValue="value">
+    <!-- ... -->
+</p-dropdown>
+<!-- ... -->
+La variable sanTypes du composant pointe maintenant vers SAN_TYPE_OPTIONS. La structure de cet objet ({ label, value, styleClass }) est exactement la même qu'avant, donc le template HTML fonctionnera sans aucune modification.
+Résumé des Actions
+Remplacez le contenu de ts.utils.ts par la version finale avec l' enum.
+Dans request-detail-section.component.ts :
+Changez les import pour importer SanType, SAN_TYPE_OPTIONS, et SANS_REGEX_PATTERNS.
+Modifiez la propriété public sanTypes = SAN_TYPE_OPTIONS;.
+Dans createSanGroup(), remplacez 'DNSNAME' par SanType.DNSNAME et SANS_REGEX_PATTERNS.DNSNAME par SANS_REGEX_PATTERNS[SanType.DNSNAME].
+Le fichier HTML n'a pas besoin de modification.
+Vous avez maintenant une architecture beaucoup plus solide, plus sûre et plus facile à faire évoluer.
