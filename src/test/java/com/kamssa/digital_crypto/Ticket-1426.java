@@ -1366,3 +1366,148 @@ Scss
     }
   }
 }
+/////////////////////////////////
+
+Code HTML Complet pour la Section SANs
+Copiez ce bloc de code entier et remplacez la section correspondante dans votre fichier request-detail-section.component.html.
+code
+Html
+<!-- =================================================================== -->
+<!-- DÉBUT DE LA SECTION SANs (Subject Alternative Name)                 -->
+<!-- =================================================================== -->
+
+<fieldset class="section-style">
+  <div class="row">
+    <!-- Label pour la section -->
+    <div class="ui-g-3">
+      <label>
+        *SANs (Subject Alternative Name)
+        <i class="fa fa-info-circle"></i>
+      </label>
+    </div>
+
+    <!-- Conteneur principal pour les champs SANs -->
+    <div class="ui-g-9">
+
+      <!-- On attache le formArray 'sans' à ce conteneur -->
+      <div formArrayName="sans">
+
+        <!-- Boucle pour afficher chaque ligne de SAN (input + dropdown + bouton) -->
+        <!-- Chaque ligne est maintenant un conteneur Flexbox grâce à la classe "san-input-row" -->
+        <div *ngFor="let san of sans.controls; let i = index" [formGroupName]="i" class="san-input-row">
+
+          <!-- 1. Colonne pour l'input de la valeur -->
+          <div class="san-value-column">
+            <input 
+              type="text" 
+              pInputText 
+              formControlName="value" 
+              placeholder="ex: www.site.intra" 
+              style="width: 100%;">
+          </div>
+
+          <!-- 2. Colonne pour le dropdown du type -->
+          <div class="san-type-column">
+            <p-dropdown 
+              [options]="sanTypes" 
+              formControlName="type" 
+              optionLabel="label" 
+              optionValue="value"
+              style="min-width: 160px;"
+              appendTo="body">
+              
+              <!-- Template pour l'élément SÉLECTIONNÉ dans le dropdown -->
+              <ng-template let-item pTemplate="selectedItem">
+                <p-tag [value]="item.label" [styleClass]="item.styleClass"></p-tag>
+              </ng-template>
+
+              <!-- Template pour les éléments DANS LA LISTE du dropdown -->
+              <ng-template let-item pTemplate="item">
+                <p-tag [value]="item.label" [styleClass]="item.styleClass"></p-tag>
+              </ng-template>
+            </p-dropdown>
+          </div>
+
+          <!-- 3. Colonne pour le bouton de suppression -->
+          <div class="san-action-column">
+            <button 
+              pButton 
+              type="button" 
+              icon="pi pi-trash" 
+              class="p-button-danger p-button-text" 
+              (click)="removeSan(i)"
+              [disabled]="sans.controls.length <= 1"
+              pTooltip="Supprimer ce SAN" 
+              tooltipPosition="top">
+            </button>
+          </div>
+
+        </div> <!-- Fin de la ligne .san-input-row -->
+        
+        <!-- Boucle pour afficher les messages d'erreur sous les champs -->
+        <div *ngFor="let san of sans.controls" class="error-message-container">
+          <small class="p-error" *ngIf="san.get('value')?.invalid && (san.get('value')?.dirty || san.get('value')?.touched)">
+            <!-- Votre logique d'erreur personnalisée est conservée ici -->
+            <span *ngIf="san.get('value')?.errors?.pattern">
+              {{ requestDetailSection.errors.sanFormat[san.get('type')?.value] | translate }}
+            </span>
+            <span *ngIf="san.get('value')?.errors?.required">
+              Le champ est requis.
+            </span>
+          </small>
+        </div>
+
+      </div> <!-- Fin du formArrayName="sans" -->
+
+      <!-- Bouton pour ajouter une nouvelle ligne de SAN -->
+      <div class="add-san-button-container">
+        <button 
+          pButton 
+          type="button" 
+          label="Ajouter un SAN" 
+          icon="pi pi-plus" 
+          class="p-button-secondary p-button-outlined" 
+          (click)="addSan()">
+        </button>
+      </div>
+
+    </div> <!-- Fin du conteneur .ui-g-9 -->
+  </div> <!-- Fin de la ligne .row -->
+</fieldset>
+
+<!-- =================================================================== -->
+<!-- FIN DE LA SECTION SANs                                              -->
+<!-- =================================================================== -->
+////////////////////////css///////////
+// Conteneur principal pour chaque ligne de SAN
+.san-input-row {
+  display: flex;          // Active le mode Flexbox pour aligner les éléments horizontalement.
+  align-items: center;      // Aligne verticalement l'input, le dropdown et le bouton au centre.
+  width: 100%;
+  
+  // La propriété magique : définit un espacement de 8px entre chaque élément.
+  // Vous pouvez ajuster cette valeur (ex: 0.25rem, 4px, 1rem...).
+  gap: 0.5rem; 
+
+  // Ajoute un espace en dessous de chaque ligne pour ne pas qu'elles soient collées.
+  margin-bottom: 1rem;
+}
+
+// Colonne contenant l'input de texte
+.san-value-column {
+  // Fait en sorte que cette colonne prenne tout l'espace disponible.
+  // C'est ce qui la rend "responsive".
+  flex: 1; 
+}
+
+// Colonne contenant le dropdown
+.san-type-column {
+  // Empêche le dropdown de se rétrécir si l'espace manque.
+  flex-shrink: 0; 
+}
+
+// Colonne contenant le bouton
+.san-action-column {
+  // Empêche le bouton de se rétrécir.
+  flex-shrink: 0;
+}
