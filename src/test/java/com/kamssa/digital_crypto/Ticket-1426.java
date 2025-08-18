@@ -1342,3 +1342,27 @@ Scss
   background-color: $color-bullet-gray !important; // ex: #bfe1f4
   color: #333; // Le texte noir peut être plus lisible sur un gris clair
 }
+////////
+:host {
+
+  // ::ng-deep est nécessaire pour "casser" l'encapsulation des styles
+  // et pouvoir styler les classes de PrimeNG comme ui-g-*.
+  ::ng-deep {
+
+    // On cible la ligne spécifique pour ne pas impacter d'autres grilles
+    .san-input-row {
+      
+      // La colonne contenant l'input (7/12)
+      .ui-g-7 {
+        // On réduit ou supprime le padding à droite
+        padding-right: 0.25rem; // Essayez avec 4px ou 0.25rem au lieu de 0
+      }
+
+      // La colonne contenant le dropdown (4/12)
+      .ui-g-4 {
+        // On réduit ou supprime le padding à gauche
+        padding-left: 0.25rem; // Essayez avec 4px ou 0.25rem au lieu de 0
+      }
+    }
+  }
+}
