@@ -1684,3 +1684,128 @@ Modifiez la propriété public sanTypes = SAN_TYPE_OPTIONS;.
 Dans createSanGroup(), remplacez 'DNSNAME' par SanType.DNSNAME et SANS_REGEX_PATTERNS.DNSNAME par SANS_REGEX_PATTERNS[SanType.DNSNAME].
 Le fichier HTML n'a pas besoin de modification.
 Vous avez maintenant une architecture beaucoup plus solide, plus sûre et plus facile à faire évoluer.
+///////////////// back ////////////////////
+import java.util.regex.Pattern;
+
+/**
+ * Représente les différents types de Subject Alternative Name (SAN).
+ * Chaque type contient son propre Pattern de validation Regex pré-compilé pour la performance.
+ */
+public enum SanType {
+
+    // Définition de chaque type de SAN avec sa regex associée.
+    // La compilation du Pattern est faite une seule fois au chargement de la classe.
+    DNSNAME(
+        // Votre regex pour DNSNAME
+        "(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\\.)+[a-zA-Z]{2,6}" 
+    ),
+    RFC822NAME(
+        // Votre regex pour RFC822NAME (email)
+        "[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+(?:\\.[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\\.)+[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?"
+    ),
+    IPADDRESS(
+        // Votre regex pour IPv4. La concaténation est gérée directement ici.
+        "^" + "((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)" + "$"
+    ),
+    URI(
+        // Votre regex pour URI
+        "^(https|ldaps?|ftp|file|tag|urn|data|tel)://.+"
+    ),
+    OTHERNAME_GUID(
+        // Votre regex pour GUID
+        "^[a-zA-Z0-9]{32}$"
+    ),
+    OTHERNAME_UPN(
+        // Comme dans votre code original, UPN réutilise la même validation que RFC822NAME
+        RFC822NAME.getRegexString()
+    );
+    
+    private final String regexString;
+    private final Pattern compiledPattern;
+
+    /**
+     * Constructeur de l'enum.
+     * @param regex La chaîne de caractères de l'expression régulière à compiler.
+     */
+    SanType(String regex) {
+        this.regexString = regex;
+        this.compiledPattern = Pattern.compile(regex);
+    }
+    
+    /**
+     * @return Le Pattern Regex pré-compilé associé à ce type de SAN.
+     */
+    public Pattern getPattern() {
+        return this.compiledPattern;
+    }
+
+    /**
+     * @return La chaîne de caractères de la regex. Utile pour la réutilisation.
+     */
+    private String getRegexString() {
+        return this.regexString;
+    }
+}
+//////////////////////
+public class RequestServiceImpl implements RequestService {
+
+    public void processCertificateRequest(RequestDTO requestDto) {
+        // ... autre logique de validation
+
+        for (SanDTO sanDto : requestDto.getSans()) {
+            try {
+                // Convertit la chaîne de caractères (ex: "DNSNAME") de la DTO en notre enum.
+                // Le .toUpperCase() rend la conversion robuste à la casse.
+                SanType sanType = SanType.valueOf(sanDto.getType().toUpperCase());
+
+                // Utilise notre nouvelle classe de validation. C'est propre et lisible !
+                if (!SanValidator.isValid(sanType, sanDto.getValue())) {
+                    throw new InvalidSanException("La valeur '" + sanDto.getValue() + "' n'est pas valide pour le type " + sanType);
+                }
+
+            } catch (IllegalArgumentException e) {
+                // Cette exception est levée si le type de SAN envoyé par le frontend n'existe pas dans notre enum.
+                throw new InvalidSanException("Le type de SAN '" + sanDto.getType() + "' est inconnu.");
+            }
+        }
+
+        // ... continuer le traitement si tout est valide
+    }
+}
+//////////
+private void verifySanFormats(RequestDto requestDto) {
+    // La vérification initiale pour voir si la liste est vide est une bonne pratique, on la garde.
+    if (requestDto.getCertificate() == null || CollectionUtils.isEmpty(requestDto.getCertificate().getSans())) {
+        return;
+    }
+
+    // On parcourt chaque SAN de la requête.
+    for (San san : requestDto.getCertificate().getSans()) {
+        if (!StringUtils.hasText(san.getType()) || !StringUtils.hasText(san.getSanValue())) {
+            // Le type ou la valeur est manquant.
+            throw new CertisRequestException("request.error.san.incomplete", HttpStatus.BAD_REQUEST);
+        }
+
+        SanType sanType;
+        try {
+            // On convertit la chaîne de caractères (ex: "DNSNAME") de la DTO en notre enum.
+            // Le .toUpperCase() rend la conversion robuste à la casse (DNSName, dnsname, etc.).
+            sanType = SanType.valueOf(san.getType().toUpperCase());
+
+        } catch (IllegalArgumentException e) {
+            // Gère le cas où le type envoyé par le client (ex: "DNSTYPE_INCONNU") n'existe pas dans notre enum.
+            // C'est une erreur de format.
+            Object[] args = { san.getSanValue(), san.getType() };
+            throw new CertisRequestException("request.error.san.invalid.format", args, HttpStatus.BAD_REQUEST);
+        }
+
+        // On utilise notre nouvelle classe de validation. L'appel est simple et clair.
+        boolean isValid = SanValidator.isValid(sanType, san.getSanValue());
+
+        // Si la validation échoue, on lève l'exception comme avant.
+        if (!isValid) {
+            Object[] args = { san.getSanValue(), san.getType() };
+            throw new CertisRequestException("request.error.san.invalid.format", args, HttpStatus.BAD_REQUEST);
+        }
+    }
+}
