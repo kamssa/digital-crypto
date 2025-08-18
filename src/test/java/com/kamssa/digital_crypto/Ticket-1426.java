@@ -1274,3 +1274,71 @@ export const SANS_REGEX_PATTERNS = {
   OTHERNAME_UPN: /^[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i,
   URI: /^(https?|ldaps?|ftp|file|tag|urn|data|tel):\/\/[\w\.\+&#\/%?=~_\-!:,|'*]+$/i
 };
+///////////////////
+Fichier : src/app/shared/ts.utils.ts
+code
+TypeScript
+// NOUVEAU styleMapper avec des noms de classe sémantiques
+export const styleMapper = {
+  'DNSNAME': 'badge-dnsname',        // anciennement 'badge-info'
+  'RFC822NAME': 'badge-rfc822name',   // anciennement 'badge-success'
+  'IPADDRESS': 'badge-ipaddress',      // anciennement 'badge-warning'
+  'URI': 'badge-uri',                // anciennement 'badge-danger'
+  'OTHERNAME_GUID': 'badge-othername', // regroupé pour la simplicité
+  'OTHERNAME_UPN': 'badge-othername'   // regroupé pour la simplicité
+};
+
+// Le tableau SAN_TYPE n'a pas besoin d'être modifié,
+// il utilisera automatiquement les nouvelles valeurs du styleMapper.
+export const SAN_TYPE = [
+  { label: 'DNSNAME',    value: 'DNSNAME',    styleClass: styleMapper['DNSNAME'] },
+  { label: 'IPADDRESS',  value: 'IPADDRESS',  styleClass: styleMapper['IPADDRESS'] },
+  { label: 'URI',        value: 'URI',        styleClass: styleMapper['URI'] },
+  { label: 'RFC822NAME', value: 'RFC822NAME', styleClass: styleMapper['RFC822NAME'] },
+  { label: 'OTHERNAME_GUID', value: 'OTHERNAME_GUID', styleClass: styleMapper['OTHERNAME_GUID'] },
+  { label: 'OTHERNAME_UPN',  value: 'OTHERNAME_UPN',  styleClass: styleMapper['OTHERNAME_UPN'] },
+];
+
+// ... reste du fichier
+Analyse : C'est tout ce qu'il y a à faire côté TypeScript. C'est propre et la logique reste au même endroit.
+Étape 2 : Mettre à jour le SCSS (badges.scss)
+Maintenant, nous allons créer les nouvelles classes CSS et leur assigner les couleurs de votre groupe $color-bullet-* que l'on voit dans variables.scss. Je vais faire une proposition d'association de couleurs, que vous pourrez ajuster selon vos goûts.
+Fichier : src/assets/styles/badges.scss
+code
+Scss
+/* 
+  Assurez-vous que ce fichier est bien importé dans votre styles.scss global
+  pour que les variables de couleurs soient disponibles.
+  
+  Exemple dans src/styles.scss :
+  @import 'assets/styles/variables';
+  @import 'assets/styles/badges';
+*/
+
+// On utilise les nouvelles classes définies dans le styleMapper
+// et les couleurs de la palette "bullet".
+
+.badge-dnsname {
+  background-color: $color-bullet-blue !important; // ex: #157efb
+  color: white;
+}
+
+.badge-rfc822name {
+  background-color: $color-bullet-green !important; // ex: #4ae18c
+  color: white;
+}
+
+.badge-ipaddress {
+  background-color: $color-bullet-orange !important; // ex: #ffac5b
+  color: white;
+}
+
+.badge-uri {
+  background-color: $color-bullet-violet !important; // ex: #ce3fa9
+  color: white;
+}
+
+.badge-othername {
+  background-color: $color-bullet-gray !important; // ex: #bfe1f4
+  color: #333; // Le texte noir peut être plus lisible sur un gris clair
+}
