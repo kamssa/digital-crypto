@@ -1901,3 +1901,58 @@ public Request populate(Request request) {
     System.out.println("--- [DEBUG] --- FIN DE LA METHODE POPULATE ---");
     return request;
 }
+/////////////////////////
+{
+    "requestType": "NEW",
+    "usage": "INTERNAL",
+    "certificate": {
+        "certificateName": "Traore.test.intra",
+        "certificateType": {
+            "name": "Serveur SSL/TLS"
+        },
+        "platform": {
+            "name": "WEBSPHERE7"
+        },
+        "environment": {
+            "name": "STAGING" 
+        },
+        "csrFile": {
+            "name": "csrTest.csr",
+            "content": "--- COLLEZ LE CONTENU DE VOTRE CSR VALIDE ICI ---"
+        },
+        "extendedValidation": "STANDARD",
+        "entity": {
+            "name": "AAaa"
+        }
+    },
+    "contacts": [
+        {
+            "uid": "h45884",
+            "emailNotification": "abdoulaye.l.traore@bnpparibas.com",
+            "role": {
+                "name": "IT Responsible"
+            }
+        },
+        {
+            "uid": "b90783",
+            "emailNotification": "raphael.lamy@bnpparibas.com",
+            "role": {
+                "name": "Business owner"
+            }
+        }
+    ],
+    "requestStatus": {
+        "name": "Draft"
+    },
+    "gsupport": [
+        {
+            "name": "BNPP_ITGP_PRODSEC_DEFENSE_INC_CERTIS"
+        }
+    ],
+    "sans": [
+        {
+            "type": "DNSNAME",
+            "values": "Traore.test.intra"
+        }
+    ]
+}
