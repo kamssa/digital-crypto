@@ -1809,3 +1809,59 @@ private void verifySanFormats(RequestDto requestDto) {
         }
     }
 }
+///////////////////////// test///////////////////
+{
+  "usage": "INTERNAL",
+  "requestType": null,
+  "status": "Draft",
+  "application": {
+    "code": "AP19382",
+    "applicationName": "AP19382 -- Certificat Orchestrated Plateforme"
+  },
+  "certificate": {
+    "certificateName": "Traore.test.intra",
+    "certificateType": "Serveur SSL",
+    "platform": "WEBSPHERE7",
+    "environment": "STAGING",
+    "country": "FR",
+    "creator": "h45884",
+    "entity": "AAaa",
+    "csrFile": {
+      "name": "csrTest.csr",
+      "content": "--- COLLEZ LE CONTENU DE VOTRE CSR VALIDE ICI (sans les -----BEGIN... et -----END...) ---"
+    },
+    "extendedValidation": "STANDARD",
+    "hostname": null,
+    "licence": false,
+    "numberOfCPU": null,
+    "operatingSystem": null,
+    "organisationName": null,
+    "password": null,
+    "secondCN": null
+  },
+  "gsupport": [
+    {
+      "name": "BNPP_ITGP_PRODSEC_DEFENSE_INC_CERTIS"
+    }
+  ],
+  "administrativeContacts": [
+    {
+      "cidd": "h45884",
+      "email": "abdoulaye.l.traore@bnpparibas.com",
+      "roles": "IT Responsible"
+    }
+  ],
+  "technicalContacts": [
+    {
+      "cidd": "b90783",
+      "email": "raphael.lamy@bnpparibas.com",
+      "roles": "Business owner"
+    }
+  ],
+  "sans": [
+    {
+      "type": "DNSNAME",
+      "values": "Traore.test.intra"
+    }
+  ]
+}
