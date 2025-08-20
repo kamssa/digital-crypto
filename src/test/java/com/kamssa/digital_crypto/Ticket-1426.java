@@ -1985,3 +1985,39 @@ public Request populate(Request request) {
     "nature": "APPLICATION",
     "extendedValidation": "STANDARD"
 }
+//////// elimination////////////////
+{
+    "id": null,
+    "requestType": "NEW",
+    "usage": "INTERNAL", // <-- AJOUTÉ
+    "certificate": {
+        "applicationName": "Certificat Orchestrated Plateforme"
+    }
+}
+Envoyez. L'erreur sur usage devrait disparaître.
+Ajoutez le champ contacts (avec un contenu minimal) :
+code
+JSON
+{
+    ... // les autres champs
+    "contacts": [
+        {
+            "emailNotification": "test@test.com",
+            "role": { "name": "Applicant", "type": "Generic" }
+        }
+    ]
+}
+Envoyez. L'erreur sur contacts devrait disparaître.
+Ajoutez le certificateType dans le certificat :
+code
+JSON
+{
+    ...
+    "certificate": {
+        "applicationName": "Certificat Orchestrated Plateforme",
+        "certificateType": { // <-- AJOUTÉ
+            "name": "Serveur SSL/TLS"
+        }
+    }
+    ...
+}
