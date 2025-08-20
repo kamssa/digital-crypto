@@ -1903,56 +1903,85 @@ public Request populate(Request request) {
 }
 /////////////////////////
 {
-    "requestType": "NEW",
+    {
+    "id": null,
+    "requestType": "RENEW",
+    "createdBy": "b90783",
     "usage": "INTERNAL",
+    "environment": {
+        "name": "STAGING"
+    },
     "certificate": {
-        "certificateName": "Traore.test.intra",
+        "applicationCode": "A1800117",
+        "applicationName": "Certificat Orchestrated Plateforme",
+        "comment": null,
+        "commonName": "testrafaignigration.net.intra",
+        "criticality": "Moyenne",
+        "hostname": null,
+        "unknownCodeAp": false,
+        "mutualAuthent": 1,
+        "dns": true,
+        "organisationName": null,
+        "gnsCountry": {
+            "isoCode": "FR"
+        },
+        "password": null,
         "certificateType": {
-            "name": "Serveur SSL/TLS"
+            "name": "Multi OU SSL"
+        },
+        "certificateSubType": null,
+        "certisEntity": {
+            "name": "BP2I - TestPlan"
+        },
+        "groupSupport": {
+            "name": "BNPP_ITGP_PRODSEC_DEFENSE_INC_CERTIS"
         },
         "platform": {
             "name": "WEBSPHERE7"
         },
-        "environment": {
-            "name": "STAGING" 
-        },
-        "csrFile": {
-            "name": "csrTest.csr",
-            "content": "--- COLLEZ LE CONTENU DE VOTRE CSR VALIDE ICI ---"
-        },
-        "extendedValidation": "STANDARD",
-        "entity": {
-            "name": "AAaa"
-        }
+        "sans": [
+             { "type": "URL", "value": "toto" },
+             { "type": "URL", "value": "tata" }
+        ],
+        "secondCN": "myousuper"
     },
     "contacts": [
         {
-            "uid": "h45884",
-            "emailNotification": "abdoulaye.l.traore@bnpparibas.com",
-            "role": {
-                "name": "IT Responsible"
-            }
-        },
-        {
-            "uid": "b90783",
             "emailNotification": "raphael.lamy@bnpparibas.com",
             "role": {
-                "name": "Business owner"
-            }
+                "name": "Applicant",
+                "type": "Generic"
+            },
+            "uid": null,
+            "firstname": null,
+            "lastname": null,
+            "editable": true
+        },
+        {
+            "emailNotification": "raphael.lamy@bnpparibas.com",
+            "role": {
+                "name": "IT Responsible",
+                "type": "Admin"
+            },
+            "uid": "b90783",
+            "firstname": "Raphael",
+            "lastname": "LAMY",
+            "editable": true
+        },
+        {
+            "emailNotification": "ibrahim.tamboura@bnpparibas.com",
+            "role": {
+                "name": "Business Owner",
+                "type": "Tech"
+            },
+            "uid": "a11899",
+            "firstname": "Ibrahim",
+            "lastname": "TAMBOURA",
+            "editable": true
         }
     ],
-    "requestStatus": {
-        "name": "Draft"
-    },
-    "gsupport": [
-        {
-            "name": "BNPP_ITGP_PRODSEC_DEFENSE_INC_CERTIS"
-        }
-    ],
-    "sans": [
-        {
-            "type": "DNSNAME",
-            "values": "Traore.test.intra"
-        }
-    ]
+    "csr": "--- COLLEZ ICI LA LONGUE CHAINE DE VOTRE CSR ---",
+    "comment": "null",
+    "nature": "APPLICATION",
+    "extendedValidation": "STANDARD"
 }
