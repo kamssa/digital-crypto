@@ -2021,3 +2021,27 @@ JSON
     }
     ...
 }
+/////
+"contacts": [
+        {
+            "emailNotification": "test@test.com",
+            "role": {
+                "name": "Applicant", // Vous pouvez garder celui-ci si nécessaire
+                "type": "Generic"
+            }
+        },
+        {
+            "emailNotification": "admin@test.com",
+            "role": {
+                "name": "IT Responsible", // Exemple de contact administratif
+                "type": "Admin"
+            }
+        },
+        {
+            "emailNotification": "tech@test.com",
+            "role": {
+                "name": "Technical support", // Exemple de contact technique
+                "type": "Tech"
+            }
+        }
+    ]
