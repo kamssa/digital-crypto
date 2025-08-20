@@ -1865,3 +1865,39 @@ private void verifySanFormats(RequestDto requestDto) {
     }
   ]
 }
+////////
+public Request populate(Request request) {
+
+    System.out.println("--- [DEBUG] --- DEBUT DE LA METHODE POPULATE ---");
+
+    if (request != null && request.getCertificate() != null) {
+
+        if (request.getCertificate().getCertificateType() != null) {
+            
+            // --- Log n°1 : On vérifie la configuration et ce que l'on cherche ---
+            System.out.println("--- [DEBUG] --- URL BDD : " + env.getProperty("spring.datasource.url"));
+            System.out.println("--- [DEBUG] --- RECHERCHE TYPE : '" + request.getCertificate().getCertificateType().getName() + "'");
+            
+            CertificateType foundType = certificateTypeDao.findByName(request.getCertificate().getCertificateType().getName());
+
+            // --- Log n°2 : On vérifie le résultat de la recherche ---
+            if (foundType == null) {
+                System.err.println("--- [DEBUG] --- !!! ECHEC : Type non trouvé en BDD !!!"); // System.err écrit en rouge, c'est pratique pour les erreurs
+            } else {
+                System.out.println("--- [DEBUG] --- SUCCES : Type trouvé, ID = " + foundType.getId());
+            }
+
+            request.getCertificate().setCertificateType(foundType);
+        } else {
+            System.out.println("--- [DEBUG] --- WARNING : CertificateType est null dans la requête.");
+        }
+
+        // ... Le reste de votre code ...
+
+    } else {
+        System.out.println("--- [DEBUG] --- WARNING : La requête ou le certificat est null.");
+    }
+    
+    System.out.println("--- [DEBUG] --- FIN DE LA METHODE POPULATE ---");
+    return request;
+}
