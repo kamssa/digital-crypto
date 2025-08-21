@@ -2259,3 +2259,111 @@ Scss
 .san-warning-icon i[title] {
   cursor: help; // Le curseur change pour indiquer qu'on peut survoler pour avoir une info-bulle
 }
+///////////////////////////////////////////////////////////////////////////
+// Fichier : src/app/shared/components/san-badges-list/san-badges-list.component.scss
+
+// ... (tous vos styles existants pour .san-item, .san-badge, etc.) ...
+
+
+// ==========================================================
+//          NOUVEAU STYLE POUR L'ICÔNE D'AVERTISSEMENT
+// ==========================================================
+
+.san-warning-icon {
+  margin-left: 10px; // Espace par rapport à la valeur
+  color: #ffc107;      // Couleur orange/avertissement
+  font-size: 1.2em;   // Un peu plus grande pour être visible
+}
+
+.san-warning-icon i[title] {
+  cursor: help; // Le curseur change pour indiquer qu'on peut survoler pour avoir une info-bulle
+}
+//////////////////////////////////////////////
+<div *ngIf="sanList && sanList.length > 0">
+  <div *ngFor="let san of sanList" class="san-item">
+    
+    <!-- Badge (inchangé) -->
+    <span class="san-badge" [ngClass]="getBadgeClass(san.sanType)">
+      {{ san.sanType }}
+    </span>
+
+    <!-- Valeur du SAN (inchangé) -->
+    <span class="san-value">
+      {{ san.sanValue }}
+    </span>
+
+    <!-- ========================================================== -->
+    <!--          NOUVELLE PARTIE : ICÔNE D'AVERTISSEMENT         -->
+    <!-- ========================================================== -->
+    
+    <!-- 
+      Cette icône ne s'affiche QUE si la méthode isSanValueValid(san) retourne `false`.
+      L'icône `fa-exclamation-triangle` vient de Font Awesome (très courant dans les projets Angular).
+    -->
+    <span *ngIf="!isSanValueValid(san)" class="san-warning-icon">
+      <i class="fa fa-exclamation-triangle" title="Cette valeur ne respecte pas le format attented"></i>
+    </span>
+
+  </div>
+</div>
+/////////////////////////////////////
+// Fichier : src/app/shared/components/san-badges-list/san-badges-list.component.scss
+
+// On importe le fichier de badges global pour pouvoir utiliser le placeholder %badge-base
+@import 'src/assets/styles/badges'; // Adaptez le chemin vers votre fichier _badges.scss
+
+// Style pour chaque ligne de la liste des SANs
+.san-item {
+  display: flex;
+  align-items: center;
+  margin-bottom: 6px;
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+}
+
+// Le style du badge est maintenant plus simple.
+// On applique les styles de base définis dans votre fichier global.
+.san-badge {
+  @extend %badge-base; // On hérite des styles de base (comme `color: white;`)
+  
+  // On peut ajouter des styles spécifiques au composant si nécessaire
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 0.8em;
+  font-weight: bold;
+  margin-right: 12px;
+  min-width: 120px;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+// Style pour la valeur du SAN
+.san-value {
+  font-family: monospace;
+}
+//////////////////////////////////
+code
+Html
+<!-- Fichier : src/app/shared/components/san-badges-list/san-badges-list.component.html -->
+
+<div *ngIf="sanList && sanList.length > 0">
+  <div *ngFor="let san of sanList" class="san-item">
+    
+    <!-- La classe de base `san-badge` est appliquée. -->
+    <!-- [ngClass] ajoute la classe de couleur (ex: 'badge-dnsname') qui est définie dans votre fichier global. -->
+    <span class="san-badge" [ngClass]="getBadgeClass(san.sanType)">
+      {{ san.sanType }}
+    </span>
+
+    <span class="san-value">
+      {{ san.sanValue }}
+    </span>
+  </div>
+</div>
+///////////////////////////
+<!-- Dans certificate-details.component.html -->
+<div class="ui-g-9 nopad">
+  <app-san-badges-list [sanList]="certificateRequest.certificate.sans"></app-san-badges-list>
+</div>
