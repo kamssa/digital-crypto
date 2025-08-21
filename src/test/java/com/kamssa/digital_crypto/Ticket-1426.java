@@ -2045,3 +2045,158 @@ JSON
             }
         }
     ]
+	///////////////// composant personnaliser /////////////////////////////
+	
+import { Component, Input } from '@angular/core';
+
+// On définit une interface pour clarifier la structure de données d'un SAN
+export interface San {
+  sanType: string;
+  sanValue: string;
+}
+
+@Component({
+  selector: 'app-san-badges-list',
+  templateUrl: './san-badges-list.component.html',
+  styleUrls: ['./san-badges-list.component.scss']
+})
+export class SanBadgesListComponent {
+
+  /**
+   * Le composant accepte une liste d'objets San en entrée.
+   * C'est la seule information dont il a besoin du monde extérieur.
+   */
+  @Input() sanList: San[] = [];
+
+  /**
+   * Dictionnaire interne pour mapper un type de SAN à une classe CSS spécifique.
+   * Toute la logique de style est encapsulée ici.
+   */
+  private readonly sanTypeToCssClass = {
+    'DNSNAME':        'badge-dnsname',
+    'RFC822NAME':     'badge-rfc822name',
+    'IPADDRESS':      'badge-ipaddress',
+    'URI':            'badge-uri',
+    'OTHERNAME_GUID': 'badge-othername-guid',
+    'OTHERNAME_UPN':  'badge-othername-upn',
+    'DEFAULT':        'badge-default'
+  };
+
+  /**
+   * Dictionnaire interne pour les expressions régulières associées à chaque type.
+   * Centralise la logique de validation.
+   */
+  private readonly sanTypeRegex = {
+    DNSNAME:        /^[a-zA-Z0-9.-]+$/,
+    RFC822NAME:     /^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$/,
+    IPADDRESS:      /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/,
+    URI:            /^(https?|ftp):\/\/[^\s/$.?#].[^\s]*$/,
+    OTHERNAME_GUID: /^[a-zA-Z0-9-]+$/,
+    OTHERNAME_UPN:  /^[a-zA-Z0-9.-]+@[a-zA-Z0-9.-]+$/
+  };
+
+  /**
+   * Méthode utilisée par le template pour obtenir la bonne classe CSS pour un badge.
+   * @param sanType Le type de SAN (ex: 'DNSNAME').
+   * @returns La classe CSS correspondante (ex: 'badge-dnsname').
+   */
+  public getBadgeClass(sanType: string): string {
+    return this.sanTypeToCssClass[sanType] || this.sanTypeToCssClass['DEFAULT'];
+  }
+}
+////////////////
+code
+Scss
+// Fichier : src/app/shared/components/san-badges-list/san-badges-list.component.scss
+
+// Définition des couleurs spécifiques aux SANs
+$dnsname-color: #007bff;        // Bleu
+$rfc822name-color: #28a745;     // Vert
+$ipaddress-color: #ffc107;      // Jaune/Orange
+$uri-color: #dc3545;            // Rouge
+$othername-guid-color: #17a2b8; // Cyan
+$othername-upn-color: #6c757d;  // Gris
+$default-color: #343a40;        // Gris foncé
+
+// Style pour chaque ligne de la liste
+.san-item {
+  display: flex;
+  align-items: center;
+  margin-bottom: 6px; // Espace entre chaque SAN
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+}
+
+// Style de base pour tous les badges
+.san-badge {
+  padding: 4px 10px;
+  border-radius: 12px;
+  color: white;
+  font-size: 0.8em;
+  font-weight: bold;
+  margin-right: 12px;
+  min-width: 120px;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+// Style pour la valeur du SAN
+.san-value {
+  font-family: monospace; // Idéal pour afficher des URLs ou des IPs
+}
+
+// Application des couleurs spécifiques
+.badge-dnsname { background-color: $dnsname-color; }
+.badge-rfc822name { background-color: $rfc822name-color; }
+.badge-ipaddress { background-color: $ipaddress-color; color: #212529; } // Texte foncé pour la lisibilité
+.badge-uri { background-color: $uri-color; }
+.badge-othername-guid { background-color: $othername-guid-color; }
+.badge-othername-upn { background-color: $othername-upn-color; }
+.badge-default { background-color: $default-color; }
+///////////////
+code
+Html
+<!-- Fichier : src/app/shared/components/san-badges-list/san-badges-list.component.html -->
+
+<!-- Le composant ne s'affiche que s'il y a des SANs à montrer -->
+<div *ngIf="sanList && sanList.length > 0">
+  
+  <!-- On boucle sur la liste de SANs reçue en @Input -->
+  <div *ngFor="let san of sanList" class="san-item">
+    
+    <!-- Le badge, dont la classe est déterminée par la méthode du composant -->
+    <span class="san-badge" [ngClass]="getBadgeClass(san.sanType)">
+      {{ san.sanType }}
+    </span>
+
+    <!-- La valeur du SAN -->
+    <span class="san-value">
+      {{ san.sanValue }}
+    </span>
+
+  </div>
+</div>
+//////////////////
+code
+Html
+<!-- Dans certificate-details.component.html -->
+
+<div class="row nopad" *ngIf="certificateRequest?.certificate?.sans?.length > 0">
+    <!-- Colonne pour le label "SANS" -->
+    <div class="ui-g-3 nopad">
+        <label class="pull-right">{{'requestDetailsSection.SANS' | translate}} :</label>
+    </div>
+    
+    <!-- Colonne pour notre nouveau composant -->
+    <div class="ui-g-9 nopad">
+        <!-- 
+            On appelle notre nouveau composant ici.
+            On lui passe la liste des SANs via le data binding [sanList].
+        -->
+        <app-san-badges-list [sanList]="certificateRequest.certificate.sans"></app-san-badges-list>
+    </div>
+</div>
+	
+	
