@@ -2367,3 +2367,82 @@ Html
 <div class="ui-g-9 nopad">
   <app-san-badges-list [sanList]="certificateRequest.certificate.sans"></app-san-badges-list>
 </div>
+/////////////////////////////////////
+@import 'src/assets/styles/variables'; 
+@import 'src/assets/styles/badges';
+
+
+/* ==========================================================
+    2. STYLES DE MISE EN PAGE DU COMPOSANT
+   ========================================================== */
+
+// Conteneur pour chaque ligne de la liste des SANs (badge + valeur)
+.san-item {
+  display: flex;
+  align-items: center;
+  margin-bottom: 6px; // Espace vertical entre chaque SAN
+
+  // On supprime la marge du dernier élément pour un alignement parfait
+  &:last-child {
+    margin-bottom: 0;
+  }
+}
+
+// Style spécifique pour la valeur textuelle du SAN
+.san-value {
+  font-family: monospace; // Police idéale pour les URLs, IPs, etc.
+  margin-left: 12px;     // Espace entre le badge et la valeur
+}
+
+
+/* ==========================================================
+    3. DÉFINITION DES STYLES DE BASE ET DE COULEUR POUR LES BADGES
+   ========================================================== */
+
+// Classe de base pour tous les badges de ce composant
+.san-badge {
+  // On hérite des styles communs définis dans votre fichier _badges.scss
+  @extend %badge-base; 
+
+  // On peut ajouter ou surcharger des styles spécifiques ici si besoin
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 0.8em;
+  font-weight: bold;
+  min-width: 120px;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+// Définition des couleurs de fond pour chaque type de SAN
+// en utilisant les variables de votre fichier _variables.scss.
+// Ces noms de classes correspondent à ce qui est retourné par le .ts
+
+.badge-dnsname {
+  background-color: $color-bullet-blue;
+}
+
+.badge-rfc822name {
+  background-color: $color-bullet-green;
+}
+
+.badge-ipaddress {
+  background-color: $color-bullet-orange;
+  color: #212529; // Le texte est foncé pour une meilleure lisibilité sur fond orange
+}
+
+.badge-uri {
+  background-color: $color-bullet-violet; // Vous pouvez aussi choisir $color-bullet-red
+}
+
+.badge-othername-guid {
+  background-color: $color-bullet-gray;
+}
+
+.badge-othername-upn {
+  background-color: $color-bullet-cyan;
+}
+
+.badge-default {
+  background-color: $color-medium-grey; // Utilisation d'une autre variable pour le cas par défaut
+}
