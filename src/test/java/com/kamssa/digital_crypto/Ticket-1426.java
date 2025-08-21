@@ -2068,7 +2068,15 @@ export class SanBadgesListComponent {
   @Input() sanList: San[] = [];
 
   // ... (votre sanTypeToCssClass reste inchangé) ...
-  private readonly sanTypeToCssClass = { /* ... */ };
+   private readonly sanTypeToCssClass = {
+    'DNSNAME':        'badge-dnsname',
+    'RFC822NAME':     'badge-rfc822name',
+    'IPADDRESS':      'badge-ipaddress',
+    'URI':            'badge-uri',
+    'OTHERNAME_GUID': 'badge-othername-guid',
+    'OTHERNAME_UPN':  'badge-othername-upn',
+    'DEFAULT':        'badge-default' // On peut ajouter une classe par défaut
+  };
 
   /**
    * Dictionnaire interne pour les expressions régulières associées à chaque type.
@@ -2100,7 +2108,9 @@ export class SanBadgesListComponent {
   }
 
   // ... (votre méthode getBadgeClass reste inchangée) ...
-  public getBadgeClass(sanType: string): string { /* ... */ }
+  public getBadgeClass(sanType: string): string {
+    return this.sanTypeToCssClass[sanType] || this.sanTypeToCssClass['DEFAULT'];
+  }
 }
 ////////////////
 code
