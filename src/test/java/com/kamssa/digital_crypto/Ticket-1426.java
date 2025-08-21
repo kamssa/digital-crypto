@@ -2507,31 +2507,129 @@ Html
 .badge-default        { background-color: $color-medium-grey; }
 //////// san back /////////////////
  // On récupère la liste des SANs depuis le DTO une dernière fois
-    if (requestDto.getCertificate() != null && !CollectionUtils.isEmpty(requestDto.getCertificate().getSans())) {
-        
-        // On récupère une référence à la VRAIE entité Certificate qui est maintenant dans l'entité Request
-        Certificate certificateEntity = request.getCertificate();
-        
-        // On vide l'ancienne liste pour être propre (important pour les mises à jour)
-        certificateEntity.getSans().clear();
-        
-        // On boucle sur les SANs qui viennent du DTO
-        for (San sanFromDto : requestDto.getCertificate().getSans()) {
-            
-            // On crée une NOUVELLE entité San pour être sûr qu'elle est gérée par JPA
-            San sanEntity = new San();
-            sanEntity.setType(sanFromDto.getType());
-            sanEntity.setSanValue(sanFromDto.getSanValue());
-            
-            // On lie la nouvelle entité San à la VRAIE entité Certificate
-            // On peut le faire manuellement ou via la méthode helper
-            certificateEntity.addSan(sanEntity); // Utiliser la méthode helper est plus propre
+     // ==========================================================
+    //      MÉTHODES D'AIDE À AJOUTER
+    // ==========================================================
+    
+    /**
+     * Méthode d'aide pour ajouter un SAN à ce certificat.
+     * Elle garantit que la relation bidirectionnelle est correctement établie
+     * en mettant à jour les deux côtés de l'association.
+     *
+     * @param san L'entité San à ajouter.
+     */
+    public void addSan(San san) {
+        if (this.sans == null) {
+            this.sans = new ArrayList<>();
+        }
+        this.sans.add(san);
+        san.setCertificate(this); // Établit le lien inverse, c'est crucial !
+    }
+
+    /**
+     * Méthode d'aide pour retirer un SAN de ce certificat.
+     * Elle garantit que la relation bidirectionnelle est correctement rompue.
+     *
+     * @param san L'entité San à retirer.
+     */
+    public void removeSan(San san) {
+        if (this.sans != null) {
+            this.sans.remove(san);
+            san.setCertificate(null); // Coupe le lien de l'autre côté
         }
     }
 
-    // --- Sauvegarde (inchangé) ---
-    // Maintenant, quand on sauvegarde `request`, JPA verra que son `Certificate` a une liste de nouveaux `San`
-    // et grâce à `cascade=ALL`, il les sauvegardera aussi.
+} // Fin de la classe Certificate
+2. Code Complet Corrigé : Méthode createRequest dans RequestServiceImpl.java
+Ouvrez votre fichier RequestServiceImpl.java et remplacez entièrement votre méthode createRequest existante par celle-ci.
+code
+Java
+// Dans votre fichier RequestServiceImpl.java
+
+@Transactional
+@Override
+public RequestDto createRequest(RequestDtoImpl requestDto) { // J'ai repris votre signature
+    
+    // --- Étape 1 : Préparation des SANs (votre code existant) ---
+    // On rassemble les SANs entrés manuellement et ceux extraits du CSR.
+    List<San> sansFromInput = new ArrayList<>();
+    if (requestDto.getCertificate() != null && requestDto.getCertificate().getSans() != null) {
+        sansFromInput.addAll(requestDto.getCertificate().getSans());
+    }
+
+    List<San> sansFromCsr = new ArrayList<>();
+    final String csr = this.fileManagerService.extractCsr(requestDto, Boolean.TRUE);
+    if (!StringUtils.isEmpty(csr)) {
+        try {
+            sansFromCsr = this.certificateCsrDecoder.extractSansWithTypesFromCsr(csr);
+        } catch (Exception e) {
+            throw new CertisRequestException("error.request.csr.invalid_format", HttpStatus.BAD_REQUEST);
+        }
+    }
+
+    Set<San> finalUniqueSans = new LinkedHashSet<>();
+    finalUniqueSans.addAll(sansFromInput);
+    finalUniqueSans.addAll(sansFromCsr);
+
+    if (requestDto.getCertificate() != null) {
+        requestDto.getCertificate().setSans(new ArrayList<>(finalUniqueSans));
+    }
+    
+    // Limitation du commentaire (votre code existant)
+    if (requestDto.getComment() != null && requestDto.getComment().length() > 3999) {
+        requestDto.setComment(requestDto.getComment().substring(0, 3998));
+    }
+    
+
+    // --- Étape 2 : Transformation du DTO en Entité (votre code existant) ---
+    Request request = dtoToEntity(requestDto);
+
+    // ==========================================================
+    //      ÉTAPE 3 : LOGIQUE DE MAPPING CORRIGÉE POUR LES SANS
+    // ==========================================================
+
+    // On s'assure que le certificat et les SANs existent dans le DTO
+    if (requestDto.getCertificate() != null && !CollectionUtils.isEmpty(requestDto.getCertificate().getSans())) {
+        
+        // On récupère la référence à la VRAIE entité Certificate qui est dans l'entité Request
+        Certificate certificateEntity = request.getCertificate();
+        
+        // On s'assure que l'entité Certificate n'est pas nulle
+        if (certificateEntity != null) {
+            // On s'assure que la liste est initialisée, puis on la vide pour éviter les doublons lors des mises à jour.
+            if (certificateEntity.getSans() == null) {
+                certificateEntity.setSans(new ArrayList<>());
+            } else {
+                certificateEntity.getSans().clear();
+            }
+            
+            // On boucle sur les SANs qui viennent du DTO
+            for (San sanFromDto : requestDto.getCertificate().getSans()) {
+                
+                // On crée une NOUVELLE entité San pour qu'elle soit gérée par JPA
+                San sanEntity = new San();
+                sanEntity.setType(sanFromDto.getType());
+                sanEntity.setSanValue(sanFromDto.getSanValue());
+                
+                // On utilise notre nouvelle méthode helper "addSan" pour lier correctement l'enfant au parent.
+                certificateEntity.addSan(sanEntity);
+            }
+        }
+    }
+    
+    // ==========================================================
+    //      ÉTAPE 4 : LOGIQUE DE MAPPING POUR LES CONTACTS (votre code existant)
+    // ==========================================================
+    if (!CollectionUtils.isEmpty(requestDto.getContacts())) {
+        for (Contact cont : requestDto.getContacts()) {
+            cont.setRequest(request);
+        }
+    }
+
+    // --- Étape 5 : Sauvegarde et retour (votre code existant) ---
+    // Grâce à `cascade=ALL` et à la liaison bidirectionnelle correcte, 
+    // la sauvegarde de `request` va automatiquement sauvegarder le `Certificate` et tous ses `San`.
     RequestDto requestDtoResult = entityToDto(requestDao.save(request));
     
     return requestDtoResult;
+}
