@@ -2047,9 +2047,12 @@ JSON
     ]
 	///////////////// composant personnaliser /////////////////////////////
 	
+code
+TypeScript
+// Fichier : src/app/shared/components/san-badges-list/san-badges-list.component.ts
+
 import { Component, Input } from '@angular/core';
 
-// On définit une interface pour clarifier la structure de données d'un SAN
 export interface San {
   sanType: string;
   sanValue: string;
@@ -2062,47 +2065,42 @@ export interface San {
 })
 export class SanBadgesListComponent {
 
-  /**
-   * Le composant accepte une liste d'objets San en entrée.
-   * C'est la seule information dont il a besoin du monde extérieur.
-   */
   @Input() sanList: San[] = [];
 
-  /**
-   * Dictionnaire interne pour mapper un type de SAN à une classe CSS spécifique.
-   * Toute la logique de style est encapsulée ici.
-   */
-  private readonly sanTypeToCssClass = {
-    'DNSNAME':        'badge-dnsname',
-    'RFC822NAME':     'badge-rfc822name',
-    'IPADDRESS':      'badge-ipaddress',
-    'URI':            'badge-uri',
-    'OTHERNAME_GUID': 'badge-othername-guid',
-    'OTHERNAME_UPN':  'badge-othername-upn',
-    'DEFAULT':        'badge-default'
-  };
+  // ... (votre sanTypeToCssClass reste inchangé) ...
+  private readonly sanTypeToCssClass = { /* ... */ };
 
   /**
    * Dictionnaire interne pour les expressions régulières associées à chaque type.
-   * Centralise la logique de validation.
    */
   private readonly sanTypeRegex = {
-    DNSNAME:        /^[a-zA-Z0-9.-]+$/,
-    RFC822NAME:     /^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$/,
-    IPADDRESS:      /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/,
-    URI:            /^(https?|ftp):\/\/[^\s/$.?#].[^\s]*$/,
-    OTHERNAME_GUID: /^[a-zA-Z0-9-]+$/,
-    OTHERNAME_UPN:  /^[a-zA-Z0-9.-]+@[a-zA-Z0-9.-]+$/
+    'DNSNAME':        /^[a-zA-Z0-9][a-zA-Z0-9-]{1,61}[a-zA-Z0-9](?:\.[a-zA-Z]{2,})+$/,
+    'RFC822NAME':     /^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$/,
+    'IPADDRESS':      /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/,
+    'URI':            /^(https?|ftp):\/\/[^\s/$.?#].[^\s]*$/,
+    'OTHERNAME_GUID': /^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$/, // Exemple plus strict pour un GUID
+    'OTHERNAME_UPN':  /^[a-zA-Z0-9.-]+@[a-zA-Z0-9.-]+$/
   };
 
   /**
-   * Méthode utilisée par le template pour obtenir la bonne classe CSS pour un badge.
-   * @param sanType Le type de SAN (ex: 'DNSNAME').
-   * @returns La classe CSS correspondante (ex: 'badge-dnsname').
+   * Méthode publique pour le template, qui vérifie si une valeur SAN est valide.
+   * @param san L'objet SAN complet.
+   * @returns `true` si la valeur est valide, `false` sinon.
    */
-  public getBadgeClass(sanType: string): string {
-    return this.sanTypeToCssClass[sanType] || this.sanTypeToCssClass['DEFAULT'];
+  public isSanValueValid(san: San): boolean {
+    const regex = this.sanTypeRegex[san.sanType];
+    
+    // Si nous n'avons pas de regex pour ce type, on considère que c'est valide.
+    if (!regex) {
+      return true;
+    }
+    
+    // On teste la valeur contre la regex.
+    return regex.test(san.sanValue);
   }
+
+  // ... (votre méthode getBadgeClass reste inchangée) ...
+  public getBadgeClass(sanType: string): string { /* ... */ }
 }
 ////////////////
 code
@@ -2199,4 +2197,55 @@ Html
     </div>
 </div>
 	
-	
+	//////////////////////////
+	<!-- Fichier : src/app/shared/components/san-badges-list/san-badges-list.component.html -->
+
+<div *ngIf="sanList && sanList.length > 0">
+  <div *ngFor="let san of sanList" class="san-item">
+    
+    <!-- Badge (inchangé) -->
+    <span class="san-badge" [ngClass]="getBadgeClass(san.sanType)">
+      {{ san.sanType }}
+    </span>
+
+    <!-- Valeur du SAN (inchangé) -->
+    <span class="san-value">
+      {{ san.sanValue }}
+    </span>
+
+    <!-- ========================================================== -->
+    <!--          NOUVELLE PARTIE : ICÔNE D'AVERTISSEMENT         -->
+    <!-- ========================================================== -->
+    
+    <!-- 
+      Cette icône ne s'affiche QUE si la méthode isSanValueValid(san) retourne `false`.
+      L'icône `fa-exclamation-triangle` vient de Font Awesome (très courant dans les projets Angular).
+    -->
+    <span *ngIf="!isSanValueValid(san)" class="san-warning-icon">
+      <i class="fa fa-exclamation-triangle" title="Cette valeur ne respecte pas le format attented"></i>
+    </span>
+
+  </div>
+</div>
+Étape 3 : Ajouter le style pour l'icône (san-badges-list.component.scss)
+Enfin, nous ajoutons un peu de style pour que notre icône soit bien visible et positionnée.
+code
+Scss
+// Fichier : src/app/shared/components/san-badges-list/san-badges-list.component.scss
+
+// ... (tous vos styles existants pour .san-item, .san-badge, etc.) ...
+
+
+// ==========================================================
+//          NOUVEAU STYLE POUR L'ICÔNE D'AVERTISSEMENT
+// ==========================================================
+
+.san-warning-icon {
+  margin-left: 10px; // Espace par rapport à la valeur
+  color: #ffc107;      // Couleur orange/avertissement
+  font-size: 1.2em;   // Un peu plus grande pour être visible
+}
+
+.san-warning-icon i[title] {
+  cursor: help; // Le curseur change pour indiquer qu'on peut survoler pour avoir une info-bulle
+}
