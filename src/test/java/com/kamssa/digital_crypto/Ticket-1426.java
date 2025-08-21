@@ -2633,3 +2633,143 @@ public RequestDto createRequest(RequestDtoImpl requestDto) { // J'ai repris votr
     
     return requestDtoResult;
 }
+///////////////////////////////////////////////certificat //////////////////////////
+
+@Entity
+public class Certificate implements Serializable {
+
+    // ... Toutes vos propriétés existantes (id, commonName, etc.) ...
+
+    @OneToMany(cascade = CascadeType.ALL, fetch = FetchType.EAGER, mappedBy = "certificate", orphanRemoval = true)
+    private List<San> sans;
+
+    // ... Tous vos getters et setters existants ...
+    
+    public List<San> getSans() {
+        return sans;
+    }
+
+    public void setSans(List<San> sans) {
+        this.sans = sans;
+    }
+
+
+    // ==========================================================
+    //      MÉTHODES D'AIDE À AJOUTER
+    // ==========================================================
+    
+    /**
+     * Méthode d'aide pour ajouter un SAN à ce certificat.
+     * Elle garantit que la relation bidirectionnelle est correctement établie
+     * en mettant à jour les deux côtés de l'association.
+     *
+     * @param san L'entité San à ajouter.
+     */
+    public void addSan(San san) {
+        if (this.sans == null) {
+            this.sans = new ArrayList<>();
+        }
+        this.sans.add(san);
+        san.setCertificate(this); // Établit le lien inverse, c'est crucial !
+    }
+
+    /**
+     * Méthode d'aide pour retirer un SAN de ce certificat.
+     * Elle garantit que la relation bidirectionnelle est correctement rompue.
+     *
+     * @param san L'entité San à retirer.
+     */
+    public void removeSan(San san) {
+        if (this.sans != null) {
+            this.sans.remove(san);
+            san.setCertificate(null); // Coupe le lien de l'autre côté
+        }
+    }
+
+} // Fin de la classe Certificate
+////////////////////////////////////////////
+@Transactional
+@Override
+public RequestDto updateRequest(RequestDtoImpl requestDto) { // La signature peut varier
+
+    // --- Étape 1 : Récupérer l'entité existante depuis la base de données ---
+    Long requestId = requestDto.getId();
+    Request requestEntity = requestDao.findById(requestId)
+            .orElseThrow(() -> new EntityNotFoundException("Request not found with id: " + requestId));
+            
+    Certificate certificateEntity = requestEntity.getCertificate();
+    if (certificateEntity == null) {
+        throw new IllegalStateException("Critical error: Certificate associated with request is null.");
+    }
+    
+    // --- Étape 2 : Mettre à jour les champs simples de l'entité avec les valeurs du DTO ---
+    // C'est la logique que vous avez probablement déjà.
+    requestEntity.setComment(requestDto.getComment());
+    certificateEntity.setCommonName(requestDto.getCertificate().getCommonName());
+    // ... etc. pour tous les autres champs ...
+
+    // ==========================================================
+    //      ÉTAPE 3 : SYNCHRONISER LA LISTE DES SANS
+    // ==========================================================
+
+    // On récupère la nouvelle liste de SANs depuis le DTO
+    List<San> sansFromDto = requestDto.getCertificate().getSans();
+
+    // On s'assure que la liste dans l'entité est initialisée
+    if (certificateEntity.getSans() == null) {
+        certificateEntity.setSans(new ArrayList<>());
+    }
+    
+    // a) Vider complètement l'ancienne collection de SANs.
+    //    Grâce à `orphanRemoval = true` sur l'annotation @OneToMany, JPA va
+    //    automatiquement supprimer de la base de données tous les anciens SANs
+    //    qui n'ont plus de parent.
+    certificateEntity.getSans().clear();
+    
+    // b) Remplir la collection avec les nouveaux SANs du DTO.
+    if (sansFromDto != null) {
+        for (San sanFromDto : sansFromDto) {
+            San newSanEntity = new San();
+            newSanEntity.setType(sanFromDto.getType());
+            newSanEntity.setSanValue(sanFromDto.getSanValue());
+            
+            // c) Lier chaque nouveau SAN à son certificat parent.
+            //    On utilise notre méthode helper pour une propreté maximale.
+            certificateEntity.addSan(newSanEntity);
+        }
+    }
+
+    // --- Étape 4 : Sauvegarder l'entité parente ---
+    // JPA s'occupera de faire les DELETE pour les anciens SANs et les INSERT pour les nouveaux.
+    Request updatedRequest = requestDao.save(requestEntity);
+    
+    return entityToDto(updatedRequest);
+}
+//////////////////////////
+
+List<San> sansFromDto = requestDto.getCertificate().getSans();
+List<San> sansInDb = certificateEntity.getSans();
+
+// 1. Trouver les SANs à supprimer
+List<San> sansToRemove = new ArrayList<>();
+for (San sanInDb : sansInDb) {
+    // Si un SAN de la BDD n'est plus dans la liste du DTO, on le marque pour suppression.
+    if (!sansFromDto.contains(sanInDb)) { // Nécessite d'implémenter equals() et hashCode() dans San
+        sansToRemove.add(sanInDb);
+    }
+}
+
+// 2. Supprimer les SANs en utilisant notre méthode helper
+for (San san : sansToRemove) {
+    certificateEntity.removeSan(san); // <<--- ICI ON UTILISE removeSan
+}
+
+// 3. Trouver et ajouter les nouveaux SANs
+for (San sanFromDto : sansFromDto) {
+    // Si un SAN du DTO n'est pas déjà dans la liste de la BDD, on l'ajoute.
+    if (!sansInDb.contains(sanFromDto)) {
+        San newSanEntity = new San();
+        // ... copier les propriétés ...
+        certificateEntity.addSan(newSanEntity);
+    }
+}
