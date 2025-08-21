@@ -2505,3 +2505,33 @@ Html
 .badge-othername-guid { background-color: $color-bullet-gray; }
 .badge-othername-upn  { background-color: $color-bullet-cyan; }
 .badge-default        { background-color: $color-medium-grey; }
+//////// san back /////////////////
+ // On récupère la liste des SANs depuis le DTO une dernière fois
+    if (requestDto.getCertificate() != null && !CollectionUtils.isEmpty(requestDto.getCertificate().getSans())) {
+        
+        // On récupère une référence à la VRAIE entité Certificate qui est maintenant dans l'entité Request
+        Certificate certificateEntity = request.getCertificate();
+        
+        // On vide l'ancienne liste pour être propre (important pour les mises à jour)
+        certificateEntity.getSans().clear();
+        
+        // On boucle sur les SANs qui viennent du DTO
+        for (San sanFromDto : requestDto.getCertificate().getSans()) {
+            
+            // On crée une NOUVELLE entité San pour être sûr qu'elle est gérée par JPA
+            San sanEntity = new San();
+            sanEntity.setType(sanFromDto.getType());
+            sanEntity.setSanValue(sanFromDto.getSanValue());
+            
+            // On lie la nouvelle entité San à la VRAIE entité Certificate
+            // On peut le faire manuellement ou via la méthode helper
+            certificateEntity.addSan(sanEntity); // Utiliser la méthode helper est plus propre
+        }
+    }
+
+    // --- Sauvegarde (inchangé) ---
+    // Maintenant, quand on sauvegarde `request`, JPA verra que son `Certificate` a une liste de nouveaux `San`
+    // et grâce à `cascade=ALL`, il les sauvegardera aussi.
+    RequestDto requestDtoResult = entityToDto(requestDao.save(request));
+    
+    return requestDtoResult;
