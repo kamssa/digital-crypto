@@ -2446,3 +2446,62 @@ Html
 .badge-default {
   background-color: $color-medium-grey; // Utilisation d'une autre variable pour le cas par défaut
 }
+//////////////////////////////////
+
+@import 'src/assets/styles/variables'; 
+@import 'src/assets/styles/badges'; // On importe ce fichier pour pouvoir utiliser %badge-base
+
+
+/* ==========================================================
+    2. STYLES DE MISE EN PAGE DU COMPOSANT
+   ========================================================== */
+
+.san-item {
+  display: flex;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.san-value {
+  font-family: monospace;
+  margin-left: 12px;
+}
+
+
+/* ==========================================================
+    3. EXTENSION DES STYLES DE BADGES
+   ========================================================== */
+
+/*
+ * Ici, nous ne créons pas un style de base.
+ * Nous disons simplement que nos classes de couleur DOIVENT HÉRITER
+ * de tous les styles définis dans %badge-base de votre fichier global.
+ * C'est plus propre et évite la duplication de code.
+ */
+
+.badge-dnsname,
+.badge-rfc822name,
+.badge-ipaddress,
+.badge-uri,
+.badge-othername-guid,
+.badge-othername-upn,
+.badge-default {
+  @extend %badge-base; // TOUS héritent des styles de base (padding, font-size, color: white, etc.)
+
+  // On peut ajouter des styles communs à tous les badges de CE composant ici si nécessaire
+  min-width: 120px;
+  text-transform: uppercase;
+}
+
+/* 
+ * Maintenant, on se contente d'appliquer la couleur de fond spécifique
+ * à chaque classe, en utilisant les variables de votre fichier _variables.scss.
+ */
+
+.badge-dnsname        { background-color: $color-bullet-blue; }
+.badge-rfc822name     { background-color: $color-bullet-green; }
+.badge-ipaddress      { background-color: $color-bullet-orange; color: #212529; }
+.badge-uri            { background-color: $color-bullet-violet; }
+.badge-othername-guid { background-color: $color-bullet-gray; }
+.badge-othername-upn  { background-color: $color-bullet-cyan; }
+.badge-default        { background-color: $color-medium-grey; }
