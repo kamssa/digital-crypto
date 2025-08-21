@@ -565,3 +565,47 @@ export class UpdateInformationsFormComponent implements OnInit {
       <!-- ... -->
   </p-dropdown>
 </div>
+//////////////////////////////
+
+C'est une excellente question, car c'est le cœur du fonctionnement de MapStruct.
+L'annotation @Mapping sert de "GPS" pour MapStruct. Vous l'utilisez lorsque les noms de propriétés entre votre objet de départ (la source) et votre objet d'arrivée (la cible) ne sont pas identiques.
+MapStruct est intelligent, mais pas magicien. Si vous lui demandez de transformer un objet A en objet B, et que A a une propriété nomComplet et B a une propriété fullName, il ne peut pas deviner qu'ils sont liés. L'annotation @Mapping lui donne cette instruction.
+Décomposition de l'Annotation @Mapping
+Prenons cet exemple :
+@Mapping(source = "sanType", target = "type")
+Cette annotation est placée au-dessus d'une méthode de conversion dans votre interface de Mapper, par exemple :
+code
+Java
+@Mapper
+public interface SanMapper {
+    
+    @Mapping(source = "sanType", target = "type") // Instruction pour MapStruct
+    SanDto convertToDto(San entity); // La méthode de conversion
+
+}
+source = "sanType" : Le Point de Départ
+source désigne une propriété de l'objet que vous donnez en entrée de la méthode.
+Dans notre cas, la méthode est convertToDto(San entity). La source est donc l'objet entity de type San.
+source = "sanType" dit à MapStruct : "Va chercher la valeur en appelant la méthode entity.getSanType() sur l'objet San que je t'ai donné."
+target = "type" : Le Point d'Arrivée
+target désigne une propriété de l'objet que la méthode doit retourner.
+Dans notre cas, la méthode doit retourner un SanDto. La cible est donc une instance de SanDto que MapStruct va créer.
+target = "type" dit à MapStruct : "Prends la valeur que tu as récupérée de la source et mets-la dans la propriété type du nouvel objet SanDto en appelant la méthode sanDto.setType(...)."
+L'Analogie du Déménagement
+Imaginez que vous déménagez :
+L'objet source (San) est votre ancienne maison.
+L'objet cible (SanDto) est votre nouvelle maison.
+MapStruct est l'entreprise de déménagement.
+Par défaut, les déménageurs prennent un carton étiqueté "Cuisine" dans l'ancienne maison et le mettent dans la pièce "Cuisine" de la nouvelle. C'est ce que fait MapStruct quand les noms de propriétés sont identiques.
+Mais si dans votre ancienne maison, vous aviez une pièce appelée "Laboratoire" (sanType) et que dans la nouvelle, la pièce équivalente s'appelle "Bureau" (type), les déménageurs seraient perdus.
+L'annotation @Mapping(source = "sanType", target = "type") est votre instruction sur le carton :
+"CONTENU DU LABORATOIRE. À PLACER DANS LE BUREAU."
+Grâce à cette instruction claire, les déménageurs (MapStruct) savent exactement quoi faire.
+Application à votre cas
+@Mapping(source = "sanType", target = "type")
+Source : La propriété sanType de votre entité San.java.
+Cible : La propriété type de votre DTO SanDto.java.
+@Mapping(source = "sanValue", target = "value")
+Source : La propriété sanValue de votre entité San.java.
+Cible : La propriété value de votre DTO SanDto.java.
+En utilisant ces deux annotations, vous donnez des instructions explicites à MapStruct pour faire le pont entre les anciens noms de vos entités et les nouveaux noms plus clairs de vos DTOs, résolvant ainsi les erreurs de compilation.
