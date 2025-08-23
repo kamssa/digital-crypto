@@ -649,3 +649,59 @@ private void addSansCertis(RequestDto request, RequestDto requestCertis) {
         request.getCertificate().setSans(sans);
     }
 }
+/////////////////////////////////////////
+public RequestDto buildSANs(RequestDto requestDto) {
+    try {
+        String typeCert = requestDto.getCertificate().getCertificateType().getName();
+
+        // La condition pour exécuter la logique reste la même
+        if (RequestTypeList.SSL_CLIENT_SERVER_EXTERNE.toString().equals(typeCert)
+                || RequestTypeList.SSL_CLIENT_SERVER.toString().equals(typeCert)
+                || RequestTypeList.SSL_SERVER.toString().equals(typeCert)) {
+
+            // 1. Récupérer la liste existante et gérer le cas où elle est nulle
+            List<San> sanList = requestDto.getCertificate().getSans();
+            if (sanList == null) {
+                sanList = new ArrayList<>();
+            }
+
+            // 2. Créer un Set avec les valeurs des SANs existants pour des recherches rapides et efficaces
+            Set<String> existingSanValues = sanList.stream()
+                    .map(San::getSanValue)
+                    .collect(Collectors.toSet());
+
+            // 3. Préparer les nouveaux SANs potentiels à partir du Common Name
+            String cn = requestDto.getCertificate().getCommonName();
+            if (cn != null && !cn.isEmpty()) {
+                String domain = cn.toLowerCase();
+                String domainWWW = domain.startsWith("www.") ? domain : "www." + domain;
+                if(domain.startsWith("www.")){
+                    domain = domain.replaceFirst("www.","");
+                }
+
+
+                // 4. Ajouter le domaine principal s'il n'est pas déjà dans la liste
+                if (!existingSanValues.contains(domain)) {
+                    San sanDomain = new San();
+                    sanDomain.setSanValue(domain);
+                    sanDomain.setType(SanType.DNSNAME); // <-- CORRECTION CRUCIALE
+                    sanList.add(sanDomain);
+                }
+
+                // 5. Ajouter le domaine avec "www" s'il n'est pas déjà dans la liste
+                if (!existingSanValues.contains(domainWWW)) {
+                    San sanDomainWWW = new San();
+                    sanDomainWWW.setSanValue(domainWWW);
+                    sanDomainWWW.setType(SanType.DNSNAME); // <-- CORRECTION CRUCIALE
+                    sanList.add(sanDomainWWW);
+                }
+            }
+
+            // 6. Mettre à jour le certificat avec la liste potentiellement étendue
+            requestDto.getCertificate().setSans(sanList);
+        }
+    } catch (Exception e) {
+        LOGGER.error("Exception in buildSANs {}", e.getMessage());
+    }
+    return requestDto;
+}
