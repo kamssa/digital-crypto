@@ -168,3 +168,141 @@ public void integrateCsrSans(RequestDto requestDto) {
         LOGGER.error("Error when associate csr Sans :", e);
     }
 }
+//////////////////////////////////////////////////
+public void integrateCsrSans(RequestDto requestDto) {
+        try {
+            String decodedCsr = new String(Base64.getDecoder().decode(requestDto.getCsr()), StandardCharsets.UTF_8);
+            CertificateCsrDecoder csrDecoder = new CertificateCsrDecoder();
+
+            List<San> sansInCsr = csrDecoder.getSansList(decodedCsr).stream()
+                    .map(sanString -> {
+                        San newSan = new San();
+                        newSan.setSanValue(sanString);
+
+                        // --- LOGIQUE DE DÉTECTION COMPLÈTE POUR LES 6 TYPES ---
+                        // L'ordre est essentiel : du plus spécifique au plus général.
+
+                        // 1. GUID (32 caractères hexadécimaux)
+                        if (sanString.matches("^[a-fA-F0-9]{32}$")) {
+                            newSan.setType(SanType.OTHERNAME_GUID);
+
+                        // 2. Adresse IPv4
+                        } else if (sanString.matches("\\b(?:\\d{1,3}\\.){3}\\d{1,3}\\b")) {
+                            newSan.setType(SanType.IPADDRESS);
+
+                        // 3. URI (commence par un schéma connu)
+                        } else if (sanString.matches("^(https?|ldaps?|ftp|file|tag|urn|data|tel):.*")) {
+                            newSan.setType(SanType.URI);
+                            
+                        // 4. UPN (contient un '@' ET le domaine ne ressemble pas à un domaine public)
+                        } else if (sanString.contains("@") && (sanString.endsWith(".local") || !sanString.matches(".*\\.(com|org|net|fr|io|dev)$"))) {
+                            newSan.setType(SanType.OTHERNAME_UPN);
+
+                        // 5. Adresse E-mail (contient un '@')
+                        } else if (sanString.contains("@")) {
+                            newSan.setType(SanType.RFC822NAME);
+
+                        // 6. Par défaut, si rien d'autre ne correspond, c'est un DNSNAME
+                        } else {
+                            newSan.setType(SanType.DNSNAME);
+                        }
+
+                        return newSan;
+                    }).collect(Collectors.toList());
+
+            // Fusionner et dédupliquer les listes
+            List<San> allSans = Stream.of(sansInCsr, requestDto.getCertificate().getSans())
+                    .flatMap(list -> list == null ? Stream.empty() : list.stream())
+                    .collect(Collectors.collectingAndThen(
+                            Collectors.toMap(San::getSanValue, san -> san, (e, r) -> e),
+                            map -> new ArrayList<>(map.values())
+                    ));
+
+            requestDto.getCertificate().setSans(allSans);
+
+            LOGGER.info("Intégration des SANs du CSR terminée. Nombre total de SANs : {}", allSans.size());
+
+        } catch (Exception e) {
+            LOGGER.error("Erreur lors de l'intégration des SANs du CSR :", e);
+        }
+    }
+}
+/////////////////////////////
+code
+Java
+/**
+ * Intègre les SANs (Subject Alternative Names) d'un CSR dans un certificat.
+ * Cette méthode lit les SANs du CSR, déduit leur type (DNSNAME, IPADDRESS, etc.),
+ * puis les fusionne avec les SANs déjà présents dans le certificat, en supprimant les doublons.
+ *
+ * @param requestDto Le DTO contenant le CSR et le certificat à mettre à jour.
+ */
+public void integrateCsrSans(RequestDto requestDto) {
+    try {
+        // 1. Décoder le CSR pour extraire la liste des SANs sous forme de chaînes
+        String decodedCsr = new String(Base64.getDecoder().decode(requestDto.getCsr()), StandardCharsets.UTF_8);
+        CertificateCsrDecoder csrDecoder = new CertificateCsrDecoder();
+        List<String> sanStringsFromCsr = csrDecoder.getSansList(decodedCsr);
+
+        // 2. Transformer chaque chaîne en objet San en déduisant son type
+        List<San> sansInCsr = sanStringsFromCsr.stream()
+                .map(sanString -> {
+                    San newSan = new San();
+                    newSan.setSanValue(sanString); // Met à jour 'sanValue' et 'url' si synchronisés
+
+                    // --- LOGIQUE DE DÉTECTION COMPLÈTE POUR LES 6 TYPES ---
+                    // L'ordre des vérifications est essentiel, du plus spécifique au plus général.
+
+                    // 1. GUID (32 caractères hexadécimaux)
+                    if (sanString.matches("^[a-fA-F0-9]{32}$")) {
+                        newSan.setType(SanType.OTHERNAME_GUID);
+
+                    // 2. Adresse IPv4
+                    } else if (sanString.matches("\\b(?:\\d{1,3}\\.){3}\\d{1,3}\\b")) {
+                        newSan.setType(SanType.IPADDRESS);
+
+                    // 3. URI (commence par un schéma comme http:, ftp:, etc.)
+                    } else if (sanString.matches("^(https?|ldaps?|ftp|file|tag|urn|data|tel):.*")) {
+                        newSan.setType(SanType.URI);
+                        
+                    // 4. UPN (contient '@' ET le domaine ne ressemble pas à un domaine public commun)
+                    //    Cette règle est une heuristique et peut être ajustée.
+                    } else if (sanString.contains("@") && (sanString.endsWith(".local") || !sanString.matches(".*\\.(com|org|net|fr|io|dev|biz|info)$"))) {
+                        newSan.setType(SanType.OTHERNAME_UPN);
+
+                    // 5. Adresse E-mail (tous les autres cas contenant '@')
+                    } else if (sanString.contains("@")) {
+                        newSan.setType(SanType.RFC822NAME);
+
+                    // 6. Par défaut, si rien d'autre ne correspond, c'est un DNSNAME
+                    } else {
+                        newSan.setType(SanType.DNSNAME);
+                    }
+
+                    return newSan;
+                }).collect(Collectors.toList());
+
+        // 3. Fusionner la liste des nouveaux SANs avec ceux déjà existants
+        List<San> allSans = Stream.of(sansInCsr, requestDto.getCertificate().getSans())
+                .flatMap(list -> list == null ? Stream.empty() : list.stream())
+                .collect(Collectors.collectingAndThen(
+                        // Dédupliquer en se basant sur la valeur du SAN
+                        Collectors.toMap(
+                                San::getSanValue,               // Clé de la map
+                                san -> san,                     // Valeur de la map
+                                (existingValue, newValue) -> existingValue // En cas de doublon, on garde l'existant
+                        ),
+                        map -> new ArrayList<>(map.values()) // On transforme la map finale en une liste
+                ));
+
+        // 4. Mettre à jour le certificat avec la liste finale et dédupliquée
+        requestDto.getCertificate().setSans(allSans);
+
+        LOGGER.info("Intégration des SANs du CSR terminée. Nombre total de SANs : {}", allSans.size());
+
+    } catch (Exception e) {
+        LOGGER.error("Erreur critique lors de l'intégration des SANs à partir du CSR :", e);
+        // Vous pourriez vouloir lancer une exception personnalisée ici pour une meilleure gestion d'erreurs
+        // throw new SanProcessingException("Failed to process SANs from CSR", e);
+    }
+}
