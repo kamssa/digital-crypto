@@ -567,3 +567,59 @@ public void integrateCsrSans(RequestDto requestDto) {
         LOGGER.error("Erreur critique lors de l'intégration des SANs à partir du CSR :", e);
     }
 }
+///////////////////////// 2.2////////////////////
+/**
+ * Convertit une liste de SanDto en une liste d'entités San.
+ * Cette méthode est adaptée pour utiliser la logique de déduction de type centralisée
+ * afin d'assigner le SanType correct à chaque nouvelle entité San.
+ *
+ * @param subjectAlternateNames La liste de DTOs contenant les valeurs des SANs.
+ * @return Une liste d'entités {@link San} prêtes à être persistées.
+ */
+private List<San> getAutoEnrollSans(List<SanDto> subjectAlternateNames) {
+    // Si la liste d'entrée est nulle ou vide, on retourne une liste vide tout de suite.
+    if (subjectAlternateNames == null || subjectAlternateNames.isEmpty()) {
+        return new ArrayList<>();
+    }
+
+    // On utilise les Streams pour un code plus concis et moderne.
+    return subjectAlternateNames.stream()
+            // On s'assure de ne pas traiter des DTOs nuls ou avec des valeurs vides.
+            .filter(dto -> dto != null && dto.getSanValue() != null && !dto.getSanValue().trim().isEmpty())
+            // On transforme chaque DTO valide en une entité San.
+            .map(sanDto -> {
+                San san = new San();
+                String sanValue = sanDto.getSanValue();
+
+                // ÉTAPE 1: Utiliser le nouveau setter 'setSanValue'.
+                // Si vous avez la synchronisation, 'url' sera aussi mis à jour.
+                san.setSanValue(sanValue);
+
+                // ÉTAPE 2: Appeler la méthode utilitaire pour déduire et assigner le type.
+                // C'est l'étape la plus importante de la correction.
+                san.setType(utilityService.deduceSanTypeFromString(sanValue));
+
+                return san;
+            })
+            // On collecte les résultats dans une nouvelle liste.
+            .collect(Collectors.toList());
+}
+/////////////////////////////
+private List<San> getAutoEnrollSans(List<SanDto> subjectAlternateNames) {
+    if (subjectAlternateNames == null || subjectAlternateNames.isEmpty()) {
+        return new ArrayList<>();
+    }
+
+    return subjectAlternateNames.stream()
+            .filter(dto -> dto != null && dto.getSanValue() != null && !dto.getSanValue().trim().isEmpty())
+            .map(sanDto -> {
+                San san = new San();
+                String sanValue = sanDto.getSanValue();
+                
+                san.setSanValue(sanValue);
+                san.setType(utilityService.deduceSanTypeFromString(sanValue));
+                
+                return san;
+            })
+            .collect(Collectors.toList());
+}
