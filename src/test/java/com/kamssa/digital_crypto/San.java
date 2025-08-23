@@ -623,3 +623,29 @@ private List<San> getAutoEnrollSans(List<SanDto> subjectAlternateNames) {
             })
             .collect(Collectors.toList());
 }
+////////////////
+private void addSansCertis(RequestDto request, RequestDto requestCertis) {
+    // Vérifie si le certificat source et sa liste de SANs existent et ne sont pas vides.
+    if (requestCertis.getCertificate() != null &&
+        requestCertis.getCertificate().getSans() != null &&
+        !requestCertis.getCertificate().getSans().isEmpty()) {
+
+        List<San> sans = new ArrayList<>();
+        
+        for (San sanCertis : requestCertis.getCertificate().getSans()) {
+            // Créer une nouvelle instance de San pour la destination.
+            San san = new San();
+
+            // CORRECTION ÉTAPE 1 : On copie la VALEUR en utilisant les nouvelles méthodes.
+            san.setSanValue(sanCertis.getSanValue());
+
+            // CORRECTION ÉTAPE 2 : ET SURTOUT, on copie le TYPE. C'est la correction la plus importante.
+            san.setType(sanCertis.getType());
+
+            sans.add(san);
+        }
+
+        // Assigner la nouvelle liste de SANs copiés au certificat de destination.
+        request.getCertificate().setSans(sans);
+    }
+}
