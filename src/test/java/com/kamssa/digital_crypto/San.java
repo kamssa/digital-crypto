@@ -306,3 +306,113 @@ public void integrateCsrSans(RequestDto requestDto) {
         // throw new SanProcessingException("Failed to process SANs from CSR", e);
     }
 }
+
+///////// regex ///////////////////////////////////
+package com.bnpparibas.certis.certificate.request.enums;
+
+import java.util.regex.Pattern;
+
+public enum SanType {
+
+    DNSNAME("^[a-zA-Z0-9\\.\\-\\*_]*$"),
+    RFC822NAME("^[a-zA-Z0-9_!#$%&'*+/=?`{|}~^.-]+@[a-zA-Z0-9.-]+$"),
+    IPADDRESS("^((25[0-5]|2[0-4]\\d|[0-1]?\\d?\\d)(\\.(?!$)|$)){4}$"), // Regex simplifiée pour IPv4, plus lisible. Adaptez si vous avez besoin d'IPv6.
+    OTHERNAME_GUID("^[a-fA-F0-9]{32}$"), // GUID/UUID sans tirets
+    OTHERNAME_UPN("^[a-zA-Z0-9_!#$%&'*+/=?`{|}~^.-]+@[a-zA-Z0-9.-]+$"), // Même format que RFC822NAME
+    URI("^(https?|ldaps?|ftp|file|tag|urn|data|tel):[-a-zA-Z0-9+&@#/%?=~_|!:,.;]*[-a-zA-Z0-9+&@#/%=~_|]");
+
+    private final Pattern pattern;
+
+    SanType(String regex) {
+        this.pattern = Pattern.compile(regex);
+    }
+
+    /**
+     * Valide si la valeur donnée correspond au format attendu pour ce type de SAN.
+     * @param value La valeur du SAN à valider.
+     * @return true si la valeur est valide, false sinon.
+     */
+    public boolean isValid(String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return false; // Les valeurs vides ne sont pas valides
+        }
+        return this.pattern.matcher(value).matches();
+    }
+}
+Note importante : J'ai légèrement simplifié et corrigé certaines regex du ticket pour qu'elles soient plus robustes et standards (notamment pour l'adresse IP). Vous pouvez reprendre celles du ticket à la lettre si nécessaire, en faisant attention à bien échapper les caractères spéciaux en Java (par exemple, \ devient \\).
+Étape 2 : Créer un Service de Validation
+Ce service aura pour seule responsabilité de valider une liste de SANs.
+Créez un nouveau fichier SanValidatorService.java dans votre package service ou validator :
+code
+Java
+package com.bnpparibas.certis.service; // Ou le package approprié
+
+import com.bnpparibas.certis.certificate.request.model.San;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+
+@Service
+public class SanValidatorService {
+
+    /**
+     * Valide une liste d'objets San, en vérifiant que chaque valeur correspond au format de son type.
+     * @param sans La liste des SANs à valider.
+     * @throws IllegalArgumentException si un SAN est invalide.
+     */
+    public void validateSans(List<San> sans) {
+        if (sans == null || sans.isEmpty()) {
+            return; // Rien à valider
+        }
+
+        for (San san : sans) {
+            if (san.getType() == null) {
+                throw new IllegalArgumentException("Le type du SAN ne peut pas être nul pour la valeur : '" + san.getSanValue() + "'");
+            }
+
+            if (!san.getType().isValid(san.getSanValue())) {
+                // Lève une exception explicite qui sera interceptée et renverra une erreur 400 (Bad Request)
+                throw new IllegalArgumentException(
+                    "Format invalide pour le SAN de type " + san.getType().name() + ". La valeur fournie est : '" + san.getSanValue() + "'"
+                );
+            }
+        }
+    }
+}
+Étape 3 : Intégrer la validation dans votre logique métier
+Maintenant, il suffit d'appeler ce nouveau service au bon endroit, c'est-à-dire avant de sauvegarder les données en base. Par exemple, dans votre RequestServiceImpl :
+code
+Java
+// Dans votre classe RequestServiceImpl.java (ou autre service principal)
+
+@Service
+public class RequestServiceImpl implements RequestService {
+
+    // ... autres injections (repository, etc.)
+    
+    private final SanValidatorService sanValidatorService;
+
+    // Injection via le constructeur (meilleure pratique)
+    @Autowired
+    public RequestServiceImpl(SanValidatorService sanValidatorService /*, ... autres services */) {
+        this.sanValidatorService = sanValidatorService;
+        // ...
+    }
+    
+    public void createOrUpdateRequest(RequestDto requestDto) {
+        // ... autre logique de préparation du DTO
+        
+        // --- APPEL DE LA VALIDATION ---
+        // On récupère la liste complète des SANs (après fusion avec le CSR par exemple)
+        List<San> finalSanList = requestDto.getCertificate().getSans();
+        
+        // On valide la liste AVANT toute opération de sauvegarde
+        sanValidatorService.validateSans(finalSanList);
+
+        // Si la validation passe, le code continue.
+        // Sinon, une exception est levée et le traitement s'arrête.
+        
+        // ... suite de la méthode (sauvegarde en base, etc.)
+        certificateRepository.save(requestDto.getCertificate());
+    }
+}
