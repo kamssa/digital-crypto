@@ -88,3 +88,14 @@ public class San implements Serializable {
         this.certificate = certificate;
     }
 }
+///////////////
+public void setSanValue(String sanValue) {
+    this.sanValue = sanValue;
+    this.url = sanValue; // Synchronisation !
+}
+
+// L'ancien setter : il met aussi à jour les deux champs
+public void setUrl(String url) {
+    this.url = url;
+    this.sanValue = url; // Synchronisation !
+}
