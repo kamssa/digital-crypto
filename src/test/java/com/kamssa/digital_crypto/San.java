@@ -416,3 +416,154 @@ public class RequestServiceImpl implements RequestService {
         certificateRepository.save(requestDto.getCertificate());
     }
 }
+////////////////////////// detection de type ///////////////////
+public SanType deduceSanTypeFromString(String sanValue) {
+    if (sanValue == null || sanValue.trim().isEmpty()) {
+        throw new IllegalArgumentException("La valeur du SAN ne peut pas être nulle ou vide.");
+    }
+
+    // 1. GUID
+    if (sanValue.matches("^[a-fA-F0-9]{32}$")) {
+        return SanType.OTHERNAME_GUID;
+    }
+    // 2. IP Address
+    if (sanValue.matches("\\b(?:\\d{1,3}\\.){3}\\d{1,3}\\b")) {
+        return SanType.IPADDRESS;
+    }
+    // 3. URI
+    if (sanValue.matches("^(https?|ldaps?|ftp|file|tag|urn|data|tel):.*")) {
+        return SanType.URI;
+    }
+    // 4. UPN (heuristique)
+    if (sanValue.contains("@") && (sanValue.endsWith(".local") || !sanValue.matches(".*\\.(com|org|net|fr|io|dev|biz|info)$"))) {
+        return SanType.OTHERNAME_UPN;
+    }
+    // 5. Email
+    if (sanValue.contains("@")) {
+        return SanType.RFC822NAME;
+    }
+    // 6. Par défaut : DNSNAME
+    return SanType.DNSNAME;
+}
+Étape 2 : Mettre à jour votre méthode getAutoEnrollSans
+Maintenant, modifiez la méthode getAutoEnrollSans pour qu'elle utilise ce nouvel utilitaire. Vous devrez probablement injecter UtilityService dans votre classe AutoEnrollService.
+Voici le code complet et corrigé de votre méthode getAutoEnrollSans :
+code
+Java
+// Dans votre classe AutoEnrollService.java
+
+// ... Assurez-vous d'injecter UtilityService
+private final UtilityService utilityService;
+
+@Autowired
+public AutoEnrollService(UtilityService utilityService) {
+    this.utilityService = utilityService;
+}
+
+
+/**
+ * Convertit une liste de SanDto en une liste d'entités San, en déduisant le type de chaque SAN.
+ */
+private List<San> getAutoEnrollSans(List<SanDto> subjectAlternateNames) {
+    List<San> sanList = new ArrayList<>();
+
+    if (subjectAlternateNames != null && !subjectAlternateNames.isEmpty()) {
+        for (SanDto sanAutoEnroll : subjectAlternateNames) {
+            String sanValue = sanAutoEnroll.getSanValue(); // Récupère la valeur
+
+            if (sanValue != null && !sanValue.trim().isEmpty()) {
+                San san = new San();
+                
+                // On utilise la nouvelle méthode pour mettre à jour la valeur
+                san.setSanValue(sanValue);
+
+                // On appelle la méthode utilitaire pour déduire et assigner le type
+                SanType detectedType = utilityService.deduceSanTypeFromString(sanValue);
+                san.setType(detectedType);
+
+                sanList.add(san);
+            }
+        }
+    }
+    
+    return sanList;
+}
+//////// nouveau dans utility/////////////
+public SanType deduceSanTypeFromString(String sanValue) {
+    if (sanValue == null || sanValue.trim().isEmpty()) {
+        throw new IllegalArgumentException("La valeur du SAN ne peut pas être nulle ou vide.");
+    }
+
+    // L'ordre des vérifications est crucial : du plus spécifique au plus général.
+    
+    // 1. GUID (32 caractères hexadécimaux)
+    if (sanValue.matches("^[a-fA-F0-9]{32}$")) {
+        return SanType.OTHERNAME_GUID;
+    }
+    // 2. Adresse IPv4
+    if (sanValue.matches("\\b(?:\\d{1,3}\\.){3}\\d{1,3}\\b")) {
+        return SanType.IPADDRESS;
+    }
+    // 3. URI (commence par un schéma comme http:, ftp:, etc.)
+    if (sanValue.matches("^(https?|ldaps?|ftp|file|tag|urn|data|tel):.*")) {
+        return SanType.URI;
+    }
+    // 4. UPN (heuristique : contient '@' et un domaine non-public)
+    if (sanValue.contains("@") && (sanValue.endsWith(".local") || !sanValue.matches(".*\\.(com|org|net|fr|io|dev|biz|info)$"))) {
+        return SanType.OTHERNAME_UPN;
+    }
+    // 5. Adresse E-mail (tous les autres cas contenant '@')
+    if (sanValue.contains("@")) {
+        return SanType.RFC822NAME;
+    }
+    // 6. Par défaut : DNSNAME
+    return SanType.DNSNAME;
+}
+
+
+// 2. La méthode qui utilise la logique centralisée
+// ====================================================
+
+/**
+ * Intègre les SANs (Subject Alternative Names) d'un CSR dans un certificat.
+ * Cette méthode est refactorisée pour utiliser la logique centralisée de 
+ * {@link #deduceSanTypeFromString(String)} afin d'éviter la duplication de code.
+ *
+ * @param requestDto Le DTO contenant le CSR et le certificat à mettre à jour.
+ */
+public void integrateCsrSans(RequestDto requestDto) {
+    try {
+        // Décoder le CSR et extraire les SANs
+        String decodedCsr = new String(Base64.getDecoder().decode(requestDto.getCsr()), StandardCharsets.UTF_8);
+        CertificateCsrDecoder csrDecoder = new CertificateCsrDecoder();
+        List<String> sanStringsFromCsr = csrDecoder.getSansList(decodedCsr);
+
+        // Transformer chaque chaîne en objet San en utilisant la méthode de déduction
+        List<San> sansInCsr = sanStringsFromCsr.stream()
+                .map(sanString -> {
+                    San newSan = new San();
+                    newSan.setSanValue(sanString);
+                    
+                    // Appel à la méthode centralisée pour déduire le type
+                    newSan.setType(this.deduceSanTypeFromString(sanString));
+                    
+                    return newSan;
+                }).collect(Collectors.toList());
+
+        // Fusionner et dédupliquer les listes de SANs
+        List<San> allSans = Stream.of(sansInCsr, requestDto.getCertificate().getSans())
+                .flatMap(list -> list == null ? Stream.empty() : list.stream())
+                .collect(Collectors.collectingAndThen(
+                        Collectors.toMap(San::getSanValue, san -> san, (existing, replacement) -> existing),
+                        map -> new ArrayList<>(map.values())
+                ));
+
+        // Mettre à jour le certificat avec la liste finale
+        requestDto.getCertificate().setSans(allSans);
+
+        LOGGER.info("Intégration des SANs du CSR terminée. Nombre total de SANs : {}", allSans.size());
+
+    } catch (Exception e) {
+        LOGGER.error("Erreur critique lors de l'intégration des SANs à partir du CSR :", e);
+    }
+}
