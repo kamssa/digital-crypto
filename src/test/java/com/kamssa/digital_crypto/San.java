@@ -99,3 +99,72 @@ public void setUrl(String url) {
     this.url = url;
     this.sanValue = url; // Synchronisation !
 }
+public void integrateCsrSans(RequestDto requestDto) {
+    try {
+        // ... (le début de votre méthode reste le même)
+
+        List<San> sansInCsr = csrDecoder.getSansList(decodedCsr).stream()
+                .map(sanString -> {
+                    San newSan = new San();
+                    // On utilise le NOUVEAU setter. Il mettra à jour url et sanValue en même temps.
+                    newSan.setSanValue(sanString); 
+                    
+                    // ... (la logique pour déterminer le type reste la même)
+                    if (sanString.matches("\\b\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\b")) {
+                        newSan.setType(SanType.IPADDRESS);
+                    } else {
+                        newSan.setType(SanType.DNSNAME);
+                    }
+                    return newSan;
+                }).collect(Collectors.toList());
+
+        List<San> allSans = Stream.of(sansInCsr, requestDto.getCertificate().getSans())
+                .flatMap(list -> list == null ? Stream.empty() : list.stream())
+                .collect(Collectors.collectingAndThen(
+                        // On utilise la NOUVELLE méthode pour la clé de la map
+                        Collectors.toMap(San::getSanValue, san -> san, (existing, replacement) -> existing),
+                        map -> new ArrayList<>(map.values())
+                ));
+
+        requestDto.getCertificate().setSans(allSans);
+        LOGGER.info("ALL SANS = " + allSans.toString());
+
+    } catch (Exception e) {
+        LOGGER.error("Error when associate csr Sans :", e);
+    }
+}
+/////////////////////////////////////////////////////////////
+public void integrateCsrSans(RequestDto requestDto) {
+    try {
+        // ... (le début de votre méthode reste le même)
+
+        List<San> sansInCsr = csrDecoder.getSansList(decodedCsr).stream()
+                .map(sanString -> {
+                    San newSan = new San();
+                    // On utilise le NOUVEAU setter. Il mettra à jour url et sanValue en même temps.
+                    newSan.setSanValue(sanString); 
+                    
+                    // ... (la logique pour déterminer le type reste la même)
+                    if (sanString.matches("\\b\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\b")) {
+                        newSan.setType(SanType.IPADDRESS);
+                    } else {
+                        newSan.setType(SanType.DNSNAME);
+                    }
+                    return newSan;
+                }).collect(Collectors.toList());
+
+        List<San> allSans = Stream.of(sansInCsr, requestDto.getCertificate().getSans())
+                .flatMap(list -> list == null ? Stream.empty() : list.stream())
+                .collect(Collectors.collectingAndThen(
+                        // On utilise la NOUVELLE méthode pour la clé de la map
+                        Collectors.toMap(San::getSanValue, san -> san, (existing, replacement) -> existing),
+                        map -> new ArrayList<>(map.values())
+                ));
+
+        requestDto.getCertificate().setSans(allSans);
+        LOGGER.info("ALL SANS = " + allSans.toString());
+
+    } catch (Exception e) {
+        LOGGER.error("Error when associate csr Sans :", e);
+    }
+}
