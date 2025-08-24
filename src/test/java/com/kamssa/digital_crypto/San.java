@@ -969,3 +969,24 @@ private RequestDto evaluateSan3W(RequestDto requestDto) {
 
     return requestDto;
 }
+////////////////////////
+public List<String> validateSansOnRefweb(RequestDto requestDto) throws Exception {
+    List<String> sansInvalid = new ArrayList<>();
+    
+    if (hasNoSans(requestDto) || isWhitelistedPlatform(requestDto)) {
+        return Collections.emptyList();
+    }
+    
+    // CORRECTION ICI : Remplacer getUrl() par getSanValue()
+    List<String> urls = requestDto.getCertificate().getSans().stream()
+            .map(San::getSanValue) // <--- LA CORRECTION
+            .collect(Collectors.toList());
+
+    for (String sanUrl : urls) {
+        if (!this.checkSanUrlOnRefweb(requestDto, sanUrl)) {
+            sansInvalid.add(sanUrl);
+        }
+    }
+    
+    return sansInvalid;
+}
