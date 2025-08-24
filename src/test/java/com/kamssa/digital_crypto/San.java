@@ -847,3 +847,83 @@ public interface FilterRequestMapper {
         return SanType.valueOf(sanTypeEnum.name());
     }
 }
+/////////////////////////
+
+@Mapper(componentModel = "spring")
+public abstract class RequestDtoToAutomationHubRequestDtoMapper {
+
+    @Autowired
+    private FileManagerService fileManagerService;
+    @Autowired
+    private EncryptorService encryptorService;
+
+    // La méthode de mapping principale reste inchangée
+    @Mappings({
+        @Mapping(source = "id", target = "certisId"),
+        @Mapping(source = "certificate.automationHubCertificateId", target = "automationHubId"),
+        @Mapping(source = "certificate.commonName", target = "commonName"),
+        // ... (tous vos autres @Mapping)
+        @Mapping(source = "certificate.sans", target = "sanList") // Cette ligne utilise les méthodes ci-dessous
+    })
+    public abstract AutomationHubRequestDto toAutomationHubRequestDto(RequestDto requestDto);
+
+
+    // MapStruct génère une boucle qui appellera 'toSanDto' pour chaque élément.
+    protected abstract List<SanDto> toSanDtoList(List<San> sourceSans);
+
+
+    // =====================================================================
+    // ===          C'EST CETTE MÉTHODE QUI EST CORRIGÉE                 ===
+    // =====================================================================
+    /**
+     * Mappe une entité San vers son DTO SanDto.
+     * Cette version corrigée copie dynamiquement le type et utilise le nouveau champ 'sanValue'.
+     */
+    protected SanDto toSanDto(San sourceSan) {
+        if (sourceSan == null) {
+            return null;
+        }
+
+        SanDto res = new SanDto();
+
+        // CORRECTION 1 : On copie la VALEUR en utilisant la nouvelle méthode.
+        res.setSanValue(sourceSan.getSanValue());
+
+        // CORRECTION 2 : On copie le TYPE en le convertissant correctement.
+        res.setSanType(toSanTypeEnum(sourceSan.getType()));
+
+        return res;
+    }
+
+
+    // =====================================================================
+    // ===    MÉTHODE DE CONVERSION AJOUTÉE POUR GÉRER LES ENUMS       ===
+    // =====================================================================
+    /**
+     * Convertit l'énumération de l'entité (SanType) vers l'énumération du DTO (SanTypeEnum).
+     */
+    private SanTypeEnum toSanTypeEnum(SanType sanType) {
+        if (sanType == null) {
+            return null;
+        }
+        try {
+            return SanTypeEnum.valueOf(sanType.name());
+        } catch (IllegalArgumentException e) {
+            // Gérer le cas où les enums ne sont pas synchronisés
+            LOGGER.warn("Impossible de mapper SanType '{}' vers SanTypeEnum.", sanType.name());
+            return null;
+        }
+    }
+
+
+    // Les autres méthodes @Named restent inchangées
+    @Named("mapCsrPathToCsrContent")
+    String mapCsrPathToCsrContent(RequestDto requestDto) {
+        // ...
+    }
+
+    @Named("decryptPassword")
+    String decryptPassword(String cryptedPassword) {
+        // ...
+    }
+}
