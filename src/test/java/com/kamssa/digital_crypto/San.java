@@ -770,3 +770,80 @@ public interface FilterRequestMapper {
     FilterSanDto sanToFilterSanDto(San san);
 
 }
+package com.bnpparibas.certis.certificate.request.mapper;
+
+import com.bnpparibas.certis.automationhub.dto.business.SanDto; // Importez votre SanDto
+import com.bnpparibas.certis.automationhub.dto.business.enums.SanTypeEnum; // Importez votre SanTypeEnum
+import com.bnpparibas.certis.certificate.request.dto.filter.*;
+import com.bnpparibas.certis.certificate.request.model.*;
+import com.bnpparibas.certis.certificate.request.model.enums.SanType; // Importez votre SanType d'entité
+import org.mapstruct.Mapper;
+import org.mapstruct.Mapping;
+import org.mapstruct.NullValueMappingStrategy;
+
+@Mapper(nullValueMappingStrategy = NullValueMappingStrategy.RETURN_NULL)
+public interface FilterRequestMapper {
+
+    @Mapping(source = "requestStatus", target = "status")
+    FilterRequestDto requestToFilterRequestDto(Request request);
+
+    FilterRequestStatusDto requestStatusToFilterRequestStatusDto(RequestStatus requestStatus);
+
+    @Mapping(source = "commonName", target = "cn")
+    @Mapping(source = "certisEntity", target = "entity")
+    @Mapping(source = "certificateStatus", target = "status")
+    @Mapping(source = "gnsCountry", target = "country")
+    @Mapping(source = "sans", target = "san")
+    FilterCertificateDto certificateToCertificateDto(Certificate certificate);
+
+    FilterCertificateStatusDto certificateStatusToFilterCertificateStatusDto(CertificateStatus certificateStatus);
+
+    FilterCertificateTypeDto certificateTypeToFilterCertificateTypeDto(CertificateType certificateType);
+
+    FilterPlatformDto platformToFilterPlatformDto(Platform platform);
+    
+    // ... (les autres méthodes de votre interface que je n'ai pas reprises)
+
+    // =====================================================================
+    // ===       SECTION AJOUTÉE POUR LA GESTION DE San ET SanDto        ===
+    // =====================================================================
+
+    /**
+     * Mappe une entité San vers son DTO FilterSanDto pour la rétrocompatibilité.
+     */
+    @Mapping(source = "sanValue", target = "url")
+    @Mapping(source = "type", target = "sanType")
+    FilterSanDto sanToFilterSanDto(San san);
+
+    /**
+     * Mappe une entité San vers son DTO SanDto.
+     * Le champ 'sanValue' est mappé automatiquement.
+     * Le champ 'type' est mappé vers 'sanType' en utilisant la méthode de conversion ci-dessous.
+     */
+    @Mapping(source = "type", target = "sanType")
+    SanDto toSanDto(San san);
+    
+    // --- Méthodes de conversion personnalisées pour les énumérations ---
+
+    /**
+     * Convertit l'énumération de l'entité (SanType) vers l'énumération du DTO (SanTypeEnum).
+     * MapStruct trouvera et utilisera cette méthode automatiquement quand il en aura besoin.
+     */
+    default SanTypeEnum toSanTypeEnum(SanType sanType) {
+        if (sanType == null) {
+            return null;
+        }
+        return SanTypeEnum.valueOf(sanType.name());
+    }
+    
+    /**
+     * Convertit l'énumération du DTO (SanTypeEnum) vers l'énumération de l'entité (SanType).
+     * Utile si vous avez besoin de faire la conversion dans l'autre sens.
+     */
+    default SanType toSanType(SanTypeEnum sanTypeEnum) {
+        if (sanTypeEnum == null) {
+            return null;
+        }
+        return SanType.valueOf(sanTypeEnum.name());
+    }
+}
