@@ -732,3 +732,41 @@ protected boolean doNotContainsUnderscore(List<San> sans) {
     // Si on a parcouru toute la liste sans trouver de DNSNAME invalide, c'est bon.
     return true;
 }
+//////////////////////////////
+@Mapper(nullValueMappingStrategy = NullValueMappingStrategy.RETURN_NULL)
+public interface FilterRequestMapper {
+
+    @Mapping(source = "requestStatus", target = "status")
+    FilterRequestDto requestToFilterRequestDto(Request request);
+
+    FilterRequestStatusDto requestStatusToFilterRequestStatusDto(RequestStatus requestStatus);
+
+    @Mapping(source = "commonName", target = "cn")
+    @Mapping(source = "certisEntity", target = "entity")
+    @Mapping(source = "certificateStatus", target = "status")
+    @Mapping(source = "gnsCountry", target = "country")
+    @Mapping(source = "sans", target = "san")
+    FilterCertificateDto certificateToCertificateDto(Certificate certificate);
+
+    FilterCertificateStatusDto certificateStatusToFilterCertificateStatusDto(CertificateStatus certificateStatus);
+
+    FilterCertificateTypeDto certificateTypeToFilterCertificateTypeDto(CertificateType certificateType);
+
+    FilterPlatformDto platformToFilterPlatformDto(Platform platform);
+    
+    // ... (les autres méthodes que vous aviez déjà)
+
+    // =====================================================================
+    // === MÉTHODE À AJOUTER POUR ADAPTER VOTRE NOUVELLE ENTITÉ SAN ===
+    // =====================================================================
+    /**
+     * Mappe une entité San vers son DTO FilterSanDto.
+     * Cette méthode assure la rétrocompatibilité en mappant le nouveau champ 'sanValue'
+     * vers l'ancien champ 'url' du DTO, comme demandé dans le ticket Jira.
+     * Elle mappe également le nouveau champ 'type'.
+     */
+    @Mapping(source = "sanValue", target = "url")
+    @Mapping(source = "type", target = "type")
+    FilterSanDto sanToFilterSanDto(San san);
+
+}
