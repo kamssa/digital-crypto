@@ -990,3 +990,94 @@ public List<String> validateSansOnRefweb(RequestDto requestDto) throws Exception
     
     return sansInvalid;
 }
+////////1431////////////////////////////
+
+@Autowired
+private CertificateCsrDecoder certificateCsrDecoder;
+Créer une nouvelle méthode PUBLIQUE : Ajoutez une nouvelle méthode qui prendra un CertificateDto et un csr en entrée, et qui retournera le CertificateDto modifié. C'est ici que vous placerez votre logique.
+code
+Java
+// N'importe où dans le corps de la classe CertificateServiceImpl.java
+
+/**
+ * Intègre les SANs d'un CSR dans un CertificateDto existant,
+ * en fusionnant avec les SANs déjà présents et en supprimant les doublons.
+ * @param certificateDto Le DTO du certificat à modifier.
+ * @param csrBase64 Le CSR encodé en Base64.
+ * @return Le CertificateDto mis à jour avec la liste complète et propre des SANs.
+ */
+public CertificateDto integrateSansFromCsr(CertificateDto certificateDto, String csrBase64) {
+    if (csrBase64 == null || csrBase64.isEmpty()) {
+        return certificateDto; // Ne rien faire si pas de CSR
+    }
+
+    try {
+        String decodedCsr = new String(Base64.getDecoder().decode(csrBase64), StandardCharsets.UTF_8);
+        
+        // 1. Extraire les SANs du CSR
+        List<String> sanStringsFromCsr = this.certificateCsrDecoder.getSansList(decodedCsr);
+        List<San> sansInCsr = sanStringsFromCsr.stream()
+            .map(sanString -> {
+                San newSan = new San();
+                newSan.setValue(sanString);
+                // newSan.setType(this.deduceSanTypeFromString(sanString)); // Adaptez si cette méthode est ailleurs
+                return newSan;
+            })
+            .collect(Collectors.toList());
+
+        // 2. Récupérer les SANs déjà dans le DTO (ceux du formulaire)
+        List<San> sansFromDto = certificateDto.getSans() != null ? certificateDto.getSans() : new ArrayList<>();
+
+        // 3. Fusionner les deux listes et supprimer les doublons
+        List<San> allSans = Stream.concat(sansInCsr.stream(), sansFromDto.stream())
+            .collect(Collectors.collectingAndThen(
+                Collectors.toMap(San::getValue, san -> san, (existing, replacement) -> existing),
+                map -> new ArrayList<>(map.values())
+            ));
+
+        // 4. Mettre à jour le DTO
+        certificateDto.setSans(allSans);
+        
+        // LOGGER.info(...) si vous avez un logger disponible
+
+    } catch (Exception e) {
+        // LOGGER.error(...)
+        // Gérer l'exception comme il se doit dans votre application
+    }
+
+    return certificateDto;
+}
+À ce stade, vous n'avez rien cassé. Vous avez juste ajouté une nouvelle méthode qui n'est appelée par personne.
+Étape 2 : Appeler cette nouvelle méthode depuis RequestServiceImpl.java
+Maintenant, nous retournons dans le "gros" fichier RequestServiceImpl.java pour faire une modification minimale.
+Injecter CertificateService : Assurez-vous que RequestServiceImpl a accès à CertificateService.
+code
+Java
+// En haut de RequestServiceImpl.java
+
+@Autowired
+private CertificateService certificateService;
+Faire l'appel dans createRequest : Trouvez la méthode createRequest et, juste avant la logique de traitement ou la conversion en entité, appelez votre nouvelle méthode.
+code
+Java
+// Dans RequestServiceImpl.java
+
+@Override
+public RequestDto createRequest(RequestDto requestDto) {
+    // ... autre logique de validation au début de la méthode ...
+
+    // === MODIFICATION MINIMALE ET SÉCURISÉE ===
+    // On délègue la logique complexe de préparation du certificat au service spécialisé.
+    this.certificateService.integrateSansFromCsr(
+        requestDto.getCertificate(), 
+        requestDto.getCsr()
+    );
+    // ===========================================
+
+    Request request = dtoToEntity(requestDto); // Continue le processus normal
+    
+    // ... le reste de la méthode existante ...
+    
+    requestDao.save(request);
+    return entityToDto(request);
+}
