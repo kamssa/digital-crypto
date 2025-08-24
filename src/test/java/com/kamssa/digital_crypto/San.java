@@ -927,3 +927,45 @@ public abstract class RequestDtoToAutomationHubRequestDtoMapper {
         // ...
     }
 }
+///////////////////////
+private RequestDto evaluateSan3W(RequestDto requestDto) {
+    List<San> sanList = requestDto.getCertificate().getSans();
+
+    // On ne fait rien si la liste est nulle (ou vide, bien que le code original ne le vérifiait pas).
+    if (sanList == null) {
+        return requestDto;
+    }
+
+    String cn = requestDto.getCertificate().getCommonName();
+    if (cn != null && !cn.trim().isEmpty()) {
+        String lowerCaseCn = cn.toLowerCase().trim();
+        
+        // Logique clarifiée pour toujours obtenir la version "www."
+        String domain = lowerCaseCn.startsWith("www.") ? lowerCaseCn.substring(4) : lowerCaseCn;
+        String domainWWW = "www." + domain;
+
+        // OPTIMISATION : Utiliser un Set pour une recherche d'existence rapide.
+        Set<String> existingSanValues = sanList.stream()
+                .map(San::getSanValue) // MIGRATION : Utilisation de getSanValue()
+                .collect(Collectors.toSet());
+
+        // Si la version "www" n'existe pas, on l'ajoute.
+        if (!existingSanValues.contains(domainWWW)) {
+            San sanDomainWWW = new San();
+            
+            // CORRECTION 1 (MIGRATION) : Utilisation de setSanValue()
+            sanDomainWWW.setSanValue(domainWWW);
+
+            // CORRECTION 2 (CRITIQUE) : Assignation du type obligatoire
+            sanDomainWWW.setType(SanType.DNSNAME);
+
+            // Le code original ajoutait l'élément à l'index 0. On respecte ce comportement.
+            sanList.add(0, sanDomainWWW);
+
+            // On met à jour la liste dans le certificat (même si c'est la même instance de liste, c'est une bonne pratique).
+            requestDto.getCertificate().setSans(sanList);
+        }
+    }
+
+    return requestDto;
+}
