@@ -1135,3 +1135,23 @@ if (requestDto.getCsr() != null && !requestDto.getCsr().isEmpty()) {
 
     return certificate;
 }
+//////////////////////////////
+protected List<EnrollPayloadTemplateSanDto> buildSan() {
+    // Si la liste de SANs est vide ou nulle, retourner une liste vide.
+    if (automationHubRequestDto.getSanList() == null || automationHubRequestDto.getSanList().isEmpty()) {
+        return new ArrayList<>();
+    }
+
+    // Transformer directement la liste de SanDto en une liste de EnrollPayloadTemplateSanDto.
+    // C'est une simple "copie" sans recalcul.
+    return automationHubRequestDto.getSanList().stream()
+        .map(sanDto -> {
+            EnrollPayloadTemplateSanDto payloadSan = new EnrollPayloadTemplateSanDto();
+            payloadSan.setType(sanDto.getSanType().toString());
+            // Attention : Le payload semble attendre une List<String> pour la valeur.
+            // Il faut donc encapsuler la valeur dans une liste.
+            payloadSan.setValue(Collections.singletonList(sanDto.getSanValue())); 
+            return payloadSan;
+        })
+        .collect(Collectors.toList());
+}
