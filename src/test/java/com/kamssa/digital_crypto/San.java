@@ -1081,3 +1081,17 @@ public RequestDto createRequest(RequestDto requestDto) {
     requestDao.save(request);
     return entityToDto(request);
 }
+/////////////////////////
+if (requestDto.getCsr() != null && !requestDto.getCsr().isEmpty()) {
+        try {
+            this.certificateService.integrateSansFromCsr(
+                requestDto.getCertificate(), 
+                requestDto.getCsr()
+            );
+            LOGGER.info("Intégration des SANs du CSR terminée avec succès.");
+        } catch (Exception e) {
+            LOGGER.error("Impossible d'intégrer les SANs à partir du CSR fourni.", e);
+            // Selon votre gestion d'erreur, vous pourriez vouloir lancer une exception ici
+            // throw new CertisRequestException("error.csr.san.integration.failed", e);
+        }
+    }
