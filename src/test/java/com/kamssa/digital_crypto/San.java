@@ -1155,3 +1155,61 @@ protected List<EnrollPayloadTemplateSanDto> buildSan() {
         })
         .collect(Collectors.toList());
 }
+////////////////////////////
+// Pseudocode dans une classe comme CertificateServiceImpl
+
+public void updateCertificate(Certificate certToUpdate, String nouveauCommentaireCertificat, User author) {
+    
+    // ÉTAPE 1: Mettre à jour le commentaire du certificat.
+    // C'est un simple remplacement de valeur.
+    certToUpdate.setComment(nouveauCommentaireCertificat);
+
+    // ... autre logique de mise à jour pour le certificat ...
+    
+    // SAUVEGARDER le certificat avec son nouveau commentaire
+    certificateRepository.save(certToUpdate);
+
+    // ÉTAPE 2: Appeler le CommentServiceImpl pour tracer l'action
+    // dans l'historique de la Request associée.
+    String messagePourHistorique = "Le commentaire du certificat a été modifié.";
+    
+    // 'commentService' est votre CommentServiceImpl injecté ici
+    commentService.addCommentToRequest(
+        certToUpdate.getRequest(), // Récupérer la request liée au certificat
+        messagePourHistorique, 
+        author.getName()
+    );
+}
+///////////////////////////////
+// ==================== CODE À AJOUTER ====================
+
+// Vérifie si le commentaire du certificat a été modifié
+if (updateRequest.getCertificate() != null && !StringUtils.equalsIgnoreCase(updateRequest.getCertificate().getComment(), previousCertificate.getComment())) {
+    
+    // ACTION N°1 : Mettre à jour le commentaire sur le certificat (remplacement de la valeur)
+    previousCertificate.setComment(updateRequest.getCertificate().getComment());
+
+    // ACTION N°2 : Ajouter la trace de cette modification à l'historique
+    traceModification += " Certificate comment has been updated; "; 
+    
+    /* Optionnel : si vous voulez que le nouveau commentaire apparaisse dans l'historique, utilisez cette ligne à la place :
+    traceModification += " Certificate comment set to: '" + updateRequest.getCertificate().getComment() + "'; ";
+    */
+}
+//////////////////////
+// ==================== CODE À AJOUTER ICI ====================
+
+// Vérifie si le commentaire du certificat a été modifié
+if (updateRequest.getCertificate() != null && !StringUtils.equalsIgnoreCase(updateRequest.getCertificate().getComment(), previousCertificate.getComment())) {
+    
+    // ACTION N°1 : Mettre à jour le commentaire sur le certificat (remplacement)
+    previousCertificate.setComment(updateRequest.getCertificate().getComment());
+
+    // ACTION N°2 : Ajouter la trace de cette modification à l'historique
+    traceModification += " Certificate comment has been updated; "; 
+}
+
+// =============================================================
+
+// La ligne suivante existe déjà, ne la touchez pas
+this.commentService.processComment(previousRequest, oldRequestDto, null, username, traceModification);
