@@ -1095,3 +1095,43 @@ if (requestDto.getCsr() != null && !requestDto.getCsr().isEmpty()) {
             // throw new CertisRequestException("error.csr.san.integration.failed", e);
         }
     }
+	///////////////////
+	public Certificate integrateSansFromCsr(Certificate certificate, String csrBase64) {
+    if (csrBase64 == null || csrBase64.isEmpty() || certificate == null) {
+        return certificate; // Ne rien faire si les entrées sont invalides
+    }
+
+    try {
+        String decodedCsr = new String(Base64.getDecoder().decode(csrBase64), StandardCharsets.UTF_8);
+
+        // 1. Extraire les SANs du CSR en objets San
+        List<String> sanStringsFromCsr = this.certificateCsrDecoder.getSansList(decodedCsr);
+        List<San> sansInCsr = sanStringsFromCsr.stream()
+            .map(sanString -> {
+                San newSan = new San();
+                newSan.setValue(sanString);
+                // newSan.setType(...); // Votre logique pour déduire le type
+                return newSan;
+            })
+            .collect(Collectors.toList());
+
+        // 2. Récupérer les SANs déjà dans l'ENTITÉ
+        List<San> sansFromEntity = certificate.getSans() != null ? certificate.getSans() : new ArrayList<>();
+
+        // 3. Fusionner les deux listes et supprimer les doublons
+        List<San> allSans = Stream.concat(sansInCsr.stream(), sansFromEntity.stream())
+            .collect(Collectors.collectingAndThen(
+                Collectors.toMap(San::getValue, san -> san, (existing, replacement) -> existing),
+                map -> new ArrayList<>(map.values())
+            ));
+
+        // 4. Mettre à jour l'ENTITÉ directement
+        certificate.setSans(allSans);
+
+    } catch (Exception e) {
+        LOGGER.error("Erreur lors de l'intégration des SANs à partir du CSR.", e);
+        // Vous pourriez vouloir relancer une exception personnalisée ici
+    }
+
+    return certificate;
+}
