@@ -705,3 +705,30 @@ public RequestDto buildSANs(RequestDto requestDto) {
     }
     return requestDto;
 }
+////////////////////////////
+ * Vérifie que les SANs de type DNSNAME ne contiennent pas de caractère underscore ('_').
+ * Les autres types de SANs (comme URI) sont ignorés par cette vérification car ils peuvent
+ * légitimement contenir des underscores.
+ *
+ * @param sans La liste des SANs à valider.
+ * @return true si aucun DNSNAME ne contient d'underscore, false sinon.
+ */
+protected boolean doNotContainsUnderscore(List<San> sans) {
+    if (CollectionUtils.isEmpty(sans)) {
+        return true; // Une liste vide est valide.
+    }
+
+    for (San san : sans) {
+        // On applique la règle UNIQUEMENT pour les types DNSNAME.
+        if (SanType.DNSNAME.equals(san.getType())) {
+            // On utilise la nouvelle méthode getSanValue().
+            if (san.getSanValue() != null && san.getSanValue().contains("_")) {
+                // Dès qu'on trouve un DNSNAME invalide, on arrête et on retourne false.
+                return false;
+            }
+        }
+    }
+
+    // Si on a parcouru toute la liste sans trouver de DNSNAME invalide, c'est bon.
+    return true;
+}
