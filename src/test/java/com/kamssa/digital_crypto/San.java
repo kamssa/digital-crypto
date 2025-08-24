@@ -1213,3 +1213,13 @@ if (updateRequest.getCertificate() != null && !StringUtils.equalsIgnoreCase(upda
 
 // La ligne suivante existe déjà, ne la touchez pas
 this.commentService.processComment(previousRequest, oldRequestDto, null, username, traceModification);
+
+///////////////////////
+if (!StringUtils.equalsIgnoreCase(updateRequest.getComment(), previousCertificate.getComment())) {
+    
+    // ACTION N°1 : Mettre à jour le commentaire sur le certificat (remplacement de la valeur)
+    previousCertificate.setComment(updateRequest.getComment());
+
+    // ACTION N°2 : Ajouter la trace de cette modification à l'historique
+    traceModification += " Certificate comment has been updated; ";
+}
