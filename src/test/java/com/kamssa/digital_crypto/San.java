@@ -1498,3 +1498,77 @@ public RequestDto createRequest(RequestDto requestDto) {
     
     return requestDtoResult;
 }
+///////////////////////////////////////
+@Override
+    @Transactional
+    public RequestDto updateRequestInfo(UpdateRequestInfoDto updateRequest, Long requestId, String connectedUser, ActionRequestType action) {
+        
+        // ÉTAPE 1 : CHARGER L'ENTITÉ managée depuis la base de données
+        Request requestToUpdate = requestDao.findOne(requestId);
+        if (requestToUpdate == null) {
+            throw new EntityNotFoundException("Request not found with id: " + requestId);
+        }
+        
+        Certificate certificateToUpdate = requestToUpdate.getCertificate();
+        if (certificateToUpdate == null) {
+            throw new IllegalStateException("Certificate is null for request id: " + requestId);
+        }
+
+        checkAccessibilityForRequest(requestToUpdate, connectedUser, action);
+
+        String traceModification = "Request information has been modified:";
+
+        // ÉTAPE 2 : MODIFIER CETTE ENTITÉ en se basant sur la logique de vos captures d'écran
+        
+        if (!org.apache.commons.lang3.StringUtils.equalsIgnoreCase(updateRequest.getApplicationCode(), certificateToUpdate.getApplicationCode())) {
+            traceModification += " ApplicationCode set to " + updateRequest.getApplicationCode() + ";";
+            certificateService.setApplicationCodeAndSupportGroup(certificateToUpdate, updateRequest.getApplicationCode());
+        }
+    
+        if (!Objects.equals(updateRequest.getApplicationName(), certificateToUpdate.getApplicationName())) {
+            traceModification += " ApplicationName set to " + updateRequest.getApplicationName() + ";";
+            certificateToUpdate.setApplicationName(updateRequest.getApplicationName());
+        }
+
+        if (!Objects.equals(updateRequest.getHostname(), certificateToUpdate.getHostname())) {
+            traceModification += " Hostname set to " + updateRequest.getHostname() + ";";
+            certificateToUpdate.setHostname(updateRequest.getHostname());
+        }
+    
+        if (updateRequest.getEnvironment() != null && !Objects.equals(updateRequest.getEnvironment(), requestToUpdate.getEnvironment())) {
+            traceModification += " Environment set to " + updateRequest.getEnvironment().name() + ";";
+            requestToUpdate.setEnvironment(updateRequest.getEnvironment());
+        }
+    
+        if (updateRequest.getUnknownCodeAP() != null && !Objects.equals(updateRequest.getUnknownCodeAP(), certificateToUpdate.getUnknownCodeAP())) {
+            traceModification += " Unknown Code AP set to " + updateRequest.getUnknownCodeAP().toString() + ";";
+            certificateToUpdate.setUnknownCodeAP(updateRequest.getUnknownCodeAP());
+        }
+
+        if (traceModification.contains("ApplicationCode") || traceModification.contains("ApplicationName")) {
+            traceModification += " Application after Certis verification:" 
+                + " " + Optional.ofNullable(certificateToUpdate.getApplicationCode()).orElse("") 
+                + " " + Optional.ofNullable(certificateToUpdate.getApplicationName()).orElse("") + ";";
+        }
+
+        // ... (complétez avec la logique pour CertisEntity, GroupSupport, GnsCountry si nécessaire)
+
+        // --- LOGIQUE POUR LE COMMENTAIRE DU CERTIFICAT ---
+        if (!Objects.equals(updateRequest.getCertificateComment(), certificateToUpdate.getComment())) {
+            certificateToUpdate.setComment(updateRequest.getCertificateComment());
+            traceModification += " Le commentaire du certificat a été mis à jour;";
+        }
+        
+        // --- ÉTAPE 3 : METTRE À JOUR L'HISTORIQUE ---
+        RequestDto dtoForCommentService = entityToDto(requestToUpdate);
+        commentService.processComment(dtoForCommentService, null, connectedUser, traceModification);
+        requestToUpdate.setComment(dtoForCommentService.getComment());
+        
+        // --- ÉTAPE 4 : SAUVEGARDER L'ENTITÉ MODIFIÉE ---
+        Request savedEntity = requestDao.save(requestToUpdate);
+
+        return entityToDto(savedEntity);
+    }
+    
+    // ... (gardez toutes vos autres méthodes existantes)
+}
