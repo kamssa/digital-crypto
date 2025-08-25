@@ -1784,3 +1784,83 @@ public class SanServiceImpl implements SanService {
             </span>
             
         </div>
+		
+		
+		///////////////////////////
+		export const styleMapper = {
+  // Clé (Type de SAN) : Valeur (Classe CSS)
+  'DNSNAME':        'badge-info',
+  'RFC822NAME':     'badge-success',
+  'IPADDRESS':      'badge-warning',
+  'URI':            'badge-danger',
+  
+  // Il est probable que vous ayez aussi les autres types ici :
+  'OTHERNAME_GUID': 'badge-othername-guid', // J'invente un nom de classe, adaptez-le
+  'OTHERNAME_UPN':  'badge-othername-upn',   // J'invente un nom de classe, adaptez-le
+  
+  // C'est une bonne pratique d'avoir un style par défaut
+  'DEFAULT':        'badge-default'
+};
+////////////////////// payloadFinal///////////////
+ const finalPayload = {
+    // --- Propriétés au niveau RACINE ---
+    // On prend la base de la requête existante (pour l'ID, etc.)
+    ...this.certificateRequest, 
+    
+    // On prend les champs du formulaire qui vont à la racine
+    requestType: formValue.requestDetails?.requestType,
+    usage: formValue.requestDetails?.usage,
+    environment: formValue.requestDetails?.environment,
+    comment: formValue.requestDetails?.comment,
+    osversion: formValue.certificateDetails?.osversion, // Exemple, à adapter
+    numberOfCPU: formValue.certificateDetails?.numberOfCPU, // Exemple, à adapter
+    operatingSystem: formValue.certificateDetails?.operatingSystem, // Exemple, à adapter
+    licence: formValue.certificateDetails?.licence, // Exemple, à adapter
+    
+    // Le CSR est souvent géré séparément
+    csr: this.certificateRequest?.certificate?.csrFile?.content,
+
+    // --- L'objet 'certificate' ---
+    certificate: {
+      // On prend la base du certificat existant
+      ...this.certificateRequest?.certificate,
+
+      // On fusionne avec les champs du formulaire qui vont dans 'certificate'
+      applicationCode: formValue.project?.applicationCode,
+      applicationName: formValue.project?.applicationName,
+      commonName: formValue.certificateDetails?.commonName,
+      criticity: formValue.certificateDetails?.criticity,
+      hostname: formValue.certificateDetails?.hostname,
+      organisationName: formValue.certificateDetails?.organisationName,
+      // ... autres champs spécifiques au certificat ...
+      
+      // On ajoute la liste des SANs ici, au bon endroit
+      sans: formValue.sans 
+    },
+
+    // --- La liste des 'contacts' ---
+    contacts: formValue.contacts
+  };
+
+  // --- Nettoyage des SANs (cette partie est toujours correcte) ---
+  if (finalPayload.certificate?.sans && Array.isArray(finalPayload.certificate.sans)) {
+    finalPayload.certificate.sans = finalPayload.certificate.sans.map(san => ({
+      type: san.type,
+      value: san.value
+    }));
+  }
+
+  // --- Envoi de la requête (inchangé) ---
+  let request$: Observable<any>;
+  if (finalPayload.id) {
+    request$ = this.requestService.editRequest(finalPayload);
+  } else {
+    request$ = this.requestService.addRequest(finalPayload);
+  }
+  
+  // N'oubliez pas de vous abonner pour que la requête parte !
+  request$.subscribe({
+    next: (response) => console.log('Succès !', response),
+    error: (err) => console.error('Erreur !', err)
+  });
+}
