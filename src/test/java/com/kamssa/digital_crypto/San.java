@@ -1767,3 +1767,20 @@ public class SanServiceImpl implements SanService {
     
     // ...
 }
+/////////////////////////////
+ <div *ngFor="let san of certificateRequest.certificate.sans" class="san-item-row" style="display: flex; align-items: center; margin-bottom: 5px;">
+            
+            <!-- Badge utilisant p-tag et la propriété 'type' -->
+            <p-tag [styleClass]="sanStyleMapper[san.type]">
+                {{san.type}}
+            </p-tag>
+
+            <!-- Espace -->
+            &nbsp;
+
+            <!-- Valeur utilisant la propriété 'value' -->
+            <span class="san-value">
+                {{ san.value }}
+            </span>
+            
+        </div>
