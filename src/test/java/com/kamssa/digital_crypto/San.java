@@ -1864,3 +1864,102 @@ public class SanServiceImpl implements SanService {
     error: (err) => console.error('Erreur !', err)
   });
 }
+//////////////////////
+public List<San> getSansList(String decodedCSR) throws IOException, FailedToParseCsrException { // On garde le nom pour la compatibilité
+
+    if (decodedCSR == null || StringUtils.isEmpty(decodedCSR)) {
+        return Collections.emptyList();
+    }
+
+    PKCS10CertificationRequest csr = csrPemToPKCS10(decodedCSR);
+    assert csr != null;
+
+    try {
+        // La première partie de la méthode reste la même
+        Attribute[] attrs = csr.getAttributes(PKCSObjectIdentifiers.pkcs_9_at_extensionRequest);
+        if (attrs.length == 0) {
+            return Collections.emptyList();
+        }
+
+        ASN1Encodable[] values = attrs[0].getAttributeValues();
+        Extension extn = Extensions.getInstance(values[0]).getExtension(Extension.subjectAlternativeName);
+        if (extn == null) {
+            return Collections.emptyList();
+        }
+        
+        // ===================================================================
+        // ===                    DÉBUT DE LA MODIFICATION                 ===
+        // ===================================================================
+
+        // On crée la liste qui contiendra nos entités San
+        List<San> sanList = new ArrayList<>();
+        
+        // On récupère la structure de données contenant tous les SANs
+        GeneralNames generalNames = GeneralNames.getInstance(extn.getParsedValue()); // On utilise getParsedValue() qui est plus direct
+
+        // On parcourt chaque SAN trouvé
+        for (GeneralName name : generalNames.getNames()) {
+            San sanEntity = new San(); // On crée une nouvelle entité pour chaque SAN
+
+            // On utilise un 'switch' pour gérer tous les types possibles
+            switch (name.getTagNo()) {
+                case GeneralName.dNSName:
+                    sanEntity.setType(SanTypeEnum.DNSNAME);
+                    sanEntity.setSanValue(name.getName().toString());
+                    sanList.add(sanEntity);
+                    break;
+
+                case GeneralName.iPAddress:
+                    sanEntity.setType(SanTypeEnum.IPADDRESS);
+                    sanEntity.setSanValue(name.getName().toString());
+                    sanList.add(sanEntity);
+                    break;
+                
+                case GeneralName.rfc822Name:
+                    sanEntity.setType(SanTypeEnum.RFC822NAME);
+                    sanEntity.setSanValue(name.getName().toString());
+                    sanList.add(sanEntity);
+                    break;
+                    
+                case GeneralName.uniformResourceIdentifier:
+                    sanEntity.setType(SanTypeEnum.URI);
+                    sanEntity.setSanValue(name.getName().toString());
+                    sanList.add(sanEntity);
+                    break;
+
+                case GeneralName.otherName:
+                    ASN1Sequence otherNameSequence = ASN1Sequence.getInstance(name.getName());
+                    ASN1ObjectIdentifier oid = (ASN1ObjectIdentifier) otherNameSequence.getObjectAt(0);
+                    
+                    if (otherNameSequence.size() > 1) {
+                        ASN1Encodable valueEncodable = ((DERTaggedObject) otherNameSequence.getObjectAt(1)).getObject();
+                        String otherNameValue = valueEncodable.toString();
+
+                        final String upnOid = "1.3.6.1.4.1.311.20.2.3";
+                        final String guidOid = "1.3.6.1.4.1.311.25.1";
+
+                        if (upnOid.equals(oid.getId())) {
+                            sanEntity.setType(SanTypeEnum.OTHERNAME_UPN);
+                            sanEntity.setSanValue(otherNameValue);
+                            sanList.add(sanEntity);
+                        } else if (guidOid.equals(oid.getId())) {
+                            sanEntity.setType(SanTypeEnum.OTHERNAME_GUID);
+                            sanEntity.setSanValue(otherNameValue);
+                            sanList.add(sanEntity);
+                        }
+                    }
+                    break;
+            }
+        }
+        
+        // On retourne la liste complète des entités San
+        return sanList;
+
+        // ===================================================================
+        // ===                     FIN DE LA MODIFICATION                  ===
+        // ===================================================================
+
+    } catch (Exception e) {
+        throw new FailedToParseCsrException(e.getMessage(), e.getCause());
+    }
+}
