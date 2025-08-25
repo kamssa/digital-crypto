@@ -1223,3 +1223,214 @@ if (!StringUtils.equalsIgnoreCase(updateRequest.getComment(), previousCertificat
     // ACTION N°2 : Ajouter la trace de cette modification à l'historique
     traceModification += " Certificate comment has been updated; ";
 }
+///////////////////////////// resoudre lire San //////////////
+// N'oubliez pas ces imports en haut de votre fichier
+import com.bnpparibas.certis.certificate.request.model.dto.SanDto;
+import org.bouncycastle.asn1.pkcs.Attribute;
+import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
+import org.bouncycastle.asn1.x509.Extensions;
+import org.bouncycastle.asn1.ASN1Encodable;
+import org.bouncycastle.asn1.ASN1ObjectIdentifier;
+import org.bouncycastle.asn1.ASN1Sequence;
+import org.bouncycastle.asn1.DERTaggedObject;
+// ...
+
+// Dans la classe CertificateCsrDecoder
+public List<SanDto> extractSansWithTypesFromCsr(String csrPem) throws Exception {
+    if (StringUtils.isEmpty(csrPem)) {
+        return new ArrayList<>();
+    }
+
+    PKCS10CertificationRequest csr = this.csrPemToPKCS10(csrPem);
+    if (csr == null) {
+        return new ArrayList<>();
+    }
+
+    List<SanDto> sanDtoList = new ArrayList<>();
+
+    Attribute[] attributes = csr.getAttributes(PKCSObjectIdentifiers.pkcs_9_at_extensionRequest);
+
+    if (attributes != null && attributes.length > 0) {
+        Extensions extensions = Extensions.getInstance(attributes[0].getAttrValues().getObjectAt(0));
+        Extension sanExtension = extensions.getExtension(Extension.subjectAlternativeName);
+
+        if (sanExtension != null) {
+            GeneralNames generalNames = GeneralNames.getInstance(sanExtension.getParsedValue());
+            for (GeneralName name : generalNames.getNames()) {
+                SanDto sanDto = new SanDto();
+                
+                switch (name.getTagNo()) {
+                    case GeneralName.dNSName:
+                        sanDto.setSanType(SanTypeEnum.DNSNAME);
+                        sanDto.setSanValue(name.getName().toString());
+                        sanDtoList.add(sanDto);
+                        break;
+
+                    case GeneralName.iPAddress:
+                        sanDto.setSanType(SanTypeEnum.IPADDRESS);
+                        sanDto.setSanValue(name.getName().toString());
+                        sanDtoList.add(sanDto);
+                        break;
+                    
+                    case GeneralName.rfc822Name:
+                        sanDto.setSanType(SanTypeEnum.RFC822NAME);
+                        sanDto.setSanValue(name.getName().toString());
+                        sanDtoList.add(sanDto);
+                        break;
+                        
+                    case GeneralName.uniformResourceIdentifier:
+                        sanDto.setSanType(SanTypeEnum.URI);
+                        sanDto.setSanValue(name.getName().toString());
+                        sanDtoList.add(sanDto);
+                        break;
+
+                    case GeneralName.otherName:
+                        ASN1Sequence otherNameSequence = ASN1Sequence.getInstance(name.getName());
+                        ASN1ObjectIdentifier oid = (ASN1ObjectIdentifier) otherNameSequence.getObjectAt(0);
+                        
+                        if (otherNameSequence.size() > 1) {
+                            ASN1Encodable valueEncodable = ((DERTaggedObject) otherNameSequence.getObjectAt(1)).getObject();
+                            String otherNameValue = valueEncodable.toString();
+
+                            final String upnOid = "1.3.6.1.4.1.311.20.2.3";
+                            final String guidOid = "1.3.6.1.4.1.311.25.1"; // OID d'exemple, à vérifier
+
+                            if (upnOid.equals(oid.getId())) {
+                                sanDto.setSanType(SanTypeEnum.OTHERNAME_UPN);
+                                sanDto.setSanValue(otherNameValue);
+                                sanDtoList.add(sanDto);
+                            } else if (guidOid.equals(oid.getId())) {
+                                sanDto.setSanType(SanTypeEnum.OTHERNAME_GUID);
+                                sanDto.setSanValue(otherNameValue);
+                                sanDtoList.add(sanDto);
+                            }
+                        }
+                        break;
+                }
+            }
+        }
+    }
+    return sanDtoList;
+}
+Fichier 3 : RequestServiceImpl.java (L'Orchestrateur)
+Chemin : .../certificate/request/service/impl/RequestServiceImpl.java
+Pourquoi cette modification ? C'est le cœur de l'intégration. On modifie la méthode createRequest pour qu'elle prépare la liste de SANs finale (fusion + déduplication) avant d'appeler toute la logique de validation et de sauvegarde existante.
+Code Complet de la méthode createRequest : (Remplacez votre méthode existante par celle-ci)
+code
+Java
+// Imports à ajouter en haut du fichier
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
+import org.apache.commons.lang3.StringUtils;
+import com.bnpparibas.certis.exception.CertisRequestException;
+import org.springframework.http.HttpStatus;
+
+// ...
+
+@Override
+public RequestDto createRequest(RequestDto requestDto) {
+
+    // --- BLOC DE FUSION ET DÉDUPLICATION (VERSION ENTITÉS) ---
+
+    // 1. On récupère la liste d'entités SAN venant d'Angular.
+    List<San> sansFromAngular = requestDto.getCertificate().getSans();
+    if (sansFromAngular == null) {
+        sansFromAngular = new ArrayList<>();
+    }
+
+    // 2. On récupère les SANs du CSR sous forme de DTOs propres.
+    List<SanDto> sansDtoFromCsr = new ArrayList<>();
+    final String csr = this.fileManagerService.extractCsr(requestDto, Boolean.TRUE);
+    if (!StringUtils.isEmpty(csr)) {
+        try {
+            sansDtoFromCsr = this.certificateCsrDecoder.extractSansWithTypesFromCsr(csr);
+        } catch (Exception e) {
+            throw new CertisRequestException("error.request.csr.invalid_format", HttpStatus.BAD_REQUEST);
+        }
+    }
+
+    // 3. On CONVERTIT les DTOs du CSR en nouvelles entités San.
+    List<San> sansFromCsrEntities = new ArrayList<>();
+    for (SanDto dto : sansDtoFromCsr) {
+        San sanEntity = new San();
+        sanEntity.setType(dto.getSanType());
+        sanEntity.setSanValue(dto.getSanValue()); // ou setUrl si vous n'avez pas encore refactorisé
+        sansFromCsrEntities.add(sanEntity);
+    }
+
+    // 4. On fusionne les DEUX listes d'ENTITÉS et on déduplique.
+    Set<San> finalUniqueSans = new LinkedHashSet<>();
+    finalUniqueSans.addAll(sansFromAngular);
+    finalUniqueSans.addAll(sansFromCsrEntities);
+
+    // 5. On met à jour le DTO avec la liste finale d'entités.
+    requestDto.getCertificate().setSans(new ArrayList<>(finalUniqueSans));
+    
+    // --- FIN DU BLOC ---
+
+    // Le reste de votre code original
+    if (requestDto.getComment() != null && requestDto.getComment().length() > 3999) {
+        requestDto.setComment(requestDto.getComment().substring(0, 3998));
+    }
+
+    Request request = dtoToEntity(requestDto);
+
+    if (!CollectionUtils.isEmpty(requestDto.getCertificate().getSans())) {
+        for (San san : requestDto.getCertificate().getSans()) {
+            san.setCertificate(requestDto.getCertificate());
+        }
+    }
+
+    if (!CollectionUtils.isEmpty(requestDto.getContacts())) {
+        for (Contact cont : requestDto.getContacts()) {
+            cont.setRequests(request);
+        }
+    }
+
+    RequestDto requestDtoResult = entityToDto(requestDao.save(request));
+    
+    return requestDtoResult;
+}
+//////////////////// san //////////////////
+@Entity
+public class San implements Serializable {
+
+    // ... vos champs existants (id, sanValue, type, certificate) ...
+    
+    // Vos getters et setters existants...
+    public SanTypeEnum getType() {
+        return type;
+    }
+
+    public String getSanValue() {
+        return sanValue;
+    }
+
+    // ===================================================================
+    // ===        BLOC DE CODE À AJOUTER DANS L'ENTITÉ San.java        ===
+    // ===================================================================
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        San san = (San) o;
+
+        // Deux SANs sont égaux s'ils ont le même type ET la même valeur (insensible à la casse)
+        if (getType() != san.getType()) return false;
+        if (getSanValue() == null) {
+            return san.getSanValue() == null;
+        }
+        return getSanValue().equalsIgnoreCase(san.getSanValue());
+    }
+
+    @Override
+    public int hashCode() {
+        String lowerCaseSanValue = (getSanValue() == null) ? null : getSanValue().toLowerCase();
+        return Objects.hash(getType(), lowerCaseSanValue);
+    }
+    // ===================================================================
+    // ===                         FIN DU BLOC                         ===
+    // ===================================================================
+}
