@@ -1670,3 +1670,100 @@ public RequestDto updateRequestInfo(UpdateRequestInfoDto updateRequest, Long req
 }
 Request requestToUpdate = requestDao.findById(requestId)
             .orElseThrow(() -> new EntityNotFoundException("Request not found with id: " + requestId));
+			
+			//////////////////////////
+			 @Override
+    public void validateSansPerRequest(RequestDto requestDto) {
+        if (this.skipValidationIfDataMissing(requestDto)) {
+            return;
+        }
+        if (requestDto.getUsage().equalsIgnoreCase(INT_USAGE)) {
+            this.verifySansLimitForInternalCertificates(requestDto);
+        }
+        if (requestDto.getUsage().equalsIgnoreCase(EXT_USAGE)) {
+            this.verifySansLimitForExternalCertificates(requestDto);
+        }
+
+        this.verifySanFormats(requestDto); // <-- LIGNE À AJOUTER
+    }
+    
+    // AJOUTER cette nouvelle méthode privée dans la classe
+    private void verifySanFormats(RequestDto requestDto) {
+        if (requestDto.getCertificate() == null || CollectionUtils.isEmpty(requestDto.getCertificate().getSans())) {
+            return;
+        }
+
+        for (San san : requestDto.getCertificate().getSans()) {
+            if (san.getType() == null || !StringUtils.hasText(san.getSanValue())) {
+                throw new CertisRequestException("request.error.san.incomplete", HttpStatus.BAD_REQUEST);
+            }
+
+            boolean isValid = false;
+            switch (san.getType()) {
+                case DNSNAME:
+                    isValid = SanValidationPatterns.DNSNAME.matcher(san.getSanValue()).matches();
+                    break;
+                case IPADDRESS:
+                    isValid = SanValidationPatterns.IPADDRESS.matcher(san.getSanValue()).matches();
+                    break;
+                case RFC822NAME:
+                    isValid = SanValidationPatterns.RFC822NAME.matcher(san.getSanValue()).matches();
+                    break;
+                case URI:
+                    isValid = SanValidationPatterns.URI.matcher(san.getSanValue()).matches();
+                    break;
+                case OTHERNAME_GUID:
+                    isValid = SanValidationPatterns.OTHERNAME_GUID.matcher(san.getSanValue()).matches();
+                    break;
+                case OTHERNAME_UPN:
+                    isValid = SanValidationPatterns.OTHERNAME_UPN.matcher(san.getSanValue()).matches();
+                    break;
+                default:
+                    isValid = true;
+                    break;
+            }
+
+            if (!isValid) {
+                Object[] args = { san.getSanValue(), san.getType().name() };
+                throw new CertisRequestException("request.error.san.invalid.format", args, HttpStatus.BAD_REQUEST);
+            }
+        }
+    }
+}
+@Service
+public class SanServiceImpl implements SanService {
+    // ...
+
+    // MODIFIER cette méthode existante
+    @Override
+    public void validateSansPerRequest(RequestDto requestDto) {
+        if (this.skipValidationIfDataMissing(requestDto)) {
+            return;
+        }
+        
+        // ... code existant ...
+        if (requestDto.getUsage().equalsIgnoreCase(INT_USAGE)) { /* ... */ }
+        if (requestDto.getUsage().equalsIgnoreCase(EXT_USAGE)) { /* ... */ }
+
+        // ↓↓↓ LIGNE À AJOUTER ↓↓↓
+        this.verifySanFormats(requestDto);
+    }
+    
+    // ↓↓↓ NOUVELLE MÉTHODE PRIVÉE (bien plus simple maintenant) ↓↓↓
+    private void verifySanFormats(RequestDto requestDto) {
+        if (requestDto.getCertificate() == null || CollectionUtils.isEmpty(requestDto.getCertificate().getSans())) {
+            return;
+        }
+
+        for (San san : requestDto.getCertificate().getSans()) {
+            // La logique de validation est maintenant DANS l'enum SanType.
+            // On vérifie que le type existe et que la valeur est valide pour ce type.
+            if (san.getType() == null || !san.getType().isValid(san.getSanValue())) {
+                Object[] args = { san.getSanValue(), san.getType() != null ? san.getType().name() : "INCONNU" };
+                throw new CertisRequestException("request.error.san.invalid.format", args, HttpStatus.BAD_REQUEST);
+            }
+        }
+    }
+    
+    // ...
+}
