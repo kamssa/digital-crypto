@@ -1434,3 +1434,67 @@ public class San implements Serializable {
     // ===                         FIN DU BLOC                         ===
     // ===================================================================
 }
+//////////////////////////createRequest//////////////
+@Override
+public RequestDto createRequest(RequestDto requestDto) {
+
+    // --- DÉBUT DU BLOC AJOUTÉ : FUSION ET DÉDUPLICATION DES SANs ---
+    
+    List<San> sansFromAngular = new ArrayList<>();
+    if (requestDto.getCertificate() != null && requestDto.getCertificate().getSans() != null) {
+        sansFromAngular.addAll(requestDto.getCertificate().getSans());
+    }
+
+    List<SanDto> sansDtoFromCsr = new ArrayList<>();
+    final String csr = this.fileManagerService.extractCsr(requestDto, Boolean.TRUE);
+    if (!StringUtils.isEmpty(csr)) {
+        try {
+            sansDtoFromCsr = this.certificateCsrDecoder.extractSansWithTypesFromCsr(csr);
+        } catch (Exception e) {
+            throw new CertisRequestException("error.request.csr.invalid_format", HttpStatus.BAD_REQUEST);
+        }
+    }
+
+    List<San> sansFromCsrEntities = new ArrayList<>();
+    for (SanDto dto : sansDtoFromCsr) {
+        San sanEntity = new San();
+        sanEntity.setType(dto.getSanType());
+        sanEntity.setSanValue(dto.getSanValue());
+        sansFromCsrEntities.add(sanEntity);
+    }
+
+    Set<San> finalUniqueSans = new LinkedHashSet<>();
+    finalUniqueSans.addAll(sansFromAngular);
+    finalUniqueSans.addAll(sansFromCsrEntities);
+
+    if (requestDto.getCertificate() != null) {
+        requestDto.getCertificate().setSans(new ArrayList<>(finalUniqueSans));
+    }
+    
+    // --- FIN DU BLOC AJOUTÉ ---
+
+
+    // --- VOTRE CODE ORIGINAL (INCHANGÉ) ---
+    
+    if (requestDto.getComment() != null && requestDto.getComment().length() > 3999) {
+        requestDto.setComment(requestDto.getComment().substring(0, 3998));
+    }
+    
+    Request request = dtoToEntity(requestDto);
+    
+    if (!CollectionUtils.isEmpty(requestDto.getCertificate().getSans())) {
+        for (San san : requestDto.getCertificate().getSans()) {
+            san.setCertificate(requestDto.getCertificate());
+        }
+    }
+    
+    if (!CollectionUtils.isEmpty(requestDto.getContacts())) {
+        for (Contact cont : requestDto.getContacts()) {
+            cont.setRequests(request);
+        }
+    }
+    
+    RequestDto requestDtoResult = entityToDto(requestDao.save(request));
+    
+    return requestDtoResult;
+}
