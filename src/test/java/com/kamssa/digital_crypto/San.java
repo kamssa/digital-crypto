@@ -1572,3 +1572,99 @@ public RequestDto createRequest(RequestDto requestDto) {
     
     // ... (gardez toutes vos autres méthodes existantes)
 }
+
+////////////////////////////////////
+@Override
+@Transactional
+public RequestDto updateRequestInfo(UpdateRequestInfoDto updateRequest, Long requestId, String connectedUser, ActionRequestType action) {
+    
+    // --- Phase 1 : Comparaison et construction de la trace en utilisant les DTOs ---
+    RequestDto previousRequest = this.findRequestByIdAndAccessibility(requestId, connectedUser, action);
+    CertificateDto previousCertificate = previousRequest.getCertificate();
+    String traceModification = "Request information has been modified:";
+
+    if (!org.apache.commons.lang3.StringUtils.equalsIgnoreCase(updateRequest.getApplicationCode(), previousCertificate.getApplicationCode())) {
+        traceModification += " ApplicationCode set to " + updateRequest.getApplicationCode() + ";";
+    }
+
+    if (!StringUtils.isEmpty(updateRequest.getApplicationName())) {
+        if (StringUtils.isEmpty(previousCertificate.getApplicationName()) || !updateRequest.getApplicationName().equalsIgnoreCase(previousCertificate.getApplicationName())) {
+            traceModification += " ApplicationName set to " + updateRequest.getApplicationName() + ";";
+        }
+    }
+
+    if (!StringUtils.isEmpty(updateRequest.getHostname())) {
+        if (previousRequest.getHostname() == null || !updateRequest.getHostname().equalsIgnoreCase(previousRequest.getHostname())) {
+            traceModification += " Hostname set to " + updateRequest.getHostname() + ";";
+        }
+    }
+
+    if (updateRequest.getEnvironment() != null) {
+        if (previousRequest.getEnvironment() == null || !updateRequest.getEnvironment().equals(previousRequest.getEnvironment())) {
+            traceModification += " Environment set to " + updateRequest.getEnvironment().name() + ";";
+        }
+    }
+    
+    if (updateRequest.getUnknownCodeAP() != null) {
+        if (previousRequest.getCertificate().getUnknownCodeAP() == null || !updateRequest.getUnknownCodeAP().equals(previousRequest.getCertificate().getUnknownCodeAP())) {
+            traceModification += " Unknown Code AP set to " + updateRequest.getUnknownCodeAP().toString() + ";";
+        }
+    }
+
+    if (traceModification.contains("ApplicationCode") || traceModification.contains("ApplicationName")) {
+        traceModification += " Application after Certis verification:" 
+            + " " + Optional.ofNullable(previousCertificate.getApplicationCode()).orElse("") 
+            + " " + Optional.ofNullable(previousCertificate.getApplicationName()).orElse("") + ";";
+    }
+
+    if (updateRequest.getCertisEntity() != null && !StringUtils.isEmpty(updateRequest.getCertisEntity().getName())) {
+        // ... (Logique de comparaison pour CertisEntity)
+    }
+
+    if (updateRequest.getGroupSupport() != null && !StringUtils.isEmpty(updateRequest.getGroupSupport().getName())) {
+        // ... (Logique de comparaison pour GroupSupport)
+    }
+
+    if (updateRequest.getCountry() != null && !StringUtils.isEmpty(updateRequest.getCountry().getIsoCode())) {
+        // ... (Logique de comparaison pour Country)
+    }
+
+    if (!org.apache.commons.lang3.StringUtils.equalsIgnoreCase(updateRequest.getCertificateComment(), previousCertificate.getComment())) {
+        traceModification += " Certificate comment has been updated;";
+    }
+
+    // --- Phase 2 : On met à jour l'historique sur le DTO ---
+    this.commentService.processComment(previousRequest, null, connectedUser, traceModification);
+    
+    // ===================================================================================
+    //     ▼▼▼   Phase 3 : Application des changements sur l'entité et sauvegarde   ▼▼▼
+    // ===================================================================================
+
+    // 1. On charge l'entité JPA managée depuis la base.
+    Request requestToUpdate = requestDao.findOne(requestId);
+    if (requestToUpdate == null) {
+        throw new EntityNotFoundException("Request not found with id: " + requestId);
+    }
+    Certificate certificateToUpdate = requestToUpdate.getCertificate();
+
+    // 2. On applique toutes les modifications depuis le DTO 'updateRequest' sur l'entité chargée.
+    certificateService.setApplicationCodeAndSupportGroup(certificateToUpdate, updateRequest.getApplicationCode());
+    certificateToUpdate.setApplicationName(updateRequest.getApplicationName());
+    certificateToUpdate.setHostname(updateRequest.getHostname());
+    requestToUpdate.setEnvironment(updateRequest.getEnvironment());
+    certificateToUpdate.setUnknownCodeAP(updateRequest.getUnknownCodeAP());
+    
+    // (Complétez ici avec les setters pour country, entity, groupSupport si nécessaire)
+    
+    // On applique la modification du commentaire du certificat
+    certificateToUpdate.setComment(updateRequest.getCertificateComment());
+    
+    // On applique l'historique mis à jour par le commentService (qui est sur le DTO previousRequest)
+    requestToUpdate.setComment(previousRequest.getComment());
+    
+    // 3. On sauvegarde directement l'entité modifiée.
+    Request savedEntity = requestDao.save(requestToUpdate);
+    
+    // On retourne le DTO de l'entité qui vient d'être sauvegardée.
+    return entityToDto(savedEntity);
+}
