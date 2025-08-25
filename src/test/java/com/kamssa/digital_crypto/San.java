@@ -1668,3 +1668,5 @@ public RequestDto updateRequestInfo(UpdateRequestInfoDto updateRequest, Long req
     // On retourne le DTO de l'entité qui vient d'être sauvegardée.
     return entityToDto(savedEntity);
 }
+Request requestToUpdate = requestDao.findById(requestId)
+            .orElseThrow(() -> new EntityNotFoundException("Request not found with id: " + requestId));
