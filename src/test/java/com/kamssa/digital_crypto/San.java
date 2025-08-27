@@ -1963,3 +1963,112 @@ public List<San> getSansList(String decodedCSR) throws IOException, FailedToPars
         throw new FailedToParseCsrException(e.getMessage(), e.getCause());
     }
 }
+///////// sans dans renew /////////////////////
+
+import { Component, OnInit, OnDestroy, Input } from '@angular/core';
+import { FormBuilder, FormGroup, FormArray, Validators } from '@angular/forms';
+import { takeUntil } from 'rxjs/operators';
+import { Subject } from 'rxjs';
+
+@Component({
+  selector: 'app-request-detail-section',
+  templateUrl: './request-detail-section.component.html',
+  styleUrls: ['./request-detail-section.component.css']
+})
+export class RequestDetailSectionComponent implements OnInit, OnDestroy {
+
+  // --- Propriétés (beaucoup viennent de votre code existant) ---
+  @Input() requestDetailsSectionForm: FormGroup;
+  @Input() certificateRequest: any; // Pour les données existantes
+  @Input() isRenew: boolean = false;
+  
+  private onDestroy$ = new Subject<void>();
+  
+  sanTypes = [ /* ... votre liste de types ... */ ];
+  SANS_REGEX_PATTERNS = { /* ... votre objet avec les regex ... */ };
+
+  constructor(private fb: FormBuilder, /* ... autres services */) {}
+
+  ngOnInit(): void {
+    // 1. VOTRE LOGIQUE EXISTANTE : Initialisation du FormArray
+    if (!this.requestDetailsSectionForm.get('sans')) {
+      this.requestDetailsSectionForm.addControl('sans', this.fb.array([]));
+    }
+
+    // 2. NOUVELLE LOGIQUE INTÉGRÉE : Chargement des données
+    // On vérifie si on est en renouvellement et si on a des données à charger
+    if (this.isRenew && this.certificateRequest?.certificate?.sans?.length > 0) {
+      this.loadExistingSans(this.certificateRequest.certificate.sans);
+    } else {
+      // Sinon (création), on exécute votre logique originale : ajouter un champ vide.
+      this.addSan(); 
+    }
+    
+    // ... reste de votre logique ngOnInit ...
+  }
+
+  // Getter (votre code original)
+  get sans(): FormArray {
+    return this.requestDetailsSectionForm.get('sans') as FormArray;
+  }
+
+  /**
+   * VOTRE MÉTHODE ORIGINALE (légèrement modifiée pour être réutilisable)
+   * Crée un FormGroup pour une seule ligne de SAN avec validation dynamique.
+   */
+  createSanGroup(initialValue: string = '', initialType: string = 'DNSNAME'): FormGroup {
+    const sanGroup = this.fb.group({
+      type: [initialType, Validators.required],
+      value: [initialValue, [Validators.required, Validators.pattern(this.SANS_REGEX_PATTERNS[initialType])]]
+    });
+
+    // Votre logique de validation dynamique reste ici, elle est parfaite.
+    sanGroup.get('type').valueChanges
+      .pipe(takeUntil(this.onDestroy$))
+      .subscribe(type => {
+        const valueControl = sanGroup.get('value');
+        const regex = this.SANS_REGEX_PATTERNS[type];
+        
+        if (regex) {
+          valueControl.setValidators([Validators.required, Validators.pattern(regex)]);
+        } else {
+          valueControl.setValidators(Validators.required);
+        }
+        valueControl.updateValueAndValidity();
+      });
+      
+    return sanGroup;
+  }
+
+  // Méthode pour ajouter (votre code original)
+  addSan(): void {
+    this.sans.push(this.createSanGroup());
+  }
+  
+  // Méthode pour supprimer (votre code original)
+  removeSan(index: number): void {
+    if (this.sans.length > 1) {
+      this.sans.removeAt(index);
+    }
+  }
+
+  /**
+   * NOUVELLE MÉTHODE INTÉGRÉE
+   * Peuple le formulaire avec les SANs existants lors d'un renouvellement.
+   */
+  loadExistingSans(existingSans: any[]): void {
+    this.sans.clear();
+    existingSans.forEach(san => {
+      const sanValue = san.sanValue || san.url || '';
+      const sanType = san.type || 'DNSNAME';
+      
+      // On utilise votre méthode `createSanGroup` améliorée pour créer chaque ligne
+      this.sans.push(this.createSanGroup(sanValue, sanType));
+    });
+  }
+
+  ngOnDestroy(): void {
+    this.onDestroy$.next();
+    this.onDestroy$.complete();
+  }
+}
