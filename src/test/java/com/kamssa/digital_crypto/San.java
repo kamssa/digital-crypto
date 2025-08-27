@@ -2254,3 +2254,71 @@ public RequestDto createRequest(RequestDto requestDto) {
     // ===                       FIN DU BLOC DE DÉBOGAGE               ===
     // ===================================================================
 }
+///////////////////////////////////////
+
+    // --- BLOC DE FUSION ET PRÉPARATION DES DONNÉES ---
+    if (requestDto.getCertificate() != null) {
+
+        List<San> sansFromInput = new ArrayList<>();
+        if (requestDto.getCertificate().getSans() != null) {
+            sansFromInput.addAll(requestDto.getCertificate().getSans());
+        }
+
+        List<SanDto> sansDtoFromCsr = new ArrayList<>();
+        final String csr = this.fileManagerService.extractCsr(requestDto, Boolean.TRUE);
+        if (!StringUtils.isEmpty(csr)) {
+            try {
+                sansDtoFromCsr = this.csrDecoder.extractSansWithTypesFromCsr(csr);
+            } catch (Exception e) {
+                LOGGER.error("Message de CSR create:" + e.getMessage());
+                throw new CertisRequestException("error.request.csr.invalid_format", HttpStatus.BAD_REQUEST);
+            }
+        }
+
+        List<San> sansFromCsrEntities = new ArrayList<>();
+        for (SanDto dto : sansDtoFromCsr) {
+            San sanEntity = new San();
+            sanEntity.setType(dto.getSanType());
+            sanEntity.setSanValue(dto.getSanValue());
+            sansFromCsrEntities.add(sanEntity);
+        }
+
+        Set<San> finalUniqueSans = new LinkedHashSet<>();
+        finalUniqueSans.addAll(sansFromInput);
+        finalUniqueSans.addAll(sansFromCsrEntities);
+        
+        // ÉTAPE ESSENTIELLE : On met à jour le DTO pour que 'dtoToEntity' ait toutes les données.
+        requestDto.getCertificate().setSans(new ArrayList<>(finalUniqueSans));
+    }
+    // --- FIN DU BLOC ---
+
+    
+    if (requestDto.getComment() != null && requestDto.getComment().length() > 3999) {
+        requestDto.setComment(requestDto.getComment().substring(0, 3998));
+    }
+    
+    // 1. On transforme le DTO complet en entités JPA.
+    Request request = dtoToEntity(requestDto);
+    
+    // ===================================================================
+    // ===                 LA CORRECTION FINALE EST ICI                ===
+    // ===================================================================
+    // 2. On s'assure que chaque entité San dans l'entité Request finale 
+    //    est bien liée à son Certificate parent. C'EST CETTE BOUCLE QUI RÈGLE TOUT.
+    if (request.getCertificate() != null && !CollectionUtils.isEmpty(request.getCertificate().getSans())) {
+        for (San san : request.getCertificate().getSans()) {
+            san.setCertificate(request.getCertificate());
+        }
+    }
+    // ===================================================================
+
+    if (!CollectionUtils.isEmpty(request.getContacts())) {
+        for (Contact cont : request.getContacts()) {
+            cont.setRequests(request);
+        }
+    }
+    
+    // 3. On sauvegarde l'entité Request, maintenant qu'elle est parfaitement cohérente.
+    RequestDto requestDtoResult = entityToDto(requestDao.save(request));
+    
+    return requestDtoResult;
