@@ -2322,3 +2322,37 @@ public RequestDto createRequest(RequestDto requestDto) {
     RequestDto requestDtoResult = entityToDto(requestDao.save(request));
     
     return requestDtoResult;
+	
+	
+	////////////////////////////
+	private List<San> mergeSans(RequestDto requestDto) {
+    List<San> sansFromInput = Optional.ofNullable(requestDto.getCertificate().getSans())
+            .orElseGet(Collections::emptyList);
+
+    List<SanDto> sansDtoFromCsr = Collections.emptyList();
+    final String csr = this.fileManagerService.extractCsr(requestDto, Boolean.TRUE);
+
+    if (StringUtils.hasText(csr)) {
+        try {
+            sansDtoFromCsr = this.csrDecoder.extractSansWithTypesFromCsr(csr);
+        } catch (Exception e) {
+            LOGGER.error("Erreur lors du décodage du CSR", e);
+            throw new CertisRequestException("error.request.csr.invalid_format", HttpStatus.BAD_REQUEST);
+        }
+    }
+
+    List<San> sansFromCsrEntities = sansDtoFromCsr.stream()
+            .map(dto -> {
+                San san = new San();
+                san.setType(dto.getSanType());
+                san.setSanValue(dto.getSanValue());
+                return san;
+            })
+            .collect(Collectors.toList());
+
+    Set<San> finalUniqueSans = new LinkedHashSet<>();
+    finalUniqueSans.addAll(sansFromInput);
+    finalUniqueSans.addAll(sansFromCsrEntities);
+
+    return new ArrayList<>(finalUniqueSans);
+}
