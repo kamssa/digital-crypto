@@ -2356,3 +2356,73 @@ public RequestDto createRequest(RequestDto requestDto) {
 
     return new ArrayList<>(finalUniqueSans);
 }
+ List<San> finalSanList = new ArrayList<>(); // On prépare notre liste finale
+
+    if (requestDto.getCertificate() != null) {
+        List<San> sansFromInput = new ArrayList<>();
+        if (requestDto.getCertificate().getSans() != null) {
+            sansFromInput.addAll(requestDto.getCertificate().getSans());
+        }
+
+        List<SanDto> sansDtoFromCsr = new ArrayList<>();
+        final String csr = this.fileManagerService.extractCsr(requestDto, Boolean.TRUE);
+        if (!StringUtils.isEmpty(csr)) {
+            try {
+                sansDtoFromCsr = this.csrDecoder.extractSansWithTypesFromCsr(csr);
+            } catch (Exception e) {
+                LOGGER.error("Message de CSR create:" + e.getMessage());
+                throw new CertisRequestException("error.request.csr.invalid_format", HttpStatus.BAD_REQUEST);
+            }
+        }
+
+        List<San> sansFromCsrEntities = new ArrayList<>();
+        for (SanDto dto : sansDtoFromCsr) {
+            San sanEntity = new San();
+            sanEntity.setType(dto.getSanType());
+            sanEntity.setSanValue(dto.getSanValue());
+            sansFromCsrEntities.add(sanEntity);
+        }
+
+        Set<San> finalUniqueSans = new LinkedHashSet<>();
+        finalUniqueSans.addAll(sansFromInput);
+        finalUniqueSans.addAll(sansFromCsrEntities);
+        
+        finalSanList.addAll(finalUniqueSans);
+    }
+    
+    // ON NE MODIFIE PAS requestDto.getCertificate().setSans(...) !
+    
+    if (requestDto.getComment() != null && requestDto.getComment().length() > 3999) {
+        requestDto.setComment(requestDto.getComment().substring(0, 3998));
+    }
+    
+    // 1. On appelle dtoToEntity avec le DTO d'origine. Il va créer les entités
+    //    en se basant UNIQUEMENT sur les SANs d'Angular. C'est OK.
+    Request request = dtoToEntity(requestDto);
+    
+    // ===================================================================
+    // ===                 LA CORRECTION FINALE EST ICI                ===
+    // ===================================================================
+    // 2. MAINTENANT que les entités de base sont créées, on REMPLACE
+    //    la liste de SANs de l'entité Certificate par notre liste finale et propre.
+    if (request.getCertificate() != null) {
+        // On vide l'ancienne liste et on ajoute tous les nouveaux éléments.
+        request.getCertificate().getSans().clear();
+        request.getCertificate().getSans().addAll(finalSanList);
+
+        // 3. ET ON LIE CHAQUE SAN au certificat parent. C'est l'étape la plus importante.
+        for (San san : request.getCertificate().getSans()) {
+            san.setCertificate(request.getCertificate());
+        }
+    }
+    // ===================================================================
+
+    if (!CollectionUtils.isEmpty(request.getContacts())) {
+        for (Contact cont : request.getContacts()) {
+            cont.setRequests(request);
+        }
+    }
+    
+    RequestDto requestDtoResult = entityToDto(requestDao.save(request));
+    
+    return requestDtoResult;
