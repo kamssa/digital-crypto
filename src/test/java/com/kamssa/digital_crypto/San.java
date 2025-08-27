@@ -2072,3 +2072,24 @@ export class RequestDetailSectionComponent implements OnInit, OnDestroy {
     this.onDestroy$.complete();
   }
 }
+/////////////////////////////
+ ngOnChanges(changes: SimpleChanges): void {
+    // On vérifie si l'input 'certificateRequest' a changé ET s'il a maintenant une valeur.
+    if (changes.certificateRequest && this.certificateRequest) {
+        
+        console.log('Données reçues du backend (via ngOnChanges) :', this.certificateRequest);
+
+        // Maintenant que nous sommes sûrs d'avoir les données, on lance le chargement.
+        if (this.certificateRequest.certificate?.sans?.length > 0) {
+            this.loadExistingSans(this.certificateRequest.certificate.sans);
+        } else {
+            // S'il n'y a pas de SANs existants, on s'assure qu'il y a au moins un champ vide.
+            if (this.sans.length === 0) {
+                this.addSan();
+            }
+        }
+    }
+  }
+
+  // ... (get sans(), createSanGroup(), addSan(), removeSan(), loadExistingSans() restent inchangés) ...
+}
