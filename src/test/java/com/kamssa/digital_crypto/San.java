@@ -2426,3 +2426,107 @@ public RequestDto createRequest(RequestDto requestDto) {
     RequestDto requestDtoResult = entityToDto(requestDao.save(request));
     
     return requestDtoResult;
+	
+	////////////////////////////////////////// 
+	
+@Service
+public class RequestServiceImpl implements RequestService {
+
+    // ... Vos injections @Autowired (requestDao, fileManagerService, csrDecoder, etc.) ...
+    @Autowired
+    private FileManagerService fileManagerService; 
+
+    @Autowired
+    private CertificateCsrDecoder certificateCsrDecoder;
+
+
+    @Override
+    public RequestDto createRequest(RequestDto requestDto) {
+
+        // 1. On appelle notre nouvelle méthode privée pour préparer la liste finale de SANs.
+        List<San> finalSanList = mergeSansFromDtoAndCsr(requestDto);
+
+        // 2. LA CORRECTION CRUCIALE : On met à jour le DTO pour que 'dtoToEntity' ait toutes les données.
+        if (requestDto.getCertificate() != null) {
+            requestDto.getCertificate().setSans(finalSanList);
+        }
+
+        // --- Le reste de votre code original ---
+        if (requestDto.getComment() != null && requestDto.getComment().length() > 3999) {
+            requestDto.setComment(requestDto.getComment().substring(0, 3998));
+        }
+        
+        // 3. On transforme le DTO complet en entités JPA.
+        Request request = dtoToEntity(requestDto);
+        
+        // 4. On s'assure que chaque entité San est bien liée à son Certificate parent.
+        if (request.getCertificate() != null && !CollectionUtils.isEmpty(request.getCertificate().getSans())) {
+            for (San san : request.getCertificate().getSans()) {
+                san.setCertificate(request.getCertificate());
+            }
+        }
+
+        if (!CollectionUtils.isEmpty(request.getContacts())) {
+            for (Contact cont : request.getContacts()) {
+                cont.setRequests(request);
+            }
+        }
+        
+        // 5. On sauvegarde l'entité Request, maintenant qu'elle est parfaitement cohérente.
+        RequestDto requestDtoResult = entityToDto(requestDao.save(request));
+        
+        return requestDtoResult;
+    }
+
+
+    // ===================================================================
+    // ===                 NOUVELLE MÉTHODE PRIVÉE                     ===
+    // ===================================================================
+    /**
+     * Fusionne les SANs provenant du DTO (saisie manuelle) et ceux extraits du CSR.
+     * Le résultat est une liste d'entités San uniques.
+     * @param requestDto Le DTO de la requête entrante.
+     * @return Une liste finale et propre d'entités San.
+     */
+    private List<San> mergeSansFromDtoAndCsr(RequestDto requestDto) {
+        if (requestDto.getCertificate() == null) {
+            return new ArrayList<>();
+        }
+
+        // Étape A : Récupérer les SANs de la saisie (Angular)
+        List<San> sansFromInput = new ArrayList<>();
+        if (requestDto.getCertificate().getSans() != null) {
+            sansFromInput.addAll(requestDto.getCertificate().getSans());
+        }
+
+        // Étape B : Extraire et convertir les SANs du CSR
+        List<San> sansFromCsrEntities = new ArrayList<>();
+        final String csr = this.fileManagerService.extractCsr(requestDto, Boolean.TRUE);
+        if (!StringUtils.isEmpty(csr)) {
+            try {
+                // On utilise le décodeur qui retourne des DTOs
+                List<SanDto> sansDtoFromCsr = this.csrDecoder.extractSansWithTypesFromCsr(csr);
+                
+                // On convertit les DTOs en entités
+                for (SanDto dto : sansDtoFromCsr) {
+                    San sanEntity = new San();
+                    sanEntity.setType(dto.getSanType());
+                    sanEntity.setSanValue(dto.getSanValue());
+                    sansFromCsrEntities.add(sanEntity);
+                }
+            } catch (Exception e) {
+                LOGGER.error("Erreur lors de l'extraction des SANs du CSR: " + e.getMessage());
+                throw new CertisRequestException("error.request.csr.invalid_format", HttpStatus.BAD_REQUEST);
+            }
+        }
+
+        // Étape C : Fusionner les deux listes et supprimer les doublons
+        Set<San> finalUniqueSans = new LinkedHashSet<>();
+        finalUniqueSans.addAll(sansFromInput);
+        finalUniqueSans.addAll(sansFromCsrEntities);
+        
+        return new ArrayList<>(finalUniqueSans);
+    }
+    
+    // ... Le reste de vos autres méthodes (updateRequest, dtoToEntity, etc.) ...
+}
