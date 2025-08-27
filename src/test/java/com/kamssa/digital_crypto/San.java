@@ -2180,3 +2180,77 @@ public RequestDto createRequest(RequestDto requestDto) {
     
     return requestDtoResult;
 }
+/////////////////////////
+ if (requestDto.getCertificate() != null) {
+
+            List<San> sansFromInput = new ArrayList<>();
+            if (requestDto.getCertificate().getSans() != null) {
+                sansFromInput.addAll(requestDto.getCertificate().getSans());
+            }
+
+            List<SanDto> sansDtoFromCsr = new ArrayList<>();
+            final String csr = this.fileManagerService.extractCsr(requestDto, Boolean.TRUE);
+            if (!StringUtils.isEmpty(csr)) {
+                try {
+                    sansDtoFromCsr = this.csrDecoder.extractSansWithTypesFromCsr(csr);
+                } catch (Exception e) {
+                    LOGGER.error("Message de CSR create:" + e.getMessage());
+                    throw new CertisRequestException("error.request.csr.invalid_format", HttpStatus.BAD_REQUEST);
+                }
+            }
+
+            List<San> sansFromCsrEntities = new ArrayList<>();
+            for (SanDto dto : sansDtoFromCsr) {
+                San sanEntity = new San();
+                sanEntity.setType(dto.getSanType());
+                sanEntity.setSanValue(dto.getSanValue());
+                sansFromCsrEntities.add(sanEntity);
+            }
+
+            Set<San> finalUniqueSans = new LinkedHashSet<>();
+            finalUniqueSans.addAll(sansFromInput);
+            finalUniqueSans.addAll(sansFromCsrEntities);
+
+            List<San> finalSanList = new ArrayList<>(finalUniqueSans);
+            for (San san : finalSanList) {
+                san.setCertificate(requestDto.getCertificate());
+            }
+            
+            requestDto.getCertificate().setSans(finalSanList);
+        }
+        
+        if (requestDto.getComment() != null && requestDto.getComment().length() > 3999) {
+            requestDto.setComment(requestDto.getComment().substring(0, 3998));
+        }
+        
+        Request request = dtoToEntity(requestDto);
+        
+        if (!CollectionUtils.isEmpty(requestDto.getContacts())) {
+            for (Contact cont : requestDto.getContacts()) {
+                cont.setRequests(request);
+            }
+        }
+        
+        RequestDto requestDtoResult = entityToDto(requestDao.save(request));
+        
+        return requestDtoResult;
+
+    } catch (Exception e) {
+        // CE BLOC VA SE DÉCLENCHER ET NOUS MONTRER LA VRAIE ERREUR
+        // AVANT QUE SPRING NE LA MASQUE
+        
+        LOGGER.error("===============================================================");
+        LOGGER.error("=== LA VRAIE CAUSE DE L'ERREUR DE TRANSACTION EST ICI ===");
+        LOGGER.error("===============================================================");
+        LOGGER.error("Exception de type : {}", e.getClass().getName());
+        LOGGER.error("Message : {}", e.getMessage());
+        LOGGER.error("Stack Trace : ", e); // Le 'e' à la fin est crucial, il imprime la stack trace complète
+        LOGGER.error("===============================================================");
+        
+        // On relance une exception claire pour que l'API ne reste pas bloquée
+        throw new RuntimeException("Erreur interceptée, vérifiez les logs pour la cause réelle.", e);
+    }
+    // ===================================================================
+    // ===                       FIN DU BLOC DE DÉBOGAGE               ===
+    // ===================================================================
+}
