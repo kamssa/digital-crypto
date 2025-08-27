@@ -2551,3 +2551,31 @@ export const SANS_REGEX_PATTERNS = {
   // Regex pour les URIs. En JS, pas besoin d'échapper certains caractères.
   [SanType.URI]: /^(https?|ldaps?|ftp|file|tag|urn|data|tel):[a-zA-Z0-9+&@#/%?=~_!:,.;]*[a-zA-Z0-9+&@#/%=~_]/i
 };
+import { Component } from '@angular/core';
+
+interface City {
+  name: string;
+  code: string;
+}
+
+@Component({
+  selector: 'app-root',
+  templateUrl: './app.component.html'
+})
+export class AppComponent {
+  cities: City[] = [];
+  selectedCity!: City;
+
+  ngOnInit() {
+	  
+    this.cities = [
+      { name: 'New York', code: 'NY' },
+      { name: 'Rome', code: 'RM' },
+      { name: 'London', code: 'LDN' },
+      { name: 'Istanbul', code: 'IST' },
+      { name: 'Paris', code: 'PRS' }
+    ];
+  }
+}
+/////////////////////////
+.filter(k => isNaN(Number(k)));
