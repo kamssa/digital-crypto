@@ -2093,3 +2093,90 @@ export class RequestDetailSectionComponent implements OnInit, OnDestroy {
 
   // ... (get sans(), createSanGroup(), addSan(), removeSan(), loadExistingSans() restent inchangés) ...
 }
+////////////////////////
+@Override
+public RequestDto createRequest(RequestDto requestDto) {
+
+    // ===================================================================
+    // ===       BLOC DE FUSION ET CORRECTION DES SANs (FINAL)         ===
+    // ===================================================================
+    // On s'assure que l'objet certificat existe avant de manipuler les SANs
+    if (requestDto.getCertificate() != null) {
+
+        // 1. On récupère les SANs saisis dans Angular de manière sécurisée.
+        List<San> sansFromInput = new ArrayList<>();
+        if (requestDto.getCertificate().getSans() != null) {
+            sansFromInput.addAll(requestDto.getCertificate().getSans());
+        }
+
+        // 2. On récupère les SANs du CSR sous forme de DTOs.
+        List<SanDto> sansDtoFromCsr = new ArrayList<>();
+        final String csr = this.fileManagerService.extractCsr(requestDto, Boolean.TRUE);
+        if (!StringUtils.isEmpty(csr)) {
+            try {
+                // Note : On utilise bien une méthode qui retourne List<SanDto>
+                sansDtoFromCsr = this.csrDecoder.extractSansWithTypesFromCsr(csr);
+            } catch (Exception e) {
+                LOGGER.error("Message de CSR create:" + e.getMessage());
+                throw new CertisRequestException("error.request.csr.invalid_format", HttpStatus.BAD_REQUEST);
+            }
+        }
+
+        // 3. On convertit les DTOs du CSR en nouvelles entités San.
+        List<San> sansFromCsrEntities = new ArrayList<>();
+        // CORRECTION D'UNE ERREUR : La boucle doit itérer sur des SanDto
+        for (SanDto dto : sansDtoFromCsr) {
+            San sanEntity = new San();
+            sanEntity.setType(dto.getSanType());
+            sanEntity.setSanValue(dto.getSanValue());
+            sansFromCsrEntities.add(sanEntity);
+        }
+
+        // 4. On fusionne les deux listes d'entités et on supprime les doublons.
+        Set<San> finalUniqueSans = new LinkedHashSet<>();
+        finalUniqueSans.addAll(sansFromInput);
+        finalUniqueSans.addAll(sansFromCsrEntities);
+
+        // 5. LA CORRECTION CRUCIALE : On lie chaque SAN à son certificat parent.
+        // C'est cette étape qui empêche l'erreur de transaction.
+        List<San> finalSanList = new ArrayList<>(finalUniqueSans);
+        for (San san : finalSanList) {
+            san.setCertificate(requestDto.getCertificate());
+        }
+        
+        // 6. On met à jour le DTO avec la liste finale, propre et correctement liée.
+        requestDto.getCertificate().setSans(finalSanList);
+    }
+    // ===================================================================
+    // ===                      FIN DU BLOC DE CORRECTION              ===
+    // ===================================================================
+
+
+    // --- VOTRE CODE ORIGINAL (légèrement nettoyé) ---
+    
+    if (requestDto.getComment() != null && requestDto.getComment().length() > 3999) {
+        requestDto.setComment(requestDto.getComment().substring(0, 3998));
+    }
+    
+    Request request = dtoToEntity(requestDto);
+    
+    // Cette boucle est maintenant REDONDANTE car nous l'avons déjà fait plus haut de manière plus sûre.
+    // Vous pouvez la supprimer pour garder le code propre.
+    /*
+    if (!CollectionUtils.isEmpty(requestDto.getCertificate().getSans())) {
+        for (San san : requestDto.getCertificate().getSans()) {
+            san.setCertificate(requestDto.getCertificate());
+        }
+    }
+    */
+    
+    if (!CollectionUtils.isEmpty(requestDto.getContacts())) {
+        for (Contact cont : requestDto.getContacts()) {
+            cont.setRequests(request);
+        }
+    }
+    
+    RequestDto requestDtoResult = entityToDto(requestDao.save(request));
+    
+    return requestDtoResult;
+}
