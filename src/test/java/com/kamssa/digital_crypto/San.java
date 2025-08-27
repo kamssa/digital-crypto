@@ -2530,3 +2530,24 @@ public class RequestServiceImpl implements RequestService {
     
     // ... Le reste de vos autres méthodes (updateRequest, dtoToEntity, etc.) ...
 }
+////////////////////////////
+export const SANS_REGEX_PATTERNS = {
+  // Regex pour les noms de domaine. En JS, \\ devient \.
+  [SanType.DNSNAME]: /^[a-zA-Z0-9\.\-\*_]+$/,
+
+  // Regex pour les adresses email. En JS, \. devient .
+  [SanType.RFC822NAME]: /^[a-zA-Z0-9_!#$%&'*+/=?`{|}~^.-]+@[a-zA-Z0-9.-]+$/,
+
+  // Regex pour les adresses IP. En JS, \\d devient \d.
+  [SanType.IPADDRESS]: /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/,
+
+  // Regex pour les GUID. Elle est identique.
+  [SanType.OTHERNAME_GUID]: /^[a-fA-F0-9]{32}$/,
+
+  // Regex pour les UPN (souvent similaire à un email). La regex Java est complexe,
+  // celle-ci est une version JS équivalente.
+  [SanType.OTHERNAME_UPN]: /^[a-zA-Z0-9_!#$%&'*+/=?`{|}~^.-]+@[a-zA-Z0-9.-]+$/,
+
+  // Regex pour les URIs. En JS, pas besoin d'échapper certains caractères.
+  [SanType.URI]: /^(https?|ldaps?|ftp|file|tag|urn|data|tel):[a-zA-Z0-9+&@#/%?=~_!:,.;]*[a-zA-Z0-9+&@#/%=~_]/i
+};
