@@ -2730,3 +2730,396 @@ request-detail-section.component.ts : Modifiez buildRequestDetailForm pour qu'il
 san.component.ts : Refactorisez entièrement ce composant. Supprimez toute référence à un contrôle san et utilisez à la place des getters pour les contrôles type et value. Adaptez toute la logique de validation dans ngOnInit pour qu'elle fonctionne avec this.valueControl.
 san.component.html : Assurez-vous que ce template contient les champs input et dropdown avec les formControlName="value" et formControlName="type" respectivement.
 Une fois ces trois points corrigés, votre application sera cohérente : la création des données, la logique du composant enfant et l'affichage HTML fonctionneront tous avec la même structure de données {type, value}.
+//////////////////////// regex /////////////////////
+// Ligne 696-717
+createSanGroup(): FormGroup {
+  const sanGroup = this.fb.group({
+    type: [SanType.DNSNAME, Validators.required],
+    value: ['', [Validators.required, Validators.pattern(SANS_REGEX_PATTERNS[SanType.DNSNAME])]],
+  });
+
+  // Cette partie est cruciale : elle change le validateur quand le type change
+  sanGroup.get('type').valueChanges.subscribe((type: SanType) => {
+    const valueControl = sanGroup.get('value');
+    const regex = SANS_REGEX_PATTERNS[type];
+    if (regex) {
+      // Si une regex existe, on ajoute le validateur 'pattern'
+      valueControl.setValidators([Validators.required, Validators.pattern(regex)]);
+    } else {
+      valueControl.setValidators(Validators.required);
+    }
+    valueControl.updateValueAndValidity();
+  });
+  return sanGroup;
+}
+Cette logique ajoute un validateur Validators.pattern au champ value. Si la valeur entrée ne correspond pas à l'expression régulière (regex), Angular ajoutera un objet d'erreur au contrôle, qui ressemblera à { pattern: { requiredPattern: '...', actualValue: '...' } }.
+Dans le HTML (request-detail-section.component.html ou san.component.html) :
+Vous affichez le message d'erreur avec cette condition :
+code
+Html
+<small class="p-error" *ngIf="sanGroup.get('value')?.errors?.pattern">
+  {{ 'requestDetailSection.errors.sanFormat.' + sanGroup.get('type').value | translate }}
+</small>
+Le message ne s'affiche QUE SI sanGroup.get('value').errors existe et contient une clé nommée pattern.
+Les Causes Possibles du Problème
+Il y a deux raisons principales pour lesquelles le message ne s'affiche pas :
+Cause n°1 : Le validateur pattern ne se déclenche pas (le *ngIf est faux)
+C'est la cause la plus probable. L'objet errors sur votre FormControl ne contient pas la clé pattern.
+Comment vérifier :
+La valeur entrée est peut-être valide : Assurez-vous que vous testez avec une valeur qui est certainement invalide par rapport à votre regex. Par exemple, si vous attendez une adresse IP, tapez "hello world".
+La regex est incorrecte ou manquante : La logique dépend de l'objet SANS_REGEX_PATTERNS. Il est possible que pour le type que vous sélectionnez dans le dropdown, la regex correspondante soit manquante ou incorrecte.
+Action de débogage : Dans votre méthode createSanGroup, ajoutez des console.log pour voir exactement quel validateur est appliqué.
+code
+TypeScript
+sanGroup.get('type').valueChanges.subscribe((type: SanType) => {
+  const valueControl = sanGroup.get('value');
+  const regex = SANS_REGEX_PATTERNS[type];
+
+  // AJOUTEZ CE CONSOLE.LOG
+  console.log(`Type changé en : ${type}. Regex appliquée :`, regex);
+
+  if (regex) {
+    valueControl.setValidators([Validators.required, Validators.pattern(regex)]);
+  } else {
+    console.warn(`Aucune regex trouvée pour le type ${type}`); // Avertissement utile
+    valueControl.setValidators(Validators.required);
+  }
+  valueControl.updateValueAndValidity();
+});
+Ouvrez la console de votre navigateur. Changez le type dans le dropdown et vérifiez si une regex correcte est affichée. Si vous voyez undefined ou un avertissement, c'est que votre objet SANS_REGEX_PATTERNS n'a pas de clé pour ce type.
+Vérifier l'état du formulaire en temps réel : La meilleure façon de savoir est d'afficher l'objet d'erreurs. Dans votre HTML, juste pour le débogage, ajoutez ceci sous votre champ input :
+code
+Html
+<pre>{{ sanGroup.get('value').errors | json }}</pre>
+Tapez une valeur invalide dans le champ. Si rien ne s'affiche dans la balise <pre>, c'est que le validateur ne se déclenche pas. Si vous voyez { "required": true } mais pas pattern, c'est que seul le validateur required est actif. Si vous voyez bien { "pattern": { ... } } et que le message ne s'affiche toujours pas, le problème vient de la cause n°2.
+Cause n°2 : Le validateur se déclenche, mais la traduction échoue
+Dans ce cas, le *ngIf est bien true, mais le texte à l'intérieur ne s'affiche pas car la clé de traduction est introuvable.
+Comment vérifier :
+La clé de traduction est construite dynamiquement : 'requestDetailSection.errors.sanFormat.' + sanGroup.get('type').value.
+La valeur du type est inattendue : Le sanGroup.get('type').value pourrait ne pas être la chaîne de caractères que vous attendez (par exemple DNSNAME). Il pourrait s'agir d'un objet ou d'une valeur avec une casse différente.
+Action de débogage : Ajoutez ce console.log dans le même subscribe que précédemment :
+console.log('Valeur du type utilisée pour la traduction :', sanGroup.get('type').value);
+La clé n'existe pas dans vos fichiers de traduction : Vérifiez vos fichiers JSON de traduction (par ex. fr.json). Assurez-vous d'avoir des entrées qui correspondent exactement aux clés générées. Par exemple :
+code
+JSON
+// Dans fr.json
+{
+  "requestDetailSection": {
+    "errors": {
+      "sanFormat": {
+        "DNSNAME": "Le format du nom de domaine est invalide.",
+        "IPADDRESS": "Le format de l'adresse IP est invalide.",
+        "EMAIL": "Le format de l'adresse email est invalide."
+        // ... etc. pour tous les types possibles
+      }
+    }
+  }
+}
+/////////////////// certificat.ts ameliorer ///////////////////////////////
+Convention de nommage : En TypeScript, les noms d'interfaces et de classes commencent par une majuscule (PascalCase). Renommons-la San.
+La propriété url : Est-elle toujours présente ? Si le type est URI, la value contiendra déjà l'URL. Cette propriété semble redondante. Pour plus de sécurité, nous pouvons la rendre optionnelle avec un ?.
+code
+TypeScript
+// Fichier: Certificate.ts
+
+// ... (imports)
+
+// Définition claire et réutilisable pour un objet SAN
+export interface San {
+  type: string; // Par ex: 'DNSNAME', 'IPADDRESS'
+  value: string; // Par ex: 'example.com', '192.168.1.1'
+  url?: string;  // Optionnel, au cas où il est utilisé ailleurs
+}
+
+// ...
+Étape 2 : Mettre à jour la classe Certificate
+Maintenant que nous avons une interface San propre, utilisons-la pour typer la propriété SANS dans la classe Certificate.
+code
+TypeScript
+// Fichier: Certificate.ts
+
+// ...
+
+export class Certificate {
+  // ... autres propriétés
+
+  // AVANT
+  // SANS: any[];
+
+  // APRÈS : Le tableau est maintenant fortement typé
+  SANS: San[];
+
+  // ... reste de la classe
+}
+Pourquoi c'est important ?
+Sécurité : TypeScript vous signalera une erreur si vous essayez d'ajouter quelque chose qui n'est pas un objet San dans ce tableau.
+Auto-complétion : Quand vous écrirez monCertificat.SANS[0]., votre éditeur de code vous proposera automatiquement type et value.
+Lisibilité : N'importe quel développeur qui lit ce code sait immédiatement à quoi ressemblent les données.
+Étape 3 : Adapter la méthode statique fromJSON (Très important)
+Cette méthode est responsable de la conversion des données brutes reçues de l'API en une instance de la classe Certificate. Nous devons nous assurer qu'elle crée correctement le tableau SANS.
+La méthode fromJSON reçoit data: any. Nous devons explicitement transformer data.SANS en un tableau de type San[].
+code
+TypeScript
+// Fichier: Certificate.ts
+
+export class Certificate {
+
+  // ...
+
+  static fromJSON(data: any): Certificate {
+    const certificate = new Certificate();
+    
+    // ... assignation des autres propriétés
+
+    // ================== MODIFICATION CRUCIALE ==================
+    // On s'assure que data.SANS existe, et on le transforme en un tableau de San.
+    // Cela garantit que même si l'API envoie des propriétés en trop, 
+    // on ne garde que ce qui nous intéresse (type, value).
+    if (data.SANS && Array.isArray(data.SANS)) {
+      certificate.SANS = data.SANS.map(san => ({
+        type: san.type,
+        value: san.value
+        // On peut ignorer la propriété 'url' si on ne l'utilise pas
+      }));
+    } else {
+      // Si aucune donnée SAN n'est reçue, on initialise avec un tableau vide.
+      certificate.SANS = [];
+    }
+    // =============================================================
+
+    // ... le reste de la méthode fromJSON
+
+    return certificate;
+  }
+
+  // ...
+}
+Résumé : Le Fichier Certificate.ts Modifié
+Voici à quoi devrait ressembler votre fichier final.
+code
+TypeScript
+// src/app/shared/beans/Certificate.ts
+
+// ... autres imports si nécessaire
+
+/**
+ * Interface définissant la structure d'un Subject Alternative Name (SAN).
+ */
+export interface San {
+  type: string;
+  value: string;
+  url?: string;
+}
+
+export class Certificate {
+  // ... toutes les autres propriétés
+  certificateName: string;
+  // ...
+
+  // La propriété SANS est maintenant fortement typée.
+  SANS: San[];
+
+  // ...
+
+  constructor() {
+    this.commonName = this.certificateName;
+    // Initialiser le tableau pour éviter les erreurs si aucune donnée n'est chargée
+    this.SANS = []; 
+  }
+
+  /**
+   * Crée une instance de Certificate à partir d'un objet JSON brut (ex: réponse d'API).
+   */
+  static fromJSON(data: any): Certificate {
+    const certificate = new Certificate();
+
+    // ... assignation de toutes les autres propriétés depuis 'data'
+    Object.assign(certificate, data);
+
+    // Transformation et typage sécurisé du tableau SANS
+    if (data.SANS && Array.isArray(data.SANS)) {
+      certificate.SANS = data.SANS.map(san => ({
+        type: san.type,
+        value: san.value
+      }));
+    } else {
+      certificate.SANS = [];
+    }
+
+    // ... autre logique spécifique à fromJSON (ex: gestion de csrFile, componentToSign)
+
+    return certificate;
+  }
+}
+Avec ces modifications, votre modèle de données (Certificate.ts) est maintenant parfaitement aligné avec la logique de votre formulaire Angular. Cela résoudra les problèmes de liaison de données et rendra votre application beaucoup plus fiable.
+////////////////////////////// certificatsRequest.ts//////////////////////////////
+La Solution : Déléguer la Création
+Nous devons modifier CertificateRequest.fromJSON pour qu'il délègue la création de l'objet certificate à la méthode Certificate.fromJSON.
+Modification à apporter dans CertificateRequest.ts
+code
+TypeScript
+// src/app/shared/beans/CertificateRequest.ts
+
+import { Certificate, San } from './Certificate'; // Importez San si ce n'est pas déjà fait
+
+// ...
+
+export class CertificateRequest {
+  // ... propriétés
+  certificate: Certificate = new Certificate();
+  // ...
+
+  static fromJSON(data: any): CertificateRequest {
+    const certificateRequest = new CertificateRequest();
+
+    // ... assignation des propriétés directes (id, status, requestDate, etc.)
+    // La logique existante pour ces champs est probablement correcte.
+    Object.assign(certificateRequest, data); // Gardons cette base
+
+    // ================== MODIFICATION CRUCIALE ==================
+    // Au lieu de simplement copier l'objet, nous allons créer une
+    // véritable instance de Certificate en utilisant sa propre méthode fromJSON.
+    if (data.certificate) {
+      certificateRequest.certificate = Certificate.fromJSON(data.certificate);
+    } else {
+      // S'il n'y a pas de données de certificat, on s'assure d'avoir une instance vide.
+      certificateRequest.certificate = new Certificate();
+    }
+    // =============================================================
+
+    // ... le reste de la logique de fromJSON (gestion des contacts, des fichiers, etc.)
+
+    return certificateRequest;
+  }
+  
+  // ...
+}
+Analyse des Autres Méthodes
+La méthode toJSON()
+Regardons comment les données sont renvoyées à l'API. Dans vos captures d'écran, je vois :
+code
+TypeScript
+// Dans la méthode toJSON() de CertificateRequest
+'certificate': {
+    // ...
+    'sans': this.sansAsJSON(),
+    // ...
+}
+Elle appelle une méthode privée sansAsJSON().
+La méthode private sansAsJSON()
+code
+TypeScript
+private sansAsJSON(): object[] {
+  console.log(this);
+  if (!this.certificate || !Array.isArray(this.certificate.SANS)) {
+    console.log('Coucou');
+    return [];
+  }
+
+  console.log("Voirs les sans du certificatRequest:", this.certificate.SANS);
+  return this.certificate.SANS.map(
+    san => ({
+      type: san.type,
+      value: san.value
+    })
+  );
+}
+Bonne nouvelle : cette méthode est parfaite ! Elle est déjà conçue pour fonctionner avec un tableau d'objets San ayant les propriétés type et value.
+Grâce aux modifications que nous avons apportées :
+this.certificate.SANS sera maintenant un San[] fortement typé.
+Le map fonctionnera de manière plus sûre, avec l'auto-complétion et la vérification de type.
+Vous n'avez donc rien à changer dans les méthodes toJSON ou sansAsJSON. Elles bénéficieront automatiquement de la robustesse que nous avons ajoutée en amont.
+Résumé des Actions
+Typage Fort : Vous avez bien défini l'interface San et typé Certificate.SANS en San[] dans Certificate.ts.
+Instanciation Correcte : Vous avez mis à jour Certificate.fromJSON pour qu'il mappe correctement les données brutes vers un San[].
+Délégation : La dernière étape est de modifier CertificateRequest.fromJSON pour qu'il appelle Certificate.fromJSON(data.certificate).
+Une fois cette dernière modification effectuée, votre chaîne de données sera cohérente et fortement typée depuis la réception des données de l'API jusqu'à leur utilisation dans votre formulaire Angular.
+///////////////////////// FormComponent ///////////////////////////////////////
+1. Le Point le Plus Important : La Création de l'Objet certificateRequest
+Dans votre constructor, vous recevez les données brutes de la route. Ces données sont des objets JSON génériques, pas des instances de vos classes. Vous devez explicitement utiliser votre méthode fromJSON pour les transformer.
+Problème :
+code
+TypeScript
+// Ligne ~86
+.subscribe(([data, params]) => {
+    const request = data.request as CertificateRequest; // <-- Ceci ne fait qu'un 'cast' de type, pas une vraie conversion. 'request' reste un objet JSON simple.
+    // ...
+});
+Solution :
+Nous devons appeler CertificateRequest.fromJSON pour créer une véritable instance, qui à son tour appellera Certificate.fromJSON.
+code
+TypeScript
+// Fichier: form.component.ts (dans le constructor)
+
+// ...
+.subscribe(([data, params]) => {
+    // ================== CORRECTION CRUCIALE ==================
+    // On transforme l'objet JSON brut en une véritable instance de CertificateRequest
+    // C'est cette ligne qui va déclencher toute notre logique de typage.
+    const request = CertificateRequest.fromJSON(data.request);
+    // =======================================================
+    const action = params.get('action');
+
+    // Le reste du code peut maintenant travailler avec un objet 'request' propre et bien typé.
+    this.isNew = false;
+    this.isDuplicate = this.isDuplicateRequest(action);
+    // ...
+});
+2. La Création du Formulaire (createForm)
+Votre méthode createForm passe les données au sous-composant RequestDetailSectionComponent pour qu'il construise sa partie du formulaire. Il faut s'assurer de lui passer les bonnes données.
+Problème :
+code
+TypeScript
+// Ligne ~174
+requestDetails: RequestDetailSectionComponent.buildRequestDetailForm(request),
+La méthode buildRequestDetailForm attend un objet Certificate (et un comment), mais vous lui passez l'objet request entier, qui est de type CertificateRequest.
+Solution :
+Passez l'objet certificate contenu à l'intérieur de la requête.
+code
+TypeScript
+// Fichier: form.component.ts (dans la méthode createForm)
+
+private createForm(request: CertificateRequest) {
+    // ...
+    this.form = this.fb.group({
+        // ... autres form groups
+        requestDetails: RequestDetailSectionComponent.buildRequestDetailForm(request.certificate, request.certificate.comment),
+        // ...
+    });
+    // ...
+}
+3. La Synchronisation des Données (Formulaire -> Modèle)
+Quand l'utilisateur modifie le formulaire, vous avez une méthode manageRequestDetailSection qui remet à jour votre objet this.certificateRequest. Il faut vérifier que la mise à jour des SANs est correcte.
+Problème :
+code
+TypeScript
+// Ligne ~407
+this.certificateRequest.certificate.SANS = this.form.get(this.REQUEST_DETAILS_FORM_NAME).value.SANS?.map(san => ({ san })).filter(san => san);
+Le .map(san => ({ san })) est incorrect. Il prend un objet {type, value} et le transforme en { san: {type, value} }, ce qui ne correspond pas à notre interface San[].
+Solution :
+Le formulaire vous donne déjà les données dans le bon format. Il suffit de filtrer les éventuelles lignes vides et d'assigner le résultat.
+code
+TypeScript
+// Fichier: form.component.ts (dans la méthode manageRequestDetailSection)
+
+// ...
+.subscribe(status => {
+    if (status === 'VALID') {
+        const formValue = this.form.get(this.REQUEST_DETAILS_FORM_NAME).value;
+        // ... assignation des autres propriétés
+
+        // ================== CORRECTION DE LA SYNCHRONISATION ==================
+        // On récupère le tableau SANS du formulaire.
+        const sansFromForm = formValue.SANS || [];
+
+        // On filtre les entrées qui pourraient être vides ou invalides (optionnel mais prudent)
+        this.certificateRequest.certificate.SANS = sansFromForm.filter(san => san && san.value);
+        // ======================================================================
+    }
+});
+Résumé des Modifications pour FormComponent.ts
+Dans le constructor : Utilisez CertificateRequest.fromJSON(data.request) pour créer une instance correctement typée de votre modèle de données dès le départ. C'est la correction la plus importante.
+Dans createForm : Passez request.certificate à la méthode buildRequestDetailForm pour que le sous-formulaire soit initialisé avec les bonnes données.
+Dans manageRequestDetailSection : Simplifiez la mise à jour de this.certificateRequest.certificate.SANS pour qu'elle corresponde à la structure San[].
+En effectuant ces changements, vous aurez une chaîne de données cohérente et robuste à travers toute votre application :
+API (JSON) -> Modèles (fromJSON) -> Formulaire Angular -> Modèles (synchronisation) -> API (toJSON).
