@@ -2579,3 +2579,154 @@ export class AppComponent {
 }
 /////////////////////////
 .filter(k => isNaN(Number(k)));
+/////////////////////////// correction voir san dans input ////////////////////////////////
+Dans request-detail-section.component.ts, modifiez la méthode statique buildRequestDetailForm pour qu'elle crée la bonne structure de FormArray.
+code
+TypeScript
+// Fichier : request-detail-section.component.ts
+
+import { FormArray, FormControl, FormGroup, Validators } from '@angular/forms'; // Assurez-vous d'avoir ces imports
+
+// ...
+
+static buildRequestDetailForm(certificate: CertificateRequest, comment: string): FormGroup {
+    // Si certificate.SANS n'existe pas ou est vide, on initialise avec un tableau vide
+    const initialSansData = certificate?.SANS || [];
+
+    return new FormGroup({
+      // ... autres form controls
+      certificateName: new FormControl(certificate.certificateName, Validators.minLength(3)),
+
+      // ======================= CORRECTION PRINCIPALE =======================
+      SANS: new FormArray(
+        initialSansData.map(san => new FormGroup({
+          // Je suppose que votre objet 'san' a les propriétés 'type' et 'value'
+          type: new FormControl(san.type, Validators.required),
+          value: new FormControl(san.value, Validators.required) 
+        }))
+      ),
+      // =====================================================================
+      comment: new FormControl(certificate.comment, Validators.minLength(3))
+    });
+}
+Étape 2 : Mettre à jour le composant enfant (san.component.ts)
+C'est l'étape la plus importante. Vous devez adapter toute la logique de ce composant pour qu'il fonctionne avec les contrôles type et value.
+code
+TypeScript
+// Fichier : san.component.ts
+
+// ...
+export class SanComponent extends SubscribeAware implements OnInit, OnDestroy {
+  @Input() index: number;
+  @Input() sanForm: FormGroup; // Reçoit un FormGroup qui contient 'type' et 'value'
+  // ... autres @Input
+
+  // ===== SUPPRIMEZ L'ANCIEN GETTER =====
+  // get san() { return this.sanForm.get('san'); } // À SUPPRIMER
+
+  // ===== AJOUTEZ DES GETTERS UTILES =====
+  get typeControl(): FormControl {
+    return this.sanForm.get('type') as FormControl;
+  }
+
+  get valueControl(): FormControl {
+    return this.sanForm.get('value') as FormControl;
+  }
+
+
+  // ===== SUPPRIMEZ L'ANCIENNE MÉTHODE STATIQUE =====
+  // static buildSanForm(san: string = '') { ... } // À SUPPRIMER (elle est maintenant gérée dans createSanGroup du parent)
+
+  // ... constructor ...
+
+  ngOnInit() {
+    this.formConstraintsService.getConstraint().subscribe(constraint => {
+      this.constraint = constraint;
+    });
+
+    // ===== MODIFIEZ TOUTE LA LOGIQUE POUR UTILISER 'valueControl' =====
+    this.valueControl.statusChanges
+      .pipe(
+        startWith(this.valueControl.status),
+        debounceTime(500),
+        filter(status => status === 'VALID'),
+        map(() => this.valueControl.value),
+        filter(sanValue => sanValue.length > 3),
+        distinctUntilChanged(),
+        tap(sanValue => {
+          this.checkSan(sanValue); // On utilise la valeur du contrôle 'value'
+        }),
+        takeUntil(this.destroy$)
+      )
+      .subscribe();
+
+    // Mettez à jour les validateurs et autres logiques de la même manière
+    // Exemple pour la suite de la logique :
+    const certificateNameRefwebValidator = certificateNameRefwebValidatorFactory(this.sanForm.parent, false, this.api, this.sanForm);
+    this.valueControl.valueChanges
+      .pipe(
+        takeUntil(this.destroy$),
+        switchMap(() => {
+          if (this.valueControl.valid) { // On vérifie la validité du contrôle 'value'
+            return certificateNameRefwebValidator(this.valueControl);
+          }
+          return of(null);
+        })
+      )
+      .subscribe({
+        next: errors => this.refwebWarnings = errors,
+        error: () => this.refwebWarnings = { inactif: true }
+      });
+    
+    // etc. pour le reste des validateurs...
+  }
+  
+  checkSan(sanValue: string) { // La signature est bonne
+    this.api.checkSan(sanValue).subscribe(/* ... */);
+  }
+
+  // ...
+}
+Étape 3 : Assurer que le template du composant enfant est correct (san.component.html)
+Le code HTML que vous nous avez montré au tout début doit se trouver dans le fichier san.component.html. Il doit être lié au sanForm que le composant reçoit en @Input.
+code
+Html
+<!-- Fichier : san.component.html -->
+<!-- Ce formulaire est lié au [formGroup]="sanForm" reçu en Input -->
+<div [formGroup]="sanForm" class="row row-style">
+
+  <!-- Champ pour la valeur -->
+  <div class="san-value-column">
+    <input type="text" pInputText formControlName="value" style="width: 100%;">
+  </div>
+
+  &nbsp;&nbsp;
+
+  <!-- Champ pour le type -->
+  <div class="san-type-column">
+    <p-dropdown [options]="sanType" formControlName="type" optionLabel="name">
+      <!-- Les templates pour le dropdown -->
+    </p-dropdown>
+  </div>
+  
+  &nbsp;&nbsp;
+
+  <!-- Bouton d'action -->
+  <div class="san-action-col">
+      <button pButton type="button" icon="pi pi-trash" (click)="removeThisSan()">...</button>
+  </div>
+
+  <!-- Affichage des erreurs -->
+  <div class="ui-g-12">
+    <div *ngIf="valueControl.invalid && (valueControl.dirty || valueControl.touched)">
+      <small class="p-error" *ngIf="valueControl.errors?.pattern">
+        Message d'erreur...
+      </small>
+    </div>
+  </div>
+</div>
+Résumé de la correction
+request-detail-section.component.ts : Modifiez buildRequestDetailForm pour qu'il crée un FormArray où chaque élément est un FormGroup({ type: ..., value: ... }) à partir des données initiales.
+san.component.ts : Refactorisez entièrement ce composant. Supprimez toute référence à un contrôle san et utilisez à la place des getters pour les contrôles type et value. Adaptez toute la logique de validation dans ngOnInit pour qu'elle fonctionne avec this.valueControl.
+san.component.html : Assurez-vous que ce template contient les champs input et dropdown avec les formControlName="value" et formControlName="type" respectivement.
+Une fois ces trois points corrigés, votre application sera cohérente : la création des données, la logique du composant enfant et l'affichage HTML fonctionneront tous avec la même structure de données {type, value}.
