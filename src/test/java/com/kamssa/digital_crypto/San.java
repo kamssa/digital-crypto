@@ -3175,3 +3175,50 @@ this._formConstraintsService.getConstraint()
 // ▲▲▲ FIN DE LA SOLUTION ▲▲▲
 
 // ...
+
+/////////////////////
+this._formConstraintsService.getConstraint()
+    .pipe(
+        // On intercepte chaque 'constraint' émis par le service
+        map(originalConstraint => {
+            // On crée une copie profonde de l'objet pour éviter les mutations inattendues
+            const modifiedConstraint = JSON.parse(JSON.stringify(originalConstraint || {}));
+
+            // On s'assure que la structure 'fields' existe
+            if (!modifiedConstraint.fields) {
+                modifiedConstraint.fields = {};
+            }
+
+            // On ajoute notre permission pour les SANs pour forcer l'affichage de la section
+            modifiedConstraint.fields['SANS'] = { required: false };
+            
+            // On retourne le nouvel objet modifié
+            return modifiedConstraint;
+        })
+    )
+    .subscribe(constraint => {
+        // Le 'constraint' reçu ici est notre version modifiée
+        this.constraint = constraint;
+
+        // On s'assure qu'il y a au moins un champ de saisie SAN.
+        // On récupère le FormArray 'sans'. Il peut ne pas exister encore.
+        let sansArray = this.requestDetailSectionForm.get('sans') as FormArray;
+
+        // Si le FormArray 'sans' n'existe pas du tout dans le formulaire, on le crée.
+        if (!sansArray) {
+            this.requestDetailSectionForm.addControl('sans', this.fb.array([ this.createSanGroup() ]));
+        } 
+        // S'il existe mais qu'il est vide, on ajoute le premier champ.
+        else if (sansArray.length === 0) {
+            sansArray.push(this.createSanGroup());
+        }
+
+        // ** LA CORRECTION FINALE **
+        // On force Angular à rafraîchir la vue pour qu'il voie le contenu du FormArray.
+        this.cdRef.detectChanges();
+    });
+
+// =========================================================================
+// ▲▲▲ FIN DU BLOC ▲▲▲
+// =========================================================================
+
