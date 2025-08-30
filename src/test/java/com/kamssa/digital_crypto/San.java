@@ -3123,3 +3123,34 @@ Dans createForm : Passez request.certificate à la méthode buildRequestDetailFo
 Dans manageRequestDetailSection : Simplifiez la mise à jour de this.certificateRequest.certificate.SANS pour qu'elle corresponde à la structure San[].
 En effectuant ces changements, vous aurez une chaîne de données cohérente et robuste à travers toute votre application :
 API (JSON) -> Modèles (fromJSON) -> Formulaire Angular -> Modèles (synchronisation) -> API (toJSON).
+//////////////////////////////////////
+// Décommentez ce bloc si vous l'aviez laissé en commentaire
+this._formConstraintsService.getConstraint()
+    .pipe(
+        // On intercepte chaque 'constraint' émis par le service
+        map(originalConstraint => {
+
+            // On crée une copie de l'objet original pour ne pas le modifier directement
+            const modifiedConstraint = { ...originalConstraint };
+
+            // On s'assure que la structure 'fields' existe
+            if (!modifiedConstraint.fields) {
+                modifiedConstraint.fields = {};
+            }
+
+            // On ajoute notre permission pour les SANs
+            modifiedConstraint.fields['SANS'] = { required: false };
+            
+            // On retourne le nouvel objet modifié qui continuera son chemin vers le subscribe
+            return modifiedConstraint;
+        })
+    )
+    .subscribe(constraint => {
+        // Le 'constraint' reçu ici est maintenant NOTRE version modifiée
+        console.log('Contenu du constraint MODIFIÉ reçu :', constraint);
+        this.constraint = constraint;
+    });
+
+// ▲▲▲ FIN DE LA SOLUTION ▲▲▲
+
+// ...
