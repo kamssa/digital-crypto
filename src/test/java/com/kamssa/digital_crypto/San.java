@@ -3149,6 +3149,17 @@ this._formConstraintsService.getConstraint()
         // Le 'constraint' reçu ici est maintenant NOTRE version modifiée
         console.log('Contenu du constraint MODIFIÉ reçu :', constraint);
         this.constraint = constraint;
+		// On récupère le FormArray 'sans'. Il peut ne pas exister encore.
+        let sansArray = this.requestDetailSectionForm.get('sans') as FormArray;
+
+        // Si le FormArray 'sans' n'existe pas du tout dans le formulaire, on le crée.
+        if (!sansArray) {
+            this.requestDetailSectionForm.addControl('sans', this.fb.array([ this.createSanGroup() ]));
+        } 
+        // S'il existe mais qu'il est vide, on ajoute le premier champ.
+        else if (sansArray.length === 0) {
+            sansArray.push(this.createSanGroup());
+        }
     });
 
 // ▲▲▲ FIN DE LA SOLUTION ▲▲▲
