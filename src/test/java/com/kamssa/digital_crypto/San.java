@@ -3150,18 +3150,7 @@ this._formConstraintsService.getConstraint()
         console.log('Contenu du constraint MODIFIÉ reçu :', constraint);
         this.constraint = constraint;
 		// On récupère le FormArray 'sans'. Il peut ne pas exister encore.
-        let sansArray = this.requestDetailSectionForm.get('sans') as FormArray;
-
-        // Si le FormArray 'sans' n'existe pas du tout dans le formulaire, on le crée.
-        if (!sansArray) {
-            this.requestDetailSectionForm.addControl('sans', this.fb.array([ this.createSanGroup() ]));
-        } 
-        // S'il existe mais qu'il est vide, on ajoute le premier champ.
-        else if (sansArray.length === 0) {
-            sansArray.push(this.createSanGroup());
-        }
-		////////////////////////
-		 const sansArray = this.requestDetailSectionForm.get('sans') as FormArray;
+        const sansArray = this.requestDetailSectionForm.get('sans') as FormArray;
 
     console.log('--- DÉBUT DU TEST DE PERSISTANCE ---');
     if (sansArray) {
@@ -3183,8 +3172,6 @@ this._formConstraintsService.getConstraint()
         console.log('Longueur du FormArray 10ms PLUS TARD :', finalSansArray.length); // <-- C'est le log le plus important !
         console.log('--- FIN DU TEST DE PERSISTANCE ---');
     }, 10); // Un délai très court suffit
-    });
-
 // ▲▲▲ FIN DE LA SOLUTION ▲▲▲
 
 // ...
