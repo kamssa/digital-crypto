@@ -3160,6 +3160,29 @@ this._formConstraintsService.getConstraint()
         else if (sansArray.length === 0) {
             sansArray.push(this.createSanGroup());
         }
+		////////////////////////
+		 const sansArray = this.requestDetailSectionForm.get('sans') as FormArray;
+
+    console.log('--- DÉBUT DU TEST DE PERSISTANCE ---');
+    if (sansArray) {
+        console.log('Longueur du FormArray AVANT notre ajout :', sansArray.length);
+        
+        if (sansArray.length === 0) {
+            sansArray.push(this.createSanGroup());
+            console.log('Longueur du FormArray JUSTE APRÈS notre ajout :', sansArray.length); // Devrait afficher 1
+        }
+    } else {
+        console.log('Le FormArray "sans" n\'existe pas, nous allons le créer.');
+        this.requestDetailSectionForm.addControl('sans', this.fb.array([ this.createSanGroup() ]));
+        console.log('Le FormArray a été créé et contient maintenant 1 élément.');
+    }
+
+    // On vérifie l'état du FormArray un tout petit peu plus tard, après que les autres logiques aient eu le temps de réagir
+    setTimeout(() => {
+        const finalSansArray = this.requestDetailSectionForm.get('sans') as FormArray;
+        console.log('Longueur du FormArray 10ms PLUS TARD :', finalSansArray.length); // <-- C'est le log le plus important !
+        console.log('--- FIN DU TEST DE PERSISTANCE ---');
+    }, 10); // Un délai très court suffit
     });
 
 // ▲▲▲ FIN DE LA SOLUTION ▲▲▲
