@@ -3245,3 +3245,34 @@ getFormErrors() {
     });
     return errors;
 }
+////////////////////////
+case 'edit':
+    console.log("Voir info dans le request dans edit",request);
+    this.createForm(request);
+    break;
+
+// ▼▼▼ MODIFIEZ CE BLOC ▼▼▼
+case 'create':
+case null:
+case undefined:
+    // 1. Créez un objet de base vide
+    const newRequest = new CertificateRequest(); 
+    
+    // 2. Pré-remplissez les valeurs par défaut qui débloquent le formulaire
+    newRequest.certificate = {
+        usage: 'INTERNE', // Ou 'EXTERNE', selon ce qui est le plus courant
+        certificateType: 'SSL_TLS_SERVER', // LE PLUS IMPORTANT : Mettez ici un type qui autorise les SANs
+        requestType: RequestType.CREATION,
+        // Ajoutez d'autres valeurs par défaut si nécessaire pour activer le bouton "Suivant"
+    };
+
+    // 3. Appelez createForm avec ce nouvel objet pré-rempli
+    this.createForm(newRequest); 
+    break;
+// ▲▲▲ FIN DE LA MODIFICATION ▲▲▲
+
+default:
+    this.router.navigate(['/pageNotFound']);
+    break;
+
+// ...
