@@ -3276,3 +3276,12 @@ default:
     break;
 
 // ...
+/////////////////////
+ if (!this.isRenew) {
+        const sansArray = this.requestDetailSectionForm.get('sans') as FormArray;
+        
+        // S'il est vide, on ajoute le premier champ.
+        if (sansArray && sansArray.length === 0) {
+            sansArray.push(this.createSanGroup());
+        }
+    }
