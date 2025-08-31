@@ -3285,3 +3285,15 @@ default:
             sansArray.push(this.createSanGroup());
         }
     }
+	////////////////////////
+	 // On vérifie si on est en mode création (isRenew est false)
+    if (!this.isRenew) {
+        // On récupère le FormArray 'sans'.
+        const sansArray = this.requestDetailSectionForm.get('SANS') as FormArray; // Note: 'SANS' en majuscules
+
+        // Si le FormArray existe mais qu'il est vide (ce qui est le cas pour 'create')
+        if (sansArray && sansArray.length === 0) {
+            // On y ajoute le premier champ par défaut.
+            sansArray.push(this.createSanGroup());
+        }
+    }
