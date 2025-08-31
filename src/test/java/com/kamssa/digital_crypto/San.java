@@ -3222,3 +3222,26 @@ this._formConstraintsService.getConstraint()
 // ▲▲▲ FIN DU BLOC ▲▲▲
 // =========================================================================
 
+///////////////////////////////
+<div style="background: #222; color: #eee; padding: 15px; margin: 15px; border: 1px solid red;">
+    <h3>État du Formulaire de Détail</h3>
+    <p>Formulaire valide ? <strong>{{ requestDetailSectionForm.valid }}</strong></p>
+    
+    <h4>Erreurs du formulaire global :</h4>
+    <pre>{{ requestDetailSectionForm.errors | json }}</pre>
+
+    <h4>Détail des erreurs par champ :</h4>
+    <pre>{{ getFormErrors() | json }}</pre>
+</div>
+///////////////////
+
+getFormErrors() {
+    const errors = {};
+    Object.keys(this.requestDetailSectionForm.controls).forEach(key => {
+        const controlErrors = this.requestDetailSectionForm.get(key).errors;
+        if (controlErrors != null) {
+            errors[key] = controlErrors;
+        }
+    });
+    return errors;
+}
