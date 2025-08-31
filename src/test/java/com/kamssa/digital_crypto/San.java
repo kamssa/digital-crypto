@@ -3377,3 +3377,36 @@ getFormErrors() {
     });
     return errors;
 }
+///////////////////////
+getFormErrors() {
+    if (!this.requestDetailSectionForm) { return null; }
+    
+    const result = {};
+    Object.keys(this.requestDetailSectionForm.controls).forEach(key => {
+        const control = this.requestDetailSectionForm.get(key);
+        // On ne s'intéresse qu'aux contrôles qui sont invalides ET qui ont des erreurs
+        if (control && control.invalid && control.errors) {
+            result[key] = control.errors;
+        }
+    });
+
+    // Cas spécial pour le FormArray SANS
+    const sansArray = this.requestDetailSectionForm.get('SANS') as FormArray;
+    if (sansArray && sansArray.invalid && sansArray.errors) {
+        result['SANS_ARRAY_ERRORS'] = sansArray.errors;
+    }
+    
+    // On inspecte aussi chaque élément à l'intérieur du FormArray
+    const invalidSans = [];
+    sansArray.controls.forEach((group, index) => {
+        if (group.invalid) {
+            invalidSans.push({ index: index, errors: group.errors });
+        }
+    });
+
+    if (invalidSans.length > 0) {
+        result['SANS_CONTROLS'] = invalidSans;
+    }
+
+    return result;
+}
