@@ -3340,3 +3340,40 @@ createSanGroup(): FormGroup {
     console.log('Nombre de SANs AVANT ajout :', sans.length);
     sans.push(this.createSanGroup());
     console.log('Nombre de SANs APRÈS ajout :', sans.length);
+	////////////////////////////////// create ///////////////////////////////
+	code
+Html
+<div style="background: #282c34; color: #abb2bf; padding: 15px; margin: 15px; border: 2px solid #56b6c2; border-radius: 5px;">
+    <h3>🕵️‍♂️ Inspecteur de la Section 'requestDetails'</h3>
+    <p>Cette section est-elle valide ? 
+        <strong [style.color]="requestDetailSectionForm.valid ? '#98c379' : '#e06c75'">
+            {{ requestDetailSectionForm.valid }}
+        </strong>
+    </p>
+    <h4>Détail des erreurs pour cette section :</h4>
+    <pre>{{ getFormErrors() | json }}</pre>
+</div>
+Dans request-detail-section.component.ts (comme méthode de la classe) :
+code
+TypeScript
+getFormErrors() {
+    if (!this.requestDetailSectionForm) { return null; }
+    const errors = {};
+    Object.keys(this.requestDetailSectionForm.controls).forEach(key => {
+        const control = this.requestDetailSectionForm.get(key);
+        if (control && control.invalid) {
+            if (key === 'SANS' && control instanceof FormArray) {
+                const sanErrors = [];
+                control.controls.forEach((sanGroup, index) => {
+                    if (sanGroup.invalid) {
+                        sanErrors.push({ index: index, errors: sanGroup.errors, value: sanGroup.value });
+                    }
+                });
+                if (sanErrors.length > 0) errors[key] = sanErrors;
+            } else {
+                errors[key] = control.errors;
+            }
+        }
+    });
+    return errors;
+}
