@@ -3332,3 +3332,11 @@ createSanGroup(): FormGroup {
 
     return sanGroup;
 }
+////////////////////////
+ console.log('Bouton "Ajouter un SAN" cliqué !'); // <-- AJOUTEZ CECI
+
+    const sans = this.requestDetailSectionForm.get('SANS') as FormArray;
+    
+    console.log('Nombre de SANs AVANT ajout :', sans.length);
+    sans.push(this.createSanGroup());
+    console.log('Nombre de SANs APRÈS ajout :', sans.length);
