@@ -3297,3 +3297,38 @@ default:
             sansArray.push(this.createSanGroup());
         }
     }
+	///////////////////
+	
+createSanGroup(): FormGroup {
+    const sanGroup = this.fb.group({
+        // ▼▼▼ CORRECTION 1 : Initialiser avec un objet ▼▼▼
+        type: [{ name: SanType.DNSNAME }, Validators.required],
+        value: ['', [Validators.required, Validators.pattern(SANS_REGEX_PATTERNS[SanType.DNSNAME])]],
+    });
+
+    // On écoute les changements sur le dropdown de type de SAN
+    const typeControl = sanGroup.get('type');
+    if (typeControl) {
+        typeControl.valueChanges
+            .pipe(takeUntil(this.onDestroy$))
+            .subscribe(selectedTypeObject => { // La valeur est maintenant un objet { name: '...' }
+                
+                // ▼▼▼ CORRECTION 2 : Extraire le nom de l'objet ▼▼▼
+                const typeName = selectedTypeObject ? selectedTypeObject.name : null;
+                const valueControl = sanGroup.get('value');
+                
+                if (typeName && valueControl) {
+                    const regex = SANS_REGEX_PATTERNS[typeName];
+                    // On met à jour les validateurs du champ de saisie en fonction du type choisi
+                    if (regex) {
+                        valueControl.setValidators([Validators.required, Validators.pattern(regex)]);
+                    } else {
+                        valueControl.setValidators(Validators.required);
+                    }
+                    valueControl.updateValueAndValidity();
+                }
+            });
+    }
+
+    return sanGroup;
+}
