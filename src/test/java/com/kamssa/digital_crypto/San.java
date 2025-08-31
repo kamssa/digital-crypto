@@ -3410,3 +3410,30 @@ getFormErrors() {
 
     return result;
 }
+////////////////////////
+// DANS le subscribe de typeControl.valueChanges
+.subscribe(selectedTypeObject => {
+    console.log('--- Changement de type de SAN ---');
+    console.log('Objet sélectionné:', selectedTypeObject);
+    
+    const typeName = selectedTypeObject ? selectedTypeObject.name : null;
+    console.log('Nom du type extrait:', typeName);
+    
+    const valueControl = sanGroup.get('value');
+    if (typeName && valueControl) {
+        const regex = SANS_REGEX_PATTERNS[typeName];
+        console.log('Regex correspondante:', regex);
+        
+        if (regex) {
+            console.log('Application du validateur pattern.');
+            valueControl.setValidators([Validators.required, Validators.pattern(regex)]);
+        } else {
+            console.log('Application du validateur required uniquement.');
+            valueControl.setValidators(Validators.required);
+        }
+        
+        valueControl.updateValueAndValidity();
+        console.log('Validateurs mis à jour. État du contrôle "value":', valueControl.errors);
+    }
+    console.log('---------------------------------');
+});
