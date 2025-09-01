@@ -3689,6 +3689,42 @@ getCertificateTypes(): void {
             } else {
                 certificateTypeControl.disable();
             }
+			
+			
+			//////////////////////////////////////
+			const usageControl = this.requestDetailSectionForm.get('usage');
+    const certificateTypeControl = this.requestDetailSectionForm.get('certificateType');
+    const loadingControl = this.requestDetailSectionForm.get('certificateLoading');
+
+    usageControl.valueChanges.pipe(
+        startWith(usageControl.value),
+        tap(() => {
+            certificateTypeControl.reset(null, { emitEvent: false });
+            certificateTypeControl.disable();
+            loadingControl.setValue(true);
+        }),
+        switchMap(usageValue => {
+            if (!usageValue) {
+                return of([]);
+            }
+            // CHAÎNAGE CORRECT : service().pipe(map(...))
+            return this.dataService.getCertificateTypes(usageValue).pipe(
+                map(asSelectItem)
+            );
+        }),
+        tap(availableTypes => {
+            this.certificateTypeList = availableTypes;
+
+            if (availableTypes && availableTypes.length > 0) {
+                certificateTypeControl.setValue(availableTypes[0].value);
+                certificateTypeControl.enable();
+            } else {
+                certificateTypeControl.disable();
+            }
+            loadingControl.setValue(false);
+        }),
+        takeUntil(this.onDestroy$)
+    ).subscribe();
 
             loadingControl.setValue(false);
         }),
