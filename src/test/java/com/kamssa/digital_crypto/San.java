@@ -3437,3 +3437,20 @@ getFormErrors() {
     }
     console.log('---------------------------------');
 });
+/////////////////////////////////
+this.certificateRequest.certificate.environment = this.form.get(THIS.REQUEST_DETAILS_FORM_NAME).value.environment;
+this.certificateRequest.certificate.certificateType = this.form.get(THIS.REQUEST_DETAILS_FORM_NAME).value.certificateType;
+this.certificateRequest.certificate.certificateSubType = this.form.get(THIS.REQUEST_DETAILS_FORM_NAME).value.certificateSubType;
+// ... etc ...
+this.certificateRequest.certificate.certificateName = this.form.get(THIS.REQUEST_DETAILS_FORM_NAME).value.certificateName;
+
+// V-- REMPLACEZ PAR CE BLOC DE CODE --V
+const sansFromForm = this.form.get(THIS.REQUEST_DETAILS_FORM_NAME).value.SANS;
+if (sansFromForm) {
+    this.certificateRequest.certificate.SANS = sansFromForm.filter(san => san && san.value && san.value.trim() !== '');
+} else {
+    this.certificateRequest.certificate.SANS = [];
+}
+// A------------------------------------A
+
+this.certificateRequest.certificate.comment = this.form.get(THIS.REQUEST_DETAILS_FORM_NAME).value.comment;
