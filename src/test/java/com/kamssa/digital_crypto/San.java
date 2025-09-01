@@ -3560,3 +3560,50 @@ getCertificateTypes(): void {
             })
         );
 }
+////////////////////////////
+getCertificateTypes(): void {
+    // On récupère les contrôles du formulaire une seule fois pour plus de clarté
+    const usageControl = this.requestDetailSectionForm.get('usage');
+    const certificateTypeControl = this.requestDetailSectionForm.get('certificateType');
+    const loadingControl = this.requestDetailSectionForm.get('certificateLoading');
+
+    // On s'abonne aux changements de la valeur de "usage"
+    usageControl.valueChanges.pipe(
+        startWith(usageControl.value), // Déclenche immédiatement avec la valeur actuelle
+        tap(() => {
+            // A chaque changement d'usage, on désactive le champ "type" et on montre le chargement
+            certificateTypeControl.reset(null, { emitEvent: false }); // On vide le champ sans déclencher d'autres événements
+            certificateTypeControl.disable();
+            loadingControl.setValue(true);
+        }),
+        switchMap(usageValue => {
+            // On appelle le service pour obtenir les nouveaux types de certificat
+            // Si usageValue est null, on retourne un tableau vide pour éviter une erreur
+            if (!usageValue) {
+                return of([]); // 'of' vient de 'rxjs', il faut peut-être l'importer
+            }
+            return this.dataService.getCertificateTypes(usageValue);
+        }),
+        map(asSelectItem), // On formate les données pour le composant dropdown
+        tap(availableTypes => {
+            // C'est ici que la magie opère !
+            // 'availableTypes' est la nouvelle liste d'options (ex: [{label: 'SSL', value: 'SSL_SERVER'}, ...])
+            
+            // On met à jour la liste des options dans le composant
+            this.certificateTypeList = availableTypes; // Assurez-vous que cette variable est bien celle utilisée par votre HTML
+
+            if (availableTypes && availableTypes.length > 0) {
+                // S'il y a au moins une option disponible, on sélectionne la première par défaut
+                certificateTypeControl.setValue(availableTypes[0].value); // On utilise la propriété 'value' de l'option
+                certificateTypeControl.enable(); // On réactive le champ pour que l'utilisateur puisse changer
+            } else {
+                // S'il n'y a aucune option, le champ reste désactivé et vide
+                certificateTypeControl.disable();
+            }
+
+            // On cache l'indicateur de chargement
+            loadingControl.setValue(false);
+        }),
+        takeUntil(this.onDestroy$) // Pour éviter les fuites de mémoire, si vous utilisez cette pratique
+    ).subscribe();
+}
