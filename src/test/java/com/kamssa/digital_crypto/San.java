@@ -4014,3 +4014,55 @@ getCertificateTypes(): void {
 }
 //////////////////////////////////////
  console.log("%c JE SUIS BIEN DANS RequestDetailSectionComponent ! Le composant vient de se charger.", "color: lime; font-size: 20px;");
+ ////////////////////////////////////////////////////////////////
+ getCertificateTypes(): void {
+    // Récupération des contrôles du formulaire
+    const usageControl = this.requestDetailSectionForm.get('usage');
+    const certificateTypeControl = this.requestDetailSectionForm.get('certificateType');
+    const loadingControl = this.requestDetailSectionForm.get('certificateLoading');
+
+    // Assigner l'Observable à la variable de classe.
+    // Le template HTML doit utiliser le pipe `| async` sur cette variable.
+    this.certificateTypeList = usageControl.valueChanges.pipe(
+        startWith(usageControl.value), // Déclenche immédiatement avec la valeur actuelle
+        tap(() => {
+            // Étape 1 : Réinitialiser le champ "Type de certificat" à chaque changement d'usage
+            certificateTypeControl.reset(null, { emitEvent: false });
+            certificateTypeControl.disable();
+            loadingControl.setValue(true);
+        }),
+        switchMap(usageValue => {
+            // Étape 2 : Appeler le service pour obtenir la liste des types
+            if (!usageValue) {
+                return of([]); // Si pas d'usage, retourner une liste vide
+            }
+            return this.dataService.getCertificateTypes(usageValue);
+        }),
+        tap(typesBruts => {
+            // Étape 3 (LA CORRECTION) : Utiliser la liste pour définir une valeur par défaut
+            
+            // On transforme les données pour pouvoir les utiliser
+            const options = asSelectItems(typesBruts);
+
+            if (options && options.length > 0) {
+                // S'il y a des options, on sélectionne la PREMIÈRE comme valeur par défaut
+                certificateTypeControl.setValue(options[0].value);
+                certificateTypeControl.enable(); // On réactive le champ
+            } else {
+                // S'il n'y a pas d'options, le champ reste désactivé
+                certificateTypeControl.disable();
+            }
+            
+            // On cache l'indicateur de chargement
+            loadingControl.setValue(false);
+        }),
+        // Étape 4 : Transformer les données brutes pour les passer au template HTML
+        map(typesBruts => asSelectItems(typesBruts))
+    );
+}
+Rappels importants pour que cela fonctionne :
+Nom de la fonction : J'ai utilisé asSelectItems (au pluriel). Si votre fonction s'appelle asSelectItem (au singulier), corrigez le nom dans les deux endroits où elle est utilisée dans le code ci-dessus.
+HTML : Votre fichier request-detail-section.component.html doit utiliser le async pipe sur la liste déroulante, comme ceci :
+code
+Html
+<p-dropdown [options]="certificateTypeList | async" formControlName="certificateType"></p-dropdown>
