@@ -3607,3 +3607,91 @@ getCertificateTypes(): void {
         takeUntil(this.onDestroy$) // Pour éviter les fuites de mémoire, si vous utilisez cette pratique
     ).subscribe();
 }
+///////////////////////////
+ const usageControl = this.requestDetailSectionForm.get('usage');
+    const certificateTypeControl = this.requestDetailSectionForm.get('certificateType');
+    const loadingControl = this.requestDetailSectionForm.get('certificateLoading');
+
+    usageControl.valueChanges.pipe(
+        startWith(usageControl.value),
+        tap(() => {
+            certificateTypeControl.reset(null, { emitEvent: false });
+            certificateTypeControl.disable();
+            loadingControl.setValue(true);
+        }),
+        // Début du switchMap
+        switchMap(usageValue => {
+            if (!usageValue) {
+                return of([]); // Retourne un Observable qui contient un tableau vide
+            }
+
+            // L'appel au service ET sa transformation se font A L'INTERIEUR
+            return this.dataService.getCertificateTypes(usageValue).pipe(
+                map(asSelectItem) // <-- LE MAP EST ICI, AU BON ENDROIT
+            );
+        }),
+        // Fin du switchMap
+
+        // Maintenant, 'tap' reçoit un tableau de SelectItem, c'est garanti
+        tap(availableTypes => {
+            this.certificateTypeList = availableTypes; // Plus d'erreur ici !
+
+            if (availableTypes && availableTypes.length > 0) { // Plus d'erreur ici !
+                certificateTypeControl.setValue(availableTypes[0].value);
+                certificateTypeControl.enable();
+            } else {
+                certificateTypeControl.disable();
+            }
+
+            loadingControl.setValue(false);
+        }),
+        takeUntil(this.onDestroy$) // Si vous l'utilisez
+    ).subscribe();
+	///////////////////////////
+	// Assurez-vous d'avoir les imports en haut de votre fichier
+import { of } from 'rxjs';
+import { startWith, tap, switchMap, map } from 'rxjs/operators';
+
+// ... (dans votre classe RequestDetailSectionComponent)
+
+getCertificateTypes(): void {
+    const usageControl = this.requestDetailSectionForm.get('usage');
+    const certificateTypeControl = this.requestDetailSectionForm.get('certificateType');
+    const loadingControl = this.requestDetailSectionForm.get('certificateLoading');
+
+    usageControl.valueChanges.pipe(
+        startWith(usageControl.value),
+        tap(() => {
+            certificateTypeControl.reset(null, { emitEvent: false });
+            certificateTypeControl.disable();
+            loadingControl.setValue(true);
+        }),
+        // Début du switchMap
+        switchMap(usageValue => {
+            if (!usageValue) {
+                return of([]); // Retourne un Observable qui contient un tableau vide
+            }
+
+            // L'appel au service ET sa transformation se font A L'INTERIEUR
+            return this.dataService.getCertificateTypes(usageValue).pipe(
+                map(asSelectItem) // <-- LE MAP EST ICI, AU BON ENDROIT
+            );
+        }),
+        // Fin du switchMap
+
+        // Maintenant, 'tap' reçoit un tableau de SelectItem, c'est garanti
+        tap(availableTypes => {
+            this.certificateTypeList = availableTypes; // Plus d'erreur ici !
+
+            if (availableTypes && availableTypes.length > 0) { // Plus d'erreur ici !
+                certificateTypeControl.setValue(availableTypes[0].value);
+                certificateTypeControl.enable();
+            } else {
+                certificateTypeControl.disable();
+            }
+
+            loadingControl.setValue(false);
+        }),
+        takeUntil(this.onDestroy$) // Si vous l'utilisez
+    ).subscribe();
+}
