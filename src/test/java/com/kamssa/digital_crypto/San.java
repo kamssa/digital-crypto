@@ -4066,3 +4066,6 @@ HTML : Votre fichier request-detail-section.component.html doit utiliser le asyn
 code
 Html
 <p-dropdown [options]="certificateTypeList | async" formControlName="certificateType"></p-dropdown>
+this.fb.group({
+  dropdowns: this.fb.array([]),
+});
