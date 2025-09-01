@@ -3852,6 +3852,46 @@ getCertificateTypes(): void {
         map(types => asSelectItems(types))
     );
 }
+///////////////////////////////////////////
+getCertificateTypes(): void {
+    const usageControl = this.requestDetailSectionForm.get('usage');
+    const certificateTypeControl = this.requestDetailSectionForm.get('certificateType');
+    const loadingControl = this.requestDetailSectionForm.get('certificateLoading');
+
+    this.certificateTypeList = usageControl.valueChanges.pipe(
+        startWith(usageControl.value),
+        tap(() => {
+            // Étape 1 : On prépare le formulaire pour le changement
+            certificateTypeControl.reset(null, { emitEvent: false });
+            certificateTypeControl.disable();
+            loadingControl.setValue(true);
+        }),
+        switchMap(usageValue => {
+            // Étape 2 : On appelle le service pour chercher les données
+            if (!usageValue) {
+                return of([]); // Retourne un tableau vide si pas d'usage
+            }
+            return this.dataService.getCertificateTypes(usageValue);
+        }),
+        tap(typesBruts => {
+            // Étape 3 : On utilise les données brutes pour mettre à jour le formulaire
+            // On transforme les données une première fois juste pour la logique
+            const options = asSelectItems(typesBruts);
+
+            if (options && options.length > 0) {
+                // Si on a des options, on met la première comme valeur par défaut
+                certificateTypeControl.setValue(options[0].value);
+                certificateTypeControl.enable();
+            } else {
+                // Sinon, le champ reste désactivé
+                certificateTypeControl.disable();
+            }
+            loadingControl.setValue(false);
+        }),
+        // Étape 4 : On re-transforme les données pour le template HTML
+        map(typesBruts => asSelectItems(typesBruts))
+    );
+}
 
             loadingControl.setValue(false);
         }),
