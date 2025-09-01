@@ -3969,3 +3969,46 @@ getCertificateTypes(): void {
         
     ); // <-- La parenthèse ici ferme le .pipe() et le point-virgule termine l'instruction.
 }
+///////////////////////
+getCertificateTypes(): void {
+    console.log("DEMARRAGE de getCertificateTypes()"); // LOG 1
+
+    const usageControl = this.requestDetailSectionForm.get('usage');
+    const certificateTypeControl = this.requestDetailSectionForm.get('certificateType');
+    const loadingControl = this.requestDetailSectionForm.get('certificateLoading');
+
+    this.certificateTypeList = usageControl.valueChanges.pipe(
+        startWith(usageControl.value),
+        tap(() => {
+            console.log("CHANGEMENT D'USAGE. Réinitialisation du type de certif."); // LOG 2
+            certificateTypeControl.reset(null, { emitEvent: false });
+            certificateTypeControl.disable();
+            loadingControl.setValue(true);
+        }),
+        switchMap(usageValue => {
+            console.log("Appel du service avec l'usage :", usageValue); // LOG 3
+            if (!usageValue) {
+                return of([]);
+            }
+            return this.dataService.getCertificateTypes(usageValue);
+        }),
+        tap(typesBruts => {
+            console.log("Réponse du service (données brutes) :", typesBruts); // LOG 4
+
+            const options = asSelectItems(typesBruts);
+            console.log("Données transformées en 'options' :", options); // LOG 5
+
+            if (options && options.length > 0) {
+                const premiereOption = options[0].value;
+                console.log("ACTION : On va définir la valeur par défaut à :", premiereOption); // LOG 6
+                certificateTypeControl.setValue(premiereOption);
+                certificateTypeControl.enable();
+            } else {
+                console.log("ACTION : Aucune option disponible. Le champ reste désactivé."); // LOG 7
+                certificateTypeControl.disable();
+            }
+            loadingControl.setValue(false);
+        }),
+        map(typesBruts => asSelectItems(typesBruts))
+    );
+}
