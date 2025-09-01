@@ -3807,6 +3807,51 @@ getCertificateTypes(): void {
         map(types => asSelectItems(types))
     );
 }
+/////////////////
+getCertificateTypes(): void {
+    const usageControl = this.requestDetailSectionForm.get('usage');
+    const certificateTypeControl = this.requestDetailSectionForm.get('certificateType');
+    const loadingControl = this.requestDetailSectionForm.get('certificateLoading');
+
+    // On stocke l'observable dans une variable.
+    // L'HTML devra utiliser : <p-dropdown [options]="certificateTypeList | async"></p-dropdown>
+    this.certificateTypeList = usageControl.valueChanges.pipe(
+        startWith(usageControl.value),
+        tap(() => {
+            // 1. On réinitialise et désactive le champ à chaque changement d'usage
+            certificateTypeControl.reset(null, { emitEvent: false });
+            certificateTypeControl.disable();
+            loadingControl.setValue(true);
+        }),
+        // 2. On appelle le service. switchMap est plus moderne que flatMap, mais les deux fonctionnent.
+        switchMap(usageValue => {
+            if (!usageValue) {
+                return of([]); // Si pas d'usage, on retourne un tableau vide
+            }
+            return this.dataService.getCertificateTypes(usageValue);
+        }),
+        // 3. LA CORRECTION PRINCIPALE EST ICI. Un seul 'tap' pour tout gérer.
+        tap(types => {
+            // 'types' est le tableau brut qui vient du service
+
+            // On formate ces données pour le dropdown
+            const selectItems = asSelectItems(types); // On appelle la transformation ici
+
+            if (selectItems && selectItems.length > 0) {
+                // S'il y a des options, on prend la première comme valeur par défaut
+                certificateTypeControl.setValue(selectItems[0].value);
+                certificateTypeControl.enable(); // Et on active le champ
+            } else {
+                // S'il n'y a pas d'options, le champ reste désactivé
+                certificateTypeControl.disable();
+            }
+
+            loadingControl.setValue(false); // On cache le chargement
+        }),
+        // 4. L'étape finale transforme les données pour le template HTML
+        map(types => asSelectItems(types))
+    );
+}
 
             loadingControl.setValue(false);
         }),
