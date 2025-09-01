@@ -4012,3 +4012,5 @@ getCertificateTypes(): void {
         map(typesBruts => asSelectItems(typesBruts))
     );
 }
+//////////////////////////////////////
+ console.log("%c JE SUIS BIEN DANS RequestDetailSectionComponent ! Le composant vient de se charger.", "color: lime; font-size: 20px;");
