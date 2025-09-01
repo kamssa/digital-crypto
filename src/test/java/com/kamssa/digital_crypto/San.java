@@ -3490,3 +3490,25 @@ onSubmit(): void {
     let request$: Observable<any>;
     // ... le reste de la méthode
 }
+//////////////////////////////////////
+public static RequestType getInstance(String certificateType) {
+    // V-- AJOUTEZ CE BLOC DE CODE --V
+    if (certificateType == null) {
+        // Si le type est null, on retourne un type par défaut pour éviter le crash.
+        // C'est ce que votre code fait déjà à la fin, donc c'est logique.
+        return new DefaultCertificateType();
+    }
+    // A-----------------------------A
+
+    RequestType requestType = null;
+    if (certificateType.contains(RequestType.list.SSL.toString())) {
+        requestType = new SslCertificate();
+    } 
+    // ... reste de votre code ...
+    
+    // Cette partie gère déjà le cas où aucun type ne correspond
+    else if (requestType == null) {
+        return new DefaultCertificateType();
+    }
+    return requestType;
+}
