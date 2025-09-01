@@ -3454,3 +3454,39 @@ if (sansFromForm) {
 // A------------------------------------A
 
 this.certificateRequest.certificate.comment = this.form.get(THIS.REQUEST_DETAILS_FORM_NAME).value.comment;
+/////////////////////////////////
+// DANS la méthode manageRequestDetailsSection()
+
+// ...
+const sansFromForm = this.form.get(THIS.REQUEST_DETAILS_FORM_NAME).value.SANS;
+// AJOUTEZ CETTE LIGNE
+console.log('1. [SYNC] SANs lus depuis le formulaire :', JSON.parse(JSON.stringify(sansFromForm)));
+
+if (sansFromForm) {
+    this.certificateRequest.certificate.SANS = sansFromForm.filter(san => san && san.value && san.value.trim() !== '');
+} else {
+    this.certificateRequest.certificate.SANS = [];
+}
+// AJOUTEZ CETTE LIGNE
+console.log('2. [SYNC] SANs APRES le filtre dans certificateRequest :', JSON.parse(JSON.stringify(this.certificateRequest.certificate.SANS)));
+// ...
+(J'utilise JSON.parse(JSON.stringify(...)) pour être certain que la console affiche une "photographie" de l'objet à l'instant T et non une référence qui se met à jour).
+2. Modification dans onSubmit()
+C'est l'endroit le plus important. Nous allons vérifier l'état des données juste au moment où l'utilisateur clique sur le bouton pour soumettre.
+code
+TypeScript
+// DANS la méthode onSubmit()
+
+onSubmit(): void {
+    // AJOUTEZ CES 3 LIGNES AU TOUT DÉBUT DE LA MÉTHODE
+    console.log('3. [SUBMIT] Valeur TOTALE du formulaire au moment du clic :', this.form.value);
+    console.log('4. [SUBMIT] Etat de `this.certificateRequest` AU DÉBUT de onSubmit :', JSON.parse(JSON.stringify(this.certificateRequest)));
+
+    const certificateRequest = this.certificateRequest;
+    
+    // AJOUTEZ CETTE LIGNE JUSTE AVANT L'APPEL AU SERVICE
+    console.log('5. [SUBMIT] Payload FINAL juste AVANT envoi au service :', certificateRequest);
+
+    let request$: Observable<any>;
+    // ... le reste de la méthode
+}
