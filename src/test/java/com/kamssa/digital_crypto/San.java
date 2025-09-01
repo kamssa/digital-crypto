@@ -3934,3 +3934,38 @@ getCertificateTypes(): void {
         takeUntil(this.onDestroy$) // Si vous l'utilisez
     ).subscribe();
 }
+///////////////////////////
+getCertificateTypes(): void {
+    const usageControl = this.requestDetailSectionForm.get('usage');
+    const certificateTypeControl = this.requestDetailSectionForm.get('certificateType');
+    const loadingControl = this.requestDetailSectionForm.get('certificateLoading');
+
+    // On assigne l'Observable à la variable de classe.
+    this.certificateTypeList = usageControl.valueChanges.pipe(
+        startWith(usageControl.value),
+        tap(() => {
+            certificateTypeControl.reset(null, { emitEvent: false });
+            certificateTypeControl.disable();
+            loadingControl.setValue(true);
+        }),
+        switchMap(usageValue => {
+            if (!usageValue) {
+                return of([]);
+            }
+            return this.dataService.getCertificateTypes(usageValue);
+        }),
+        tap(typesBruts => {
+            const options = asSelectItems(typesBruts);
+
+            if (options && options.length > 0) {
+                certificateTypeControl.setValue(options[0].value);
+                certificateTypeControl.enable();
+            } else {
+                certificateTypeControl.disable();
+            }
+            loadingControl.setValue(false);
+        }),
+        map(typesBruts => asSelectItems(typesBruts))
+        
+    ); // <-- La parenthèse ici ferme le .pipe() et le point-virgule termine l'instruction.
+}
