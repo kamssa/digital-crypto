@@ -3512,3 +3512,51 @@ public static RequestType getInstance(String certificateType) {
     }
     return requestType;
 }
+//////////////////
+// Cherchez un code qui ressemble à ça :
+this.dataService.getCertificateTypes(usage).subscribe(types => {
+    this.certificateTypes = types; // Vous peuplez la liste des options
+
+    // AJOUTEZ CETTE LOGIQUE :
+    const certificateTypeControl = this.requestDetailSectionForm.get('certificateType');
+    if (types && types.length > 0) {
+        // Si aucune valeur n'est déjà sélectionnée OU si la valeur sélectionnée n'est plus valide
+        if (!certificateTypeControl.value || !types.some(t => t.value === certificateTypeControl.value)) {
+             // On sélectionne la première option de la nouvelle liste par défaut
+            certificateTypeControl.setValue(types[0].value); // Assurez-vous d'utiliser la bonne propriété (ex: types[0].code ou types[0].name)
+        }
+    } else {
+        // S'il n'y a pas de types, on vide le champ
+        certificateTypeControl.setValue(null);
+    }
+});
+/////////////////////////////////
+getCertificateTypes(): void {
+    // ... (début du code inchangé) ...
+
+    this.certificateTypeList = usage.valueChanges
+        .pipe(
+            // ... (les premiers opérateurs pipe inchangés) ...
+            switchMap((usage) => this.dataService.getCertificateTypes(usage)), // La requête est faite ici
+            map(asSelectItem), // Transforme les données pour l'affichage
+            tap((types) => {
+                // 'types' est maintenant la liste des options pour le dropdown
+                let certificateTypeControl = this.requestDetailSectionForm.get('certificateType');
+                
+                if (types && types.length > 0) {
+                    // Si aucune valeur n'est sélectionnée OU si l'ancienne n'est plus valide
+                    if (!certificateTypeControl.value || !types.some(t => t.value === certificateTypeControl.value)) {
+                        // On définit la première option comme nouvelle valeur par défaut
+                        certificateTypeControl.setValue(types[0].value); 
+                    }
+                } else {
+                    // S'il n'y a plus d'options, on s'assure que le champ est bien vide
+                    certificateTypeControl.setValue(null);
+                }
+                
+                // On peut maintenant réactiver le champ
+                certificateType.enable();
+                loading.disable();
+            })
+        );
+}
