@@ -4069,3 +4069,38 @@ Html
 this.fb.group({
   dropdowns: this.fb.array([]),
 });
+///////////////////////////////
+mport { Component, OnInit } from '@angular/core';
+
+@Component({
+  selector: 'app-certificate-details',
+  templateUrl: './certificate-details.component.html',
+  styleUrls: ['./certificate-details.component.scss']
+})
+export class CertificateDetailsComponent implements OnInit {
+
+  public certificateRequest: any; 
+
+  private sanTypes = [
+    { label: 'DNSNAME',       value: 'DNSNAME',       styleClass: 'styleMapper[DNSNAME]' },
+    { label: 'RFC822NAME',    value: 'RFC822NAME',    styleClass: 'styleMapper[RFC822NAME]' },
+    { label: 'IPADDRESS',     value: 'IPADDRESS',     styleClass: 'styleMapper[IPADDRESS]' },
+    { label: 'URI',           value: 'URI',           styleClass: 'styleMapper[URI]' },
+    { label: 'OTHERNAME_GUID',value: 'OTHERNAME_GUID',styleClass: 'styleMapper[OTHERNAME_GUID]' },
+    { label: 'OTHERNAME_UPN', value: 'OTHERNAME_UPN', styleClass: 'styleMapper[OTHERNAME_UPN]' }
+  ];
+
+  constructor() { }
+
+  ngOnInit(): void {
+    // Logique pour charger les données du certificat
+  }
+
+  public sanStyle(type: string): string {
+    const foundType = this.sanTypes.find(san => san.value === type);
+    if (foundType) {
+        return foundType.styleClass;
+    }
+    return 'default-san-style';
+  }
+}
