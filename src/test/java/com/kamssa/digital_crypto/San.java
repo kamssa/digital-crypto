@@ -4144,3 +4144,41 @@ export interface San {
   value?: string;
   url?: string;
 }
+/////////////////////////////
+// Fichier: request-detail-section.component.ts
+import { Component, OnInit } from '@angular/core';
+// Importez la nouvelle constante depuis utils.ts
+import { SAN_TYPES_OPTIONS } from 'src/app/shared/utils';
+
+@Component({
+  //...
+})
+export class RequestDetailSectionComponent implements OnInit {
+  
+  // Utilisez directement la constante importée. Plus besoin de la définir ici !
+  sanTypes = SAN_TYPES_OPTIONS;
+
+  // ... le reste de votre composant
+}
+B. Dans le composant d'affichage (certificate-details.component.ts) :
+code
+TypeScript
+// Fichier: certificate-details.component.ts
+import { Component, OnInit } from '@angular/core';
+// Importez le styleMapper et SanType depuis utils.ts
+import { styleMapper, SanType } from 'src/app/shared/utils';
+
+@Component({
+  //...
+})
+export class CertificateDetailsComponent implements OnInit {
+  // ...
+  
+  // La fonction sanStyle devient beaucoup plus simple !
+  public sanStyle(type: string): string {
+    // On utilise directement le styleMapper importé
+    return styleMapper[type as SanType] || 'badge-default';
+  }
+  
+  // ... le reste de votre composant
+}
