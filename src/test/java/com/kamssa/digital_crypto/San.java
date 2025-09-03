@@ -4257,3 +4257,98 @@ Quelle solution choisir ?
 Solution 1 (Double Cast) : Parfaite pour une correction rapide et si vous êtes certain que les données type correspondront toujours à votre énumération. C'est la plus concise.
 Solution 2 (Fonction de Garde) : C'est la méthode la plus robuste et la plus "propre" selon les standards de TypeScript. Elle rend votre code plus sûr en gérant explicitement les cas où la string d'entrée ne serait pas un SanType valide.
 Pour votre cas, les deux sont excellentes. La solution 1 est probablement suffisante et plus rapide à mettre en place.
+///////////////////// correction pour les warning //////////////////////////////
+Correction recommandée :
+Trouvez la souscription aux valueChanges du champ certificateType et assurez-vous qu'elle appelle bien changeCertificateType(), puis ajoutez startWith.
+code
+TypeScript
+// Dans votre ngOnInit() ou une méthode d'initialisation du formulaire
+
+const certificateTypeControl = this.requestDetailSectionForm.get('certificateType');
+
+certificateTypeControl.valueChanges
+    .pipe(
+        // 'startWith' va émettre immédiatement la valeur actuelle du contrôle
+        startWith(certificateTypeControl.value),
+        takeUntil(this.onDestroy$) // Important pour éviter les fuites mémoire
+    )
+    .subscribe(currentCertificateType => {
+        // Appelez votre fonction ici avec la valeur actuelle
+        this.changeCertificateType(); // La fonction utilise déjà this.certificateType.value à l'intérieur
+    });
+Si vous ne trouvez pas facilement où modifier, une solution plus simple est d'appeler manuellement la fonction une fois que le formulaire est initialisé avec ses données :
+code
+TypeScript
+// Dans la méthode où vous remplissez le formulaire avec les données (patchValue)
+// ...
+this.requestDetailSectionForm.patchValue(initialData);
+
+// Appelez manuellement la fonction juste après pour mettre à jour l'état
+this.changeCertificateType();
+
+////// explication du warning 
+Conclusion de l'analyse :
+Le message d'avertissement url1DnsWarning ne peut s'afficher que si la méthode changeCertificateType() est appelée.
+À l'intérieur de cette méthode, il faut que le type de certificat sélectionné (this.certificateType.value) soit exactement égal à CertificateType.SSL_CLIENT_SERVER_EXTERNAL.
+Si le type de certificat est différent, la variable isRefwebWarnings est systématiquement remise à false.
+Pourquoi ça ne marche pas dans votre cas (hypothèse la plus probable)
+Le problème est très certainement un problème de "timing" ou d'initialisation :
+En mode Création/Renouvellement : Vous chargez les données d'un certificat existant, ou vous en créez un nouveau. La valeur du "Type de certificat" est initialisée, mais la fonction changeCertificateType() n'est probablement pas appelée au chargement initial.
+Cette fonction est conçue pour réagir à un changement manuel de la valeur du dropdown "Type de certificat" par l'utilisateur.
+Donc, même si au chargement le type de certificat est bien SSL_CLIENT_SERVER_EXTERNAL, le code qui met isRefwebWarnings à true n'est jamais exécuté. Le warning n'apparaît pas. Il n'apparaîtrait que si vous changiez manuellement le type de certificat pour une autre valeur, puis que vous le remettiez sur SSL_CLIENT_SERVER_EXTERNAL.
+La Solution : Déclencher la logique au démarrage
+Il faut s'assurer que la logique de changeCertificateType() est exécutée une première fois avec la valeur initiale du champ "Type de certificat" lors du chargement du composant.
+La meilleure façon de faire ça est d'utiliser l'opérateur startWith sur l'observable qui écoute les changements.
+///////////////////////////////////////
+//////////////////////////////////////////////// warning corriger ///////////////////////////////////
+public onDnsChange(dns: boolean): void {
+    let sans = this.requestDetailSectionForm.get('SANS') as FormArray;
+
+    if (dns) {
+        this.refwebEntitySubject.subscribe(x => {
+            this.refwebEntity = x;
+            if (this.refwebEntity && (this.refwebEntity.encoding3W || this.refwebEntity.urlRacine)) {
+                
+                // --- CORRECTION ICI ---
+                sans.controls[0].setValue({
+                    type: SanType.DNSNAME, // On définit le type
+                    value: this.certificateName.value // On définit la valeur
+                });
+
+                this.firstSanDisabled = true;
+                this.advised = true; // 'advised' est mis à true ici dans le code original, pas false
+                this.isRefwebWarnings = true;
+            } else {
+                this.firstSanDisabled = false;
+
+                // --- CORRECTION ICI (pour vider les champs) ---
+                sans.controls[0].setValue({ type: '', value: '' });
+
+                this.isRefwebWarnings = false;
+            }
+        });
+        this.certificateName.markAsTouched();
+    } else { // Ce bloc est exécuté si la case `dns` est décochée
+        if (this.certificateName.value) {
+            if (this.certificateName.value.startsWith("www.")) {
+                
+                // --- CORRECTION ICI ---
+                sans.controls[0].setValue({
+                    type: SanType.DNSNAME,
+                    value: "www." + this.certificateName.value
+                });
+
+            } else {
+                
+                // --- CORRECTION ICI ---
+                sans.controls[0].setValue({
+                    type: SanType.DNSNAME,
+                    value: this.certificateName.value
+                });
+            }
+        }
+        this.firstSanDisabled = false;
+        this.isRefwebWarnings = false;
+        this.advised = true; // 'advised' est mis à true ici dans le code original
+    }
+}
