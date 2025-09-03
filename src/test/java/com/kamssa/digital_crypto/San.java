@@ -4182,3 +4182,78 @@ export class CertificateDetailsComponent implements OnInit {
   
   // ... le reste de votre composant
 }
+////////////////////////////////////////
+Cette solution est plus élégante et plus sûre. Au lieu de forcer le type, vous allez créer une petite fonction qui vérifie si la string est bien une valeur valide de votre énumération SanType.
+1. Créez la fonction de garde dans utils.ts :
+Ajoutez cette fonction à votre fichier utils.ts. Elle va vérifier si une chaîne de caractères donnée fait partie des valeurs possibles de l'énumération SanType.
+code
+TypeScript
+// Fichier: src/app/shared/utils.ts
+
+// ... (votre enum SanType et styleMapper) ...
+
+// AJOUTEZ CETTE FONCTION
+export function isSanType(value: string): value is SanType {
+  return Object.values(SanType).includes(value as SanType);
+}
+value is SanType est la partie magique : si la fonction retourne true, TypeScript saura que la variable value est bien de type SanType dans le reste du bloc de code.
+2. Utilisez la fonction de garde dans votre composant :
+Maintenant, dans votre composant, vous pouvez utiliser cette fonction pour avoir un code propre et sans erreur.
+code
+TypeScript
+// Fichier: certificate-details.component.ts
+
+import { styleMapper, SanType, isSanType } from 'src/app/shared/utils'; // N'oubliez pas d'importer isSanType
+
+// ...
+
+public sanStyle(type: string): string {
+  // On utilise notre fonction de garde pour vérifier le type
+  if (isSanType(type)) {
+    // A l'intérieur de ce 'if', TypeScript est certain que 'type' est de type SanType
+    return styleMapper[type];
+  }
+
+  // Si le type n'est pas valide, on retourne la valeur par défaut
+  return 'badge-default';
+}
+//////////////////////////////////////////////
+Solution 2 : La Fonction de Garde (plus sûre et plus explicite)
+Cette solution est plus élégante et plus sûre. Au lieu de forcer le type, vous allez créer une petite fonction qui vérifie si la string est bien une valeur valide de votre énumération SanType.
+1. Créez la fonction de garde dans utils.ts :
+Ajoutez cette fonction à votre fichier utils.ts. Elle va vérifier si une chaîne de caractères donnée fait partie des valeurs possibles de l'énumération SanType.
+code
+TypeScript
+// Fichier: src/app/shared/utils.ts
+
+// ... (votre enum SanType et styleMapper) ...
+
+// AJOUTEZ CETTE FONCTION
+export function isSanType(value: string): value is SanType {
+  return Object.values(SanType).includes(value as SanType);
+}
+value is SanType est la partie magique : si la fonction retourne true, TypeScript saura que la variable value est bien de type SanType dans le reste du bloc de code.
+2. Utilisez la fonction de garde dans votre composant :
+Maintenant, dans votre composant, vous pouvez utiliser cette fonction pour avoir un code propre et sans erreur.
+code
+TypeScript
+// Fichier: certificate-details.component.ts
+
+import { styleMapper, SanType, isSanType } from 'src/app/shared/utils'; // N'oubliez pas d'importer isSanType
+
+// ...
+
+public sanStyle(type: string): string {
+  // On utilise notre fonction de garde pour vérifier le type
+  if (isSanType(type)) {
+    // A l'intérieur de ce 'if', TypeScript est certain que 'type' est de type SanType
+    return styleMapper[type];
+  }
+
+  // Si le type n'est pas valide, on retourne la valeur par défaut
+  return 'badge-default';
+}
+Quelle solution choisir ?
+Solution 1 (Double Cast) : Parfaite pour une correction rapide et si vous êtes certain que les données type correspondront toujours à votre énumération. C'est la plus concise.
+Solution 2 (Fonction de Garde) : C'est la méthode la plus robuste et la plus "propre" selon les standards de TypeScript. Elle rend votre code plus sûr en gérant explicitement les cas où la string d'entrée ne serait pas un SanType valide.
+Pour votre cas, les deux sont excellentes. La solution 1 est probablement suffisante et plus rapide à mettre en place.
