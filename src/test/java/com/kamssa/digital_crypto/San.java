@@ -4352,3 +4352,66 @@ public onDnsChange(dns: boolean): void {
         this.advised = true; // 'advised' est mis à true ici dans le code original
     }
 }
+////////////////////////
+changeCertificateType() {
+    let sans = this.requestDetailSectionForm.get('SANS') as FormArray;
+
+    if (this.certificateType.value === CertificateType.SSL_CLIENT_SERVER_EXTERNAL) {
+        this.refwebEntitySubject.subscribe(x => {
+            this.refwebEntity = x;
+
+            if (this.refwebEntity) {
+                if (this.needsDnsCoding.value && this.refwebEntity.encoding3W) {
+                    
+                    // --- CORRECTION ICI ---
+                    sans.controls[0].setValue({
+                        type: SanType.DNSNAME,
+                        value: this.certificateName.value
+                    });
+                    this.isRefwebWarnings = true;
+                    this.firstSanDisabled = true;
+
+                } else if (this.refwebEntity.urlRacine) {
+                    if (this.certificateName.value.startsWith("www.")) {
+                        // --- CORRECTION ICI ---
+                        sans.controls[0].setValue({
+                            type: SanType.DNSNAME,
+                            value: this.certificateName.value 
+                        });
+                    } else {
+                        // --- CORRECTION ICI ---
+                        sans.controls[0].setValue({
+                            type: SanType.DNSNAME,
+                            value: "www." + this.certificateName.value 
+                        });
+                    }
+                } else {
+                    // --- CORRECTION ICI ---
+                    sans.controls[0].setValue({
+                        type: SanType.DNSNAME,
+                        value: this.certificateName.value 
+                    });
+                }
+
+                this.isRefwebWarnings = true;
+                if (this.needsDnsCoding.value) {
+                    this.firstSanDisabled = true;
+                }
+
+            } else {
+                this.firstSanDisabled = false;
+
+                // --- CORRECTION ICI (pour vider les champs) ---
+                // J'ai décommenté et corrigé cette ligne, car elle est importante pour réinitialiser le champ
+                sans.controls[0].setValue({ type: SanType.DNSNAME, value: '' }); 
+                
+                this.isRefwebWarnings = false;
+            }
+        });
+    } else {
+        this.firstSanDisabled = false;
+        // Si tu as besoin de vider le champ ici aussi, tu peux ajouter la ligne corrigée :
+        // sans.controls[0].setValue({ type: SanType.DNSNAME, value: '' });
+        this.isRefwebWarnings = false;
+    }
+}
