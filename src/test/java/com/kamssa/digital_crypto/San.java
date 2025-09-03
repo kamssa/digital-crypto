@@ -4104,3 +4104,43 @@ export class CertificateDetailsComponent implements OnInit {
     return 'default-san-style';
   }
 }
+/////////////////////////////////////////////////////
+// 1. L'énumération que vous avez déjà
+export enum SanType {
+  DNSNAME = 'DNSNAME',
+  RFC822NAME = 'RFC822NAME',
+  IPADDRESS = 'IPADDRESS',
+  URI = 'URI',
+  OTHERNAME_GUID = 'OTHERNAME_GUID',
+  OTHERNAME_UPN = 'OTHERNAME_UPN',
+}
+
+// 2. Le mapper de style que vous avez déjà
+export const styleMapper = {
+  [SanType.DNSNAME]: 'badge-dnsname',
+  [SanType.RFC822NAME]: 'badge-rfc822name',
+  [SanType.IPADDRESS]: 'badge-ipaddress',
+  [SanType.URI]: 'badge-uri',
+  [SanType.OTHERNAME_GUID]: 'badge-othername',
+  [SanType.OTHERNAME_UPN]: 'badge-othername_upn',
+};
+
+// 3. Les patterns Regex que vous avez déjà
+export const SANS_REGEX_PATTERNS = {
+  // ... vos regex ici
+};
+
+// 4. === AJOUT : Le tableau d'options pour les dropdowns ===
+// On le génère dynamiquement à partir de l'énumération. C'est plus propre !
+export const SAN_TYPES_OPTIONS = Object.values(SanType).map(type => ({
+  label: type,
+  value: type,
+  styleClass: styleMapper[type]
+}));
+
+// 5. L'interface que vous avez déjà
+export interface San {
+  type?: string;
+  value?: string;
+  url?: string;
+}
