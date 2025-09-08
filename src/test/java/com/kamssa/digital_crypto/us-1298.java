@@ -788,3 +788,386 @@ public class SyncSanProfilesTask {
 
      // --- FIN DES MODIFICATIONS ---
 }
+//////////////////// resumer ///////////////
+Absolument. Voici un résumé complet de tous les fichiers et modifications de code nécessaires pour résoudre votre ticket Jira.
+C'est un guide "tout-en-un" que vous pouvez suivre pour l'implémentation.
+Résumé du Flux de Travail
+Une Tâche Planifiée (SyncSanProfilesTask) s'exécutera chaque jour.
+Elle appellera un Nouveau Service (CertificateProfileService).
+Ce service contactera l'API externe, récupérera les règles min/max pour chaque profil et les stockera dans de Nouvelles Tables en base de données (CERTIFICATE_PROFILE et SAN_TYPE_RULE).
+Le Service Existant (SanServiceImpl) sera modifié pour lire les règles depuis ces nouvelles tables au lieu d'utiliser des constantes codées en dur.
+FICHIER 1 : L'Énumération CertificateProfileType.java (Nouvelle Classe)
+Rôle : Fournit une source unique et sûre pour les noms de profils.
+Emplacement : src/main/java/com/bnpparibas/certis/model/enums/ (ou un autre package enums)
+code
+Java
+package com.bnpparibas.certis.model.enums;
+
+import java.util.stream.Stream;
+
+public enum CertificateProfileType {
+
+    SSL_SERVER("SSL_SRVR"),
+    SSL_CLIENT_SERVER("SSL_CLI_SRVR"),
+    SSL_CLIENT("SSL_CLI"),
+    APPLI_SSL_CLIENT_SERVER("Appli-SSL-Client-Server");
+
+    private final String value;
+
+    CertificateProfileType(String value) {
+        this.value = value;
+    }
+
+    public String getValue() {
+        return value;
+    }
+
+    public static CertificateProfileType fromValue(String value) {
+        if (value == null) {
+            throw new IllegalArgumentException("La valeur du profil ne peut pas être nulle.");
+        }
+        return Stream.of(CertificateProfileType.values())
+              .filter(profile -> profile.getValue().equalsIgnoreCase(value))
+              .findFirst()
+              .orElseThrow(() -> new IllegalArgumentException("Aucun type de profil ne correspond à la valeur : " + value));
+    }
+}
+FICHIER 2 : Entité CertificateProfileEntity.java (Nouvelle Classe)
+Rôle : Représente un profil de certificat dans la table CERTIFICATE_PROFILE.
+Emplacement : src/main/java/com/bnpparibas/certis/automationhub/model/
+code
+Java
+package com.bnpparibas.certis.automationhub.model;
+
+import javax.persistence.*;
+import java.io.Serializable;
+import java.util.HashSet;
+import java.util.Set;
+
+@Entity
+@Table(name = "CERTIFICATE_PROFILE")
+public class CertificateProfileEntity implements Serializable {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "PROFILE_NAME", unique = true, nullable = false)
+    private String profileName;
+
+    @OneToMany(mappedBy = "certificateProfile", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
+    private Set<SanTypeRuleEntity> sanTypeRules = new HashSet<>();
+
+    // Getters, Setters, constructeur par défaut, equals() et hashCode()
+}
+FICHIER 3 : Entité SanTypeRuleEntity.java (Nouvelle Classe)
+Rôle : Représente une règle min/max pour un type de SAN dans la table SAN_TYPE_RULE.
+Emplacement : src/main/java/com/bnpparibas/certis/automationhub/model/
+code
+Java
+package com.bnpparibas.certis.automationhub.model;
+
+import com.bnpparibas.certis.certificate.request.dto.SanTypeEnum; // Réutiliser votre Enum existant
+import javax.persistence.*;
+import java.io.Serializable;
+
+@Entity
+@Table(name = "SAN_TYPE_RULE")
+public class SanTypeRuleEntity implements Serializable {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "PROFILE_ID", nullable = false)
+    private CertificateProfileEntity certificateProfile;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "SAN_TYPE", nullable = false)
+    private SanTypeEnum sanType;
+
+    @Column(name = "MIN_VALUE", nullable = false)
+    private Integer minValue;
+
+    @Column(name = "MAX_VALUE", nullable = false)
+    private Integer maxValue;
+
+    @Column(name = "EDITABLE_BY_REQUESTER")
+    private Boolean editableByRequester;
+    
+    // Getters, Setters, constructeur par défaut
+}
+FICHIER 4 : Repository CertificateProfileRepository.java (Nouvelle Interface)
+Rôle : Interface Spring Data JPA pour accéder à la table CERTIFICATE_PROFILE.
+Emplacement : src/main/java/com/bnpparibas/certis/automationhub/repository/
+code
+Java
+package com.bnpparibas.certis.automationhub.repository;
+
+import com.bnpparibas.certis.automationhub.model.CertificateProfileEntity;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+import java.util.Optional;
+
+@Repository
+public interface CertificateProfileRepository extends JpaRepository<CertificateProfileEntity, Long> {
+    Optional<CertificateProfileEntity> findByProfileName(String profileName);
+}
+FICHIER 5 : Service CertificateProfileService.java (Nouvelle Classe)
+Rôle : Contient la logique pour appeler l'API externe et sauvegarder les règles en base.
+Emplacement : src/main/java/com/bnpparibas/certis/automationhub/service/
+code
+Java
+package com.bnpparibas.certis.automationhub.service;
+
+import // ... tous les imports nécessaires (DTOs, entités, repositories, RestTemplate)
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestTemplate;
+
+@Service
+public class CertificateProfileService {
+
+    @Value("${external.api.url.profiles}")
+    private String externalApiBaseUrl;
+    
+    private final RestTemplate restTemplate;
+    private final CertificateProfileRepository certificateProfileRepository;
+    
+    // Constructeur pour l'injection
+
+    @Transactional
+    public void fetchAndSaveSanProfileRules(String profileName) {
+        String apiUrl = externalApiBaseUrl + "/" + profileName;
+        ExternalSanProfileResponse response = restTemplate.getForObject(apiUrl, ExternalSanProfileResponse.class);
+        
+        // Logique pour récupérer ou créer le CertificateProfileEntity
+        // Boucle sur `response.getSans()` pour créer/mettre à jour les `SanTypeRuleEntity`
+        // Application des règles du ticket Jira (si min non présent -> 0, si max non présent -> 250, etc.)
+        // Sauvegarde de l'entité CertificateProfileEntity (qui sauvegardera les règles en cascade)
+    }
+}
+(NOTE : Vous aurez besoin des DTOs ExternalSanProfileResponse et ExternalSanTypeRuleDto pour que ce service fonctionne)
+FICHIER 6 : Tâche SyncSanProfilesTask.java (Nouvelle Classe)
+Rôle : Déclenche périodiquement la synchronisation des profils.
+Emplacement : src/main/java/com/bnpparibas/certis/api/tasks/
+code
+Java
+package com.bnpparibas.certis.api.tasks;
+
+import com.bnpparibas.certis.automationhub.service.CertificateProfileService;
+import com.bnpparibas.certis.model.enums.CertificateProfileType;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Component;
+import java.util.EnumSet;
+import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+@Component
+public class SyncSanProfilesTask {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(SyncSanProfilesTask.class);
+    private final CertificateProfileService profileService;
+    private Set<CertificateProfileType> profilesToSync = EnumSet.noneOf(CertificateProfileType.class);
+
+    public SyncSanProfilesTask(CertificateProfileService profileService) {
+        this.profileService = profileService;
+    }
+
+    @Value("${certis.profiles.to-sync}")
+    public void setProfilesToSync(List<String> profileNames) {
+        if (profileNames != null && !profileNames.isEmpty()) {
+            this.profilesToSync = profileNames.stream()
+                .map(CertificateProfileType::fromValue)
+                .collect(Collectors.toCollection(() -> EnumSet.noneOf(CertificateProfileType.class)));
+        }
+    }
+
+    @Scheduled(cron = "${certis.profiles.sync-cron:0 0 2 * * ?}")
+    @SchedulerLock(name = "SyncSanProfilesTask_lock")
+    public void runTask() {
+        this.syncAllSanProfileRules();
+    }
+
+    private void syncAllSanProfileRules() {
+        LOGGER.info("Début de la tâche de synchronisation des profils de SANs.");
+        // Logique de boucle sur `profilesToSync` et appel à `profileService.fetchAndSaveSanProfileRules()`
+        // avec gestion des erreurs (try/catch).
+    }
+}
+FICHIER 7 : Service SanServiceImpl.java (Classe existante à modifier)
+Rôle : Utilise les nouvelles règles pour la validation.
+Emplacement : src/main/java/com/bnpparibas/certis/certificate/request/service/impl/
+code
+Java
+// ... imports existants
+import com.bnpparibas.certis.automationhub.model.CertificateProfileEntity;
+import com.bnpparibas.certis.automationhub.repository.CertificateProfileRepository;
+// ...
+
+@Service
+public class SanServiceImpl implements SanService {
+
+    // ... autres dépendances
+    private final CertificateProfileRepository certificateProfileRepository;
+
+    // MODIFIER le constructeur pour injecter le nouveau repository
+    public SanServiceImpl(/* ... autres dépendances */, CertificateProfileRepository certificateProfileRepository) {
+        // ...
+        this.certificateProfileRepository = certificateProfileRepository;
+    }
+    
+    // === À SUPPRIMER ===
+    // private final Integer EXT_SSL_LIMIT = 250;
+    // private final Integer INT_SSL_SRVR_LIMIT = 249;
+    // Et toutes les anciennes méthodes : verifySansLimitForInternalCertificates, etc.
+
+    @Override
+    public void validateSansPerRequest(RequestDto requestDto) throws CertisRequestException {
+        // ...
+        // ANCIEN CODE À SUPPRIMER
+        // this.verifySansLimitForInternalCertificates(requestDto);
+        
+        // NOUVEL APPEL
+        this.verifySansLimitsDynamically(requestDto);
+        
+        // ... conserver les autres validations (format, etc.)
+    }
+
+    // === NOUVELLE MÉTHODE PRIVÉE ===
+    private void verifySansLimitsDynamically(RequestDto requestDto) throws CertisRequestException {
+        // Logique complète pour :
+        // 1. Récupérer le nom du profil depuis requestDto.
+        // 2. Charger les règles via `certificateProfileRepository.findByProfileName()`.
+        // 3. Compter les SANs par type dans la requête.
+        // 4. Comparer les comptes aux règles (min/max) et lancer une exception si non respecté.
+    }
+    
+    // ... reste de la classe inchangé
+}
+FICHIER 8 : Configuration application.properties (ou .yml) (Fichier existant à modifier)
+Rôle : Configurer la tâche et l'URL de l'API externe.
+Emplacement : src/main/resources/
+code
+Properties
+# URL de l'API externe pour récupérer les profils de certificats
+external.api.url.profiles=https://automation.staging.echonet.net.intra/api/v1/certificate/profiles
+
+# Planification CRON pour la tâche de synchronisation des profils
+certis.profiles.sync-cron=0 0 2 * * ?
+
+# Liste des profils à synchroniser (doivent correspondre aux valeurs de l'Enum CertificateProfileType)
+certis.profiles.to-sync=SSL_SRVR,SSL_CLI_SRVR,SSL_CLI,Appli-SSL-Client-Server
+FICHIER 9 : Configuration de l'Application (Fichiers existants à vérifier/modifier)
+Classe principale (CertisApp.java) : Doit avoir l'annotation @EnableScheduling.
+Classe de configuration (AppConfig.java) : Doit fournir un bean RestTemplate.
+/////////////////// Test ///////////////////////
+
+Model
+Tester un scheduler (@Scheduled) est un peu différent des tests de service classiques, car on ne veut pas attendre que le temps passe réellement.
+Il y a deux approches principales pour tester un scheduler :
+Tester la logique métier de la tâche (Recommandé) : On teste la méthode qui contient la logique (syncAllSanProfileRules()) directement, sans se soucier de l'annotation @Scheduled.
+Tester que le scheduler est bien configuré (Avancé) : On peut vérifier que Spring a bien configuré la tâche pour qu'elle s'exécute avec la bonne planification CRON.
+L'approche 1 est la plus importante et la plus utile. L'approche 2 est plus un test d'intégration qui vérifie votre configuration Spring.
+Je vais vous fournir le code pour l'approche 1, car elle teste ce qui compte vraiment : le comportement de votre tâche.
+Test de la Logique Métier du Scheduler (SyncSanProfilesTask)
+Ce test vérifie que lorsque la tâche s'exécute, elle appelle correctement le CertificateProfileService pour chaque profil configuré et gère bien les cas d'erreur.
+Emplacement : src/test/java/com/bnpparibas/certis/api/tasks/SyncSanProfilesTaskTest.java
+code
+Java
+package com.bnpparibas.certis.api.tasks;
+
+import com.bnpparibas.certis.automationhub.service.CertificateProfileService;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
+
+import java.util.Arrays;
+import java.util.Collections;
+
+import static org.mockito.Mockito.*;
+
+@ExtendWith(MockitoExtension.class)
+class SyncSanProfilesTaskTest {
+
+    @Mock
+    private CertificateProfileService profileService;
+
+    @InjectMocks
+    private SyncSanProfilesTask syncTask;
+
+    @BeforeEach
+    void setUp() {
+        // Comme la liste `profilesToSync` est injectée via @Value,
+        // on doit la définir manuellement dans notre test.
+        // ReflectionTestUtils est un utilitaire de Spring pour manipuler les champs privés.
+        ReflectionTestUtils.setField(syncTask, "profilesToSync",
+                Arrays.asList("SSL_SRVR", "SSL_CLI_SRVR", "INVALID_PROFILE"));
+    }
+
+    @Test
+    void whenTaskRuns_thenServiceIsCalledForEachProfile() throws Exception {
+        // ARRANGE
+        // On configure les mocks pour qu'ils ne fassent rien (comportement par défaut)
+        // ou pour qu'ils se comportent comme attendu.
+        
+        // Pour les profils valides, la méthode s'exécute sans erreur.
+        doNothing().when(profileService).fetchAndSaveSanProfileRules("SSL_SRVR");
+        doNothing().when(profileService).fetchAndSaveSanProfileRules("SSL_CLI_SRVR");
+        
+        // Pour le profil invalide, on simule une exception.
+        doThrow(new RuntimeException("API Error")).when(profileService).fetchAndSaveSanProfileRules("INVALID_PROFILE");
+        
+        // ACT
+        // On appelle directement la méthode publique qui contient la logique,
+        // PAS celle annotée @Scheduled. Ici, c'est `runTask` qui appelle `syncAllSanProfileRules`.
+        syncTask.runTask();
+
+        // ASSERT
+        // On vérifie que le service a été appelé exactement une fois pour chaque profil dans la liste.
+        verify(profileService, times(1)).fetchAndSaveSanProfileRules("SSL_SRVR");
+        verify(profileService, times(1)).fetchAndSaveSanProfileRules("SSL_CLI_SRVR");
+        verify(profileService, times(1)).fetchAndSaveSanProfileRules("INVALID_PROFILE");
+
+        // On vérifie que le service a été appelé 3 fois au total.
+        verify(profileService, times(3)).fetchAndSaveSanProfileRules(anyString());
+    }
+
+    @Test
+    void whenProfileListIsEmpty_thenServiceIsNeverCalled() {
+        // ARRANGE
+        // On reconfigure la liste pour qu'elle soit vide.
+        ReflectionTestUtils.setField(syncTask, "profilesToSync", Collections.emptyList());
+
+        // ACT
+        syncTask.runTask();
+
+        // ASSERT
+        // On vérifie que le service n'a JAMAIS été appelé.
+        verify(profileService, never()).fetchAndSaveSanProfileRules(anyString());
+    }
+}
+Explication de ce test
+@ExtendWith(MockitoExtension.class) : Active l'utilisation de Mockito pour créer des mocks.
+@Mock et @InjectMocks : On "mocke" (simule) le CertificateProfileService car nous ne voulons pas tester sa logique ici, mais seulement vérifier que notre scheduler l'appelle correctement. @InjectMocks crée une instance de SyncSanProfilesTask et y injecte le mock.
+ReflectionTestUtils.setField(...) : C'est la partie la plus importante. Comme la liste des profils est injectée par @Value dans l'application réelle, nous devons simuler cette injection dans notre test. Cet utilitaire Spring nous permet de forcer une valeur dans un champ (même privé) de notre objet de test.
+doNothing().when(...) et doThrow(...).when(...) : On configure le comportement de notre mock. On dit à Mockito : "Quand la méthode fetchAndSaveSanProfileRules est appelée avec "SSL_SRVR", ne fais rien. Quand elle est appelée avec "INVALID_PROFILE", lance une exception." Cela nous permet de tester que notre scheduler continue son travail même si un appel échoue.
+syncTask.runTask() : On appelle directement la méthode de la tâche. On ne teste pas la planification, on teste la logique qui serait exécutée par le planificateur.
+verify(..., times(1)) et verify(..., never()) : Ce sont les assertions de Mockito. On vérifie que les méthodes de notre mock ont été appelées le bon nombre de fois, avec les bons arguments. Cela prouve que notre boucle et notre logique de gestion des erreurs fonctionnent.
+Pourquoi cette approche est la meilleure ?
+Rapide et Fiable : Le test s'exécute en quelques millisecondes et n'a pas de dépendances externes (temps, réseau, base de données).
+Ciblé : Il teste la logique de la tâche elle-même, pas le framework Spring. C'est le principe du test unitaire.
+Facile à Maintenir : Si vous ajoutez de la logique à votre tâche (par exemple, envoyer un email en cas d'erreur), vous n'avez qu'à ajouter des verify() à ce test pour vérifier que le service d'email est bien appelé.
+Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
