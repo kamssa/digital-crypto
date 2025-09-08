@@ -340,3 +340,451 @@ Votre processus est le bon :
 Vous utilisez les SanTypeRuleEntity comme un gabarit de validation temporaire au moment de la création/modification.
 Une fois la validation passée, vous enregistrez les San en tant que données concrètes et indépendantes, liées uniquement à leur certificat parent.
 Cette séparation entre les règles de validation (SanTypeRuleEntity) et les données résultantes (San) est un principe fondamental d'une bonne conception logicielle. Elle garantit que votre système est à la fois robuste, flexible et facile à maintenir. Donc non, l'absence de relation ne pose aucun problème, c'est au contraire la solution recherchée.
+////////////////////////////////
+Absolument ! Voici le code révisé pour votre classe SanServiceImpl.java.
+J'ai structuré le code pour que vous puissiez voir clairement ce qui est nouveau, ce qui est modifié, et ce que vous devez supprimer.
+Vous pouvez remplacer le contenu de votre fichier SanServiceImpl.java par celui-ci.
+Code Repris de SanServiceImpl.java
+code
+Java
+package com.bnpparibas.certis.certificate.request.service.impl;
+
+// --- Imports existants ---
+import com.bnpparibas.certis.certificate.request.dto.RequestDto;
+import com.bnpparibas.certis.certificate.request.dto.San;
+import com.bnpparibas.certis.certificate.request.dto.SanTypeEnum; // Assurez-vous que l'import est correct
+import com.bnpparibas.certis.certificate.request.service.SanService;
+import com.bnpparibas.certis.exception.CertisRequestException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+import org.springframework.util.CollectionUtils;
+import org.springframework.http.HttpStatus;
+
+// --- NOUVEAUX Imports ---
+import com.bnpparibas.certis.automationhub.model.CertificateProfileEntity;
+import com.bnpparibas.certis.automationhub.model.SanTypeRuleEntity;
+import com.bnpparibas.certis.automationhub.repository.CertificateProfileRepository;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+@Service
+public class SanServiceImpl implements SanService {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(SanServiceImpl.class);
+
+    // --- Conservez vos dépendances existantes ---
+    private final UrlRacineService urlRacineService;
+    // ... autres services/daos ...
+
+    // --- NOUVELLE Dépendance ---
+    private final CertificateProfileRepository certificateProfileRepository;
+
+    // --- MODIFIER le constructeur pour injecter le nouveau repository ---
+    public SanServiceImpl(UrlRacineService urlRacineService, 
+                          /* ... autres dépendances existantes ... */
+                          CertificateProfileRepository certificateProfileRepository) {
+        this.urlRacineService = urlRacineService;
+        // ...
+        this.certificateProfileRepository = certificateProfileRepository;
+    }
+
+
+    // =======================================================================================
+    // --- SECTION A SUPPRIMER ---
+    // Supprimez toutes les anciennes constantes de limites codées en dur.
+    // Par exemple :
+    // private final Integer EXT_SSL_LIMIT = 250;
+    // private final Integer INT_SSL_SRVR_LIMIT = 249;
+    // private final Integer INT_SSL_CLI_SRVR_LIMIT = 56;
+    // private final Integer INT_SSL_CLI_LIMIT = 8;
+    //
+    // Supprimez également les anciennes méthodes de validation des limites comme :
+    // - verifySansLimitForInternalCertificates(...)
+    // - verifySansLimitForExternalCertificates(...)
+    // - verifySansLimitForInternalCertificatesMarketplace(...)
+    // =======================================================================================
+
+
+    /**
+     * Méthode publique principale pour la validation des SANs.
+     * C'est cette méthode qui est appelée depuis l'extérieur (ex: RequestServiceImpl).
+     * Elle est maintenant simplifiée pour appeler la nouvelle logique dynamique.
+     */
+    @Override
+    public void validateSansPerRequest(RequestDto requestDto) throws CertisRequestException {
+        if (this.skipValidationIfDataMissing(requestDto)) {
+            return;
+        }
+
+        // --- DÉBUT DE LA MODIFICATION ---
+
+        // NOUVEL APPEL UNIQUE à la validation dynamique des limites.
+        this.verifySansLimitsDynamically(requestDto);
+
+        // --- FIN DE LA MODIFICATION ---
+
+        // On conserve les autres validations qui ne sont pas liées aux limites.
+        this.verifySanFormats(requestDto);
+        
+        // ... conservez ici les appels à d'autres validations si nécessaire ...
+    }
+
+
+    /**
+     * NOUVELLE méthode privée qui contient toute la logique de validation dynamique.
+     * Elle remplace toutes les anciennes méthodes de validation des limites.
+     * @param requestDto La requête à valider.
+     * @throws CertisRequestException si une règle de min/max est violée.
+     */
+    private void verifySansLimitsDynamically(RequestDto requestDto) throws CertisRequestException {
+        if (requestDto.getCertificate() == null || requestDto.getCertificate().getType() == null) {
+            // Pas de type de certificat (profil), on ne peut pas valider.
+            return;
+        }
+
+        // Le nom du type de certificat est utilisé comme nom de profil. Ex: "SSL_SRVR"
+        String profileName = requestDto.getCertificate().getType().getName();
+        List<San> sansInRequest = requestDto.getCertificate().getSans();
+
+        if (CollectionUtils.isEmpty(sansInRequest)) {
+            // S'il n'y a aucun SAN dans la requête, il faut quand même vérifier les règles "min".
+        }
+
+        // Étape 1 : Récupérer les règles pour ce profil depuis VOTRE base de données.
+        Optional<CertificateProfileEntity> profileOpt = certificateProfileRepository.findByProfileName(profileName);
+        if (!profileOpt.isPresent()) {
+            // C'est une erreur de configuration. Le profil devrait exister après synchronisation.
+            LOGGER.error("Configuration de profil de certificat introuvable pour le nom : {}", profileName);
+            // Vous pouvez choisir de laisser passer ou de bloquer. Bloquer est plus sûr.
+            throw new CertisRequestException("error.profile.config.not_found", new Object[]{profileName}, HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+
+        Set<SanTypeRuleEntity> rules = profileOpt.get().getSanTypeRules();
+        if (CollectionUtils.isEmpty(rules)) {
+            LOGGER.warn("Aucune règle de SAN n'est définie pour le profil : {}. Tous les SANs seront refusés.", profileName);
+        }
+
+        // Étape 2 : Compter le nombre de SANs par type dans la requête de l'utilisateur.
+        Map<SanTypeEnum, Long> sanCountsByType = sansInRequest.stream()
+                .filter(san -> san.getSanType() != null) // Ignorer les SANs sans type pour la validation
+                .collect(Collectors.groupingBy(San::getSanType, Collectors.counting()));
+
+        // Étape 3 : Valider si les SANs de la requête sont autorisés par le profil.
+        for (SanTypeEnum requestedSanType : sanCountsByType.keySet()) {
+            boolean isTypeAllowedInProfile = rules.stream()
+                    .anyMatch(rule -> rule.getSanType().equals(requestedSanType));
+
+            if (!isTypeAllowedInProfile) {
+                LOGGER.error("Validation échouée : le type de SAN '{}' n'est pas autorisé pour le profil '{}'", requestedSanType, profileName);
+                throw new CertisRequestException("error.san.type.unauthorized", new Object[]{requestedSanType.name(), profileName}, HttpStatus.BAD_REQUEST);
+            }
+        }
+
+        // Étape 4 : Valider les limites MIN et MAX pour chaque règle définie dans le profil.
+        for (SanTypeRuleEntity rule : rules) {
+            SanTypeEnum sanType = rule.getSanType();
+            long countInRequest = sanCountsByType.getOrDefault(sanType, 0L);
+
+            // Validation de la limite MAXIMALE
+            if (countInRequest > rule.getMaxValue()) {
+                LOGGER.error("Validation échouée : {} SANs de type '{}' soumis, mais le maximum est de {} pour le profil '{}'",
+                        countInRequest, sanType, rule.getMaxValue(), profileName);
+                throw new CertisRequestException("error.san.max.violation", new Object[]{sanType.name(), rule.getMaxValue()}, HttpStatus.BAD_REQUEST);
+            }
+
+            // Validation de la limite MINIMALE
+            if (countInRequest < rule.getMinValue()) {
+                 LOGGER.error("Validation échouée : {} SANs de type '{}' soumis, mais le minimum requis est de {} pour le profil '{}'",
+                        countInRequest, sanType, rule.getMinValue(), profileName);
+                throw new CertisRequestException("error.san.min.violation", new Object[]{sanType.name(), rule.getMinValue()}, HttpStatus.BAD_REQUEST);
+            }
+        }
+    }
+
+
+    // --- Conservez toutes les autres méthodes de SanServiceImpl ---
+    // Par exemple :
+    // - verifySanFormats(...)
+    // - evaluateSan3W(...)
+    // - buildSANs(...)
+    // - etc.
+    // Elles ne sont pas affectées par ce changement.
+    
+    private void verifySanFormats(RequestDto requestDto) {
+        // ... votre code existant ici ...
+    }
+
+    private boolean skipValidationIfDataMissing(RequestDto requestDto) {
+        // ... votre code existant ici ...
+        return false;
+    }
+    
+    // ... et toutes les autres méthodes de la classe ...
+
+}
+Explication des Modifications
+Nouvelle Dépendance : On injecte CertificateProfileRepository pour pouvoir lire les règles que vous avez synchronisées dans votre base de données.
+Suppression de l'Ancien Code : Il est crucial de supprimer les anciennes constantes et les anciennes méthodes de validation pour éviter toute confusion et ne plus utiliser la logique obsolète.
+Simplification de validateSansPerRequest : La méthode principale devient très simple. Son unique rôle concernant les limites est d'appeler la nouvelle méthode verifySansLimitsDynamically.
+Nouvelle Méthode verifySansLimitsDynamically : C'est le cœur de la nouvelle fonctionnalité.
+Elle récupère le nom du profil depuis la requête (ex: "SSL_SRVR").
+Elle utilise le repository pour charger les règles (min/max pour chaque type de SAN) associées à ce profil.
+Elle compte le nombre de SANs pour chaque type (CN, DNSNAME, etc.) dans la requête de l'utilisateur.
+Elle compare ces comptes aux règles chargées depuis la base de données.
+Elle lance une CertisRequestException (comme vous le faisiez déjà) si une règle n'est pas respectée.
+Prochaines Étapes pour Vous
+Copier-coller ce code dans votre fichier SanServiceImpl.java.
+Supprimer les anciennes constantes et méthodes comme indiqué dans les commentaires.
+Créer les clés d'erreur dans vos fichiers de messages (ex: messages.properties) :
+error.profile.config.not_found=Configuration de profil introuvable pour le profil : {0}
+error.san.type.unauthorized=Le type de SAN {0} n'est pas autorisé pour le profil {1}.
+error.san.max.violation=Le nombre de SANs de type {0} dépasse la limite autorisée de {1}.
+error.san.min.violation=Le nombre de SANs de type {0} est inférieur au minimum requis de {1}.
+Assurez-vous que toutes les autres classes (CertificateProfileEntity, SanTypeRuleEntity, CertificateProfileRepository, CertificateProfileService) sont bien créées comme nous l'avons discuté.
+///////////////////////////////////////////
+C'est une excellente approche pour garder le code cohérent.
+En analysant votre image, je vois que vous utilisez un "pattern" très clair pour vos tâches :
+Elles sont dans le package ...api.tasks.
+Le nom de la classe se termine par Task.
+Elles utilisent @Scheduled pour la planification.
+Elles utilisent @SchedulerLock pour s'assurer que la tâche ne s'exécute pas sur plusieurs serveurs en même temps (très bonne pratique !).
+La méthode planifiée est souvent une simple "enveloppe" qui appelle la vraie logique métier.
+Nous allons donc transformer la classe ProfileSyncScheduler pour qu'elle corresponde exactement à ce modèle.
+Voici la nouvelle classe, renommée SyncSanProfilesTask.java, à placer dans votre package ...api.tasks.
+Nouvelle Classe : SyncSanProfilesTask.java
+code
+Java
+package com.bnpparibas.certis.api.tasks; // Doit être dans le même package que vos autres tâches
+
+import com.bnpparibas.certis.automationhub.service.CertificateProfileService;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock; // Assurez-vous que cet import est correct pour votre projet
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Component;
+
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * Tâche planifiée pour la synchronisation des règles de profils de SANs.
+ * Cette classe suit le modèle des autres tâches de l'application.
+ * Elle est responsable de déclencher périodiquement la mise à jour des règles
+ * de profils en base de données depuis l'API externe.
+ */
+@Component
+public class SyncSanProfilesTask {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(SyncSanProfilesTask.class);
+
+    private final CertificateProfileService profileService;
+
+    // Récupère la liste des profils depuis votre fichier de configuration (recommandé)
+    @Value("${certis.profiles.to-sync:}") // Le ':' évite une erreur si la propriété n'existe pas
+    private List<String> profilesToSync = new ArrayList<>();
+
+    public SyncSanProfilesTask(CertificateProfileService profileService) {
+        this.profileService = profileService;
+    }
+
+    /**
+     * Méthode "wrapper" déclenchée par le scheduler.
+     * Elle est protégée par un verrou pour éviter les exécutions concurrentes en environnement clusterisé.
+     * Elle ne fait qu'appeler la méthode contenant la logique métier.
+     */
+    @Scheduled(cron = "${certis.profiles.sync-cron:0 0 2 * * ?}") // Utilise une propriété, avec une valeur par défaut
+    @SchedulerLock(name = "SyncSanProfilesTask_lock")
+    public void runTask() {
+        this.syncAllSanProfileRules();
+    }
+
+    /**
+     * Méthode privée contenant la logique métier de la synchronisation.
+     */
+    private void syncAllSanProfileRules() {
+        LOGGER.info("Début de la tâche de synchronisation des profils de SANs.");
+
+        if (profilesToSync.isEmpty()) {
+            LOGGER.warn("Aucun profil n'est configuré pour la synchronisation (propriété 'certis.profiles.to-sync' vide). La tâche se termine.");
+            return;
+        }
+
+        int successCount = 0;
+        int failureCount = 0;
+
+        for (String profileName : profilesToSync) {
+            try {
+                LOGGER.info("Synchronisation du profil '{}'...", profileName);
+                profileService.fetchAndSaveSanProfileRules(profileName);
+                LOGGER.info("Le profil '{}' a été synchronisé avec succès.", profileName);
+                successCount++;
+            } catch (Exception e) {
+                LOGGER.error("Échec de la synchronisation pour le profil '{}'. Cause : {}", profileName, e.getMessage(), e);
+                failureCount++;
+            }
+        }
+
+        LOGGER.info(
+            "Fin de la tâche de synchronisation. {} profils synchronisés avec succès, {} en échec.",
+            successCount,
+            failureCount
+        );
+    }
+}
+Configuration à ajouter dans application.properties (ou .yml)
+Pour rendre cette classe encore plus flexible, j'ai utilisé des propriétés. Ajoutez ceci à votre fichier de configuration :
+code
+Properties
+# Planification CRON pour la synchronisation des profils de SANs. Par défaut : tous les jours à 2h.
+certis.profiles.sync-cron=0 0 2 * * ?
+
+# Liste des profils à synchroniser (séparés par une virgule)
+certis.profiles.to-sync=SSL_SRVR,SSL_CLI_SRVR,SSL_CLI,Appli-SSL-Client-Server
+Pourquoi cette version est meilleure et correspond à votre modèle :
+Nom et Emplacement : Le nom SyncSanProfilesTask et son emplacement dans le package ...api.tasks sont cohérents avec votre projet.
+@SchedulerLock : J'ai ajouté l'annotation @SchedulerLock(name = "SyncSanProfilesTask_lock"). C'est essentiel si votre application tourne sur plusieurs serveurs (cluster) pour garantir qu'un seul serveur exécute la tâche à un instant T.
+Structure Wrapper : La méthode publique runTask() est très simple. C'est elle qui porte les annotations @Scheduled et @SchedulerLock. La logique complexe est isolée dans la méthode privée syncAllSanProfileRules(), ce qui rend le code plus lisible et plus facile à tester.
+Configuration Externalisée : La planification (cron) et la liste des profils sont maintenant dans le fichier application.properties. C'est beaucoup plus propre et vous permet de modifier ces paramètres sans recompiler le code.
+Cette classe SyncSanProfilesTask s'intègre maintenant parfaitement dans l'architecture de votre application.
+////////////////////////////////
+Étape 1 : Créer l'Enum CertificateProfileType.java
+Créez ce nouveau fichier, par exemple dans un package ...dto ou ...model.enums.
+code
+Java
+package com.bnpparibas.certis.model.enums; // Ou un autre package approprié
+
+import java.util.stream.Stream;
+
+/**
+ * Énumération des types de profils de certificat connus par l'application.
+ * Fournit une source unique et sécurisée pour les noms de profils.
+ */
+public enum CertificateProfileType {
+
+    // Liste des constantes de l'énumération.
+    // La valeur entre parenthèses doit correspondre EXACTEMENT
+    // à la chaîne de caractères utilisée dans l'API externe et le fichier de configuration.
+    SSL_SERVER("SSL_SRVR"),
+    SSL_CLIENT_SERVER("SSL_CLI_SRVR"),
+    SSL_CLIENT("SSL_CLI"),
+    APPLI_SSL_CLIENT_SERVER("Appli-SSL-Client-Server");
+
+    // Champ pour stocker la valeur textuelle du profil
+    private final String value;
+
+    // Constructeur privé
+    CertificateProfileType(String value) {
+        this.value = value;
+    }
+
+    /**
+     * Retourne la valeur textuelle du profil.
+     * @return Le nom du profil tel qu'attendu par les systèmes externes.
+     */
+    public String getValue() {
+        return value;
+    }
+
+    /**
+     * Méthode utilitaire pour retrouver une constante de l'énumération à partir de sa valeur textuelle.
+     * C'est très utile pour convertir la configuration en Enum.
+     * @param value La valeur textuelle à rechercher.
+     * @return La constante Enum correspondante.
+     * @throws IllegalArgumentException si aucune constante ne correspond.
+     */
+    public static CertificateProfileType fromValue(String value) {
+        if (value == null) {
+            throw new IllegalArgumentException("La valeur du profil ne peut pas être nulle.");
+        }
+        return Stream.of(CertificateProfileType.values())
+              .filter(profile -> profile.getValue().equalsIgnoreCase(value))
+              .findFirst()
+              .orElseThrow(() -> new IllegalArgumentException("Aucun type de profil de certificat ne correspond à la valeur : " + value));
+    }
+}
+Étape 2 : Modifier la Tâche SyncSanProfilesTask.java
+Maintenant, nous allons modifier le scheduler pour qu'il utilise cet Enum au lieu d'une simple List<String>.
+code
+Java
+package com.bnpparibas.certis.api.tasks;
+
+// ... autres imports
+import com.bnpparibas.certis.model.enums.CertificateProfileType; // <-- NOUVEL IMPORT
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
+
+import java.util.EnumSet; // Utiliser EnumSet est très efficace
+import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+@Component
+public class SyncSanProfilesTask {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(SyncSanProfilesTask.class);
+    private final CertificateProfileService profileService;
+
+    // --- DÉBUT DES MODIFICATIONS ---
+
+    // Le champ qui contiendra les profils à synchroniser, maintenant de type Enum
+    private Set<CertificateProfileType> profilesToSync = EnumSet.noneOf(CertificateProfileType.class);
+
+    /**
+     * C'est ici que la magie opère.
+     * On utilise une méthode "setter" avec @Value. Spring va appeler cette méthode
+     * avec la liste de chaînes de caractères lue depuis le fichier application.yml.
+     * La méthode se charge de convertir cette liste de String en un Set d'Enums.
+     */
+    @Value("${certis.profiles.to-sync}")
+    public void setProfilesToSync(List<String> profileNames) {
+        if (profileNames != null && !profileNames.isEmpty()) {
+            this.profilesToSync = profileNames.stream()
+                .map(CertificateProfileType::fromValue) // Conversion de chaque String en Enum
+                .collect(Collectors.toCollection(() -> EnumSet.noneOf(CertificateProfileType.class)));
+        }
+    }
+
+    public SyncSanProfilesTask(CertificateProfileService profileService) {
+        this.profileService = profileService;
+    }
+
+    @Scheduled(cron = "${certis.profiles.sync-cron:0 0 2 * * ?}")
+    @SchedulerLock(name = "SyncSanProfilesTask_lock")
+    public void runTask() {
+        this.syncAllSanProfileRules();
+    }
+
+    private void syncAllSanProfileRules() {
+        LOGGER.info("Début de la tâche de synchronisation des profils de SANs.");
+
+        if (profilesToSync.isEmpty()) {
+            LOGGER.warn("Aucun profil n'est configuré pour la synchronisation (propriété 'certis.profiles.to-sync' vide). La tâche se termine.");
+            return;
+        }
+
+        int successCount = 0;
+        int failureCount = 0;
+
+        // La boucle itère maintenant sur notre Set d'Enums (plus sûr !)
+        for (CertificateProfileType profileType : profilesToSync) {
+            String profileName = profileType.getValue(); // On récupère la valeur String pour appeler le service
+            try {
+                LOGGER.info("Synchronisation du profil '{}'...", profileName);
+                profileService.fetchAndSaveSanProfileRules(profileName);
+                LOGGER.info("Le profil '{}' a été synchronisé avec succès.", profileName);
+                successCount++;
+            } catch (Exception e) {
+                LOGGER.error("Échec de la synchronisation pour le profil '{}'. Cause : {}", profileName, e.getMessage(), e);
+                failureCount++;
+            }
+        }
+        // ... reste de la méthode inchangée ...
+    }
+
+     // --- FIN DES MODIFICATIONS ---
+}
