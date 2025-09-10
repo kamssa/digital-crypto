@@ -1375,3 +1375,188 @@ Avantages de cette nouvelle approche
 Efficacité : Un seul appel à l'API pour tout récupérer.
 Robustesse : Si un administrateur ajoute un nouveau profil dans Horizon, votre scheduler le découvrira et le synchronisera automatiquement à la prochaine exécution. Vous n'avez plus besoin de penser à mettre à jour votre fichier de configuration.
 Simplicité : La configuration est plus simple et le code du scheduler est plus direct.
+/////////////////////////// resumer 2///////////////////
+Expand to view model thoughts
+
+chevron_right
+Oui, votre demande est exactement la bonne architecture à suivre. C'est le principe de la "Séparation des responsabilités" (Separation of Concerns).
+Voici un résumé clair des rôles et le code final pour chaque composant :
+Le Scheduler (SyncSanProfilesTask) : Son seul rôle est d'être le déclencheur. Il est comme un manager qui dit : "Il est 2h du matin, il est temps de faire la mise à jour". Il ne sait pas comment faire la mise à jour, il délègue simplement le travail.
+Le Service (CertificateProfileService) : C'est l'expert qui fait tout le travail. Il sait comment :
+Contacter l'API externe pour récupérer les données.
+Traiter ces données (appliquer les règles, transformer les DTOs en entités).
+Interagir avec la base de données pour mettre à jour les informations.
+Cette séparation rend votre code beaucoup plus propre, plus facile à tester et à maintenir.
+Le Code Final pour Implémenter ce Flux
+1. Le Scheduler (Le Déclencheur)
+Cette classe est simple. Elle ne fait qu'appeler le service à une heure précise.
+Fichier : src/main/java/com/bnpparibas/certis/api/tasks/SyncSanProfilesTask.java
+code
+Java
+package com.bnpparibas.certis.api.tasks;
+
+import com.bnpparibas.certis.automationhub.service.CertificateProfileService;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Component;
+
+@Component
+public class SyncSanProfilesTask {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(SyncSanProfilesTask.class);
+    
+    // On injecte le service qui va faire le travail
+    private final CertificateProfileService profileService;
+
+    public SyncSanProfilesTask(CertificateProfileService profileService) {
+        this.profileService = profileService;
+    }
+
+    /**
+     * Tâche planifiée qui se déclenche selon la configuration CRON.
+     * Son unique responsabilité est d'appeler le service pour lancer la synchronisation.
+     */
+    @Scheduled(cron = "${certis.profiles.sync-cron:0 0 2 * * ?}")
+    @SchedulerLock(name = "SyncSanProfilesTask_lock")
+    public void runTask() {
+        LOGGER.info("Début de la tâche planifiée de synchronisation de TOUS les profils de SANs.");
+        
+        try {
+            // DÉLÉGATION : Le scheduler demande au service de faire tout le travail.
+            profileService.syncAllProfilesFromApi();
+            
+            LOGGER.info("Tâche de synchronisation des profils terminée avec succès.");
+        } catch (Exception e) {
+            // En cas d'erreur majeure (ex: l'API ne répond pas du tout), on la loggue.
+            // La gestion fine des erreurs par profil est déjà dans le service.
+            LOGGER.error("Une erreur critique est survenue durant la tâche de synchronisation des profils.", e);
+        }
+    }
+}
+2. Le Service (L'Expert)
+Cette classe contient toute la logique complexe : appel à l'API et mise à jour de la base de données. L'annotation @Transactional est cruciale ici : elle garantit que soit tous les profils sont mis à jour, soit aucun s'il y a une erreur, ce qui évite d'avoir une base de données dans un état incohérent.
+Fichier : src/main/java/com/bnpparibas/certis/automationhub/service/CertificateProfileService.java
+code
+Java
+package com.bnpparibas.certis.automationhub.service;
+
+import com.bnpparibas.certis.automationhub.dto.external.ExternalProfileDto;
+import com.bnpparibas.certis.automationhub.dto.external.ExternalSanRuleDto;
+import com.bnpparibas.certis.automationhub.model.CertificateProfileEntity;
+import com.bnpparibas.certis.automationhub.model.SanTypeRuleEntity;
+import com.bnpparibas.certis.automationhub.repository.CertificateProfileRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestTemplate;
+import java.util.Arrays;
+
+@Service
+public class CertificateProfileService {
+    
+    private static final Logger LOGGER = LoggerFactory.getLogger(CertificateProfileService.class);
+
+    private final RestTemplate restTemplate;
+    private final CertificateProfileRepository certificateProfileRepository;
+
+    @Value("${external.api.url.profiles}")
+    private String externalApiBaseUrl;
+
+    public CertificateProfileService(RestTemplate restTemplate, CertificateProfileRepository certificateProfileRepository) {
+        this.restTemplate = restTemplate;
+        this.certificateProfileRepository = certificateProfileRepository;
+    }
+
+    /**
+     * Méthode principale qui orchestre la récupération et la mise à jour de tous les profils.
+     * L'annotation @Transactional assure que l'opération est atomique.
+     */
+    @Transactional
+    public void syncAllProfilesFromApi() {
+        LOGGER.info("Appel de l'API pour lister tous les profils depuis : {}", externalApiBaseUrl);
+        
+        // 1. RÉCUPÉRER LES DONNÉES depuis l'API externe
+        ExternalProfileDto[] allProfilesFromApi = restTemplate.getForObject(externalApiBaseUrl, ExternalProfileDto[].class);
+        
+        if (allProfilesFromApi == null || allProfilesFromApi.length == 0) {
+            LOGGER.warn("Aucun profil n'a été retourné par l'API externe. La synchronisation est terminée.");
+            return;
+        }
+
+        LOGGER.info("{} profils ont été récupérés. Début de la mise à jour en base de données...", allProfilesFromApi.length);
+
+        // 2. METTRE À JOUR LA BASE DE DONNÉES
+        // On boucle sur chaque profil retourné par l'API pour le traiter
+        Arrays.stream(allProfilesFromApi).forEach(this::processAndSaveSingleProfile);
+        
+        LOGGER.info("Mise à jour de tous les profils en base de données terminée.");
+    }
+    
+    /**
+     * Logique pour traiter et sauvegarder UN seul profil.
+     */
+    private void processAndSaveSingleProfile(ExternalProfileDto profileData) {
+        if (profileData == null || profileData.getName() == null || profileData.getName().isEmpty()) {
+            LOGGER.warn("Un profil retourné par l'API est invalide (pas de nom), il est ignoré.");
+            return;
+        }
+
+        String profileName = profileData.getName();
+        
+        // On cherche le profil dans notre BDD, ou on en crée un nouveau s'il n'existe pas.
+        CertificateProfileEntity profileEntity = certificateProfileRepository.findByProfileName(profileName)
+                .orElseGet(() -> {
+                    LOGGER.info("Le profil '{}' est nouveau, création de l'entité.", profileName);
+                    CertificateProfileEntity newProfile = new CertificateProfileEntity();
+                    newProfile.setProfileName(profileName);
+                    return newProfile;
+                });
+
+        // On supprime les anciennes règles pour les remplacer par les nouvelles (garantit la fraîcheur des données)
+        profileEntity.getSanTypeRules().clear();
+        
+        // On traite et on ajoute les nouvelles règles reçues de l'API
+        if (profileData.getSans() != null) {
+            for (ExternalSanRuleDto ruleDto : profileData.getSans()) {
+                // ... (Logique de création de SanTypeRuleEntity avec les règles min/max du ticket) ...
+                // ... (Lier la règle au profil parent) ...
+                // ... (Ajouter la règle à la collection du profil) ...
+            }
+        }
+        
+        // La sauvegarde est gérée par @Transactional à la fin de la méthode `syncAllProfilesFromApi`
+        // mais un save explicite est aussi possible et parfois plus clair.
+        certificateProfileRepository.save(profileEntity);
+    }
+}
+Schéma du Flux de Travail
+Voici comment les deux classes collaborent :
+code
+Code
++--------------------------+        +-----------------------------------+
+|                          |        |                                   |
+| SyncSanProfilesTask      |------->|  CertificateProfileService        |
+| (Le Scheduler / Manager) |        |  (Le Service / L'Expert)          |
+|                          |        |                                   |
++--------------------------+        +-----------------------------------+
+           |                                  |                |
+           | 1. Déclenche la tâche            |                |
+           |    (tous les jours à 2h)         |                |
+           |                                  |                |
+           | 2. Appelle syncAllProfilesFromApi() |                |
+           +------------------------------------->                |
+                                            |                |
+                                            | 3. Appelle l'API externe avec RestTemplate
+                                            +-------------------------------> [ API EXTERNE ]
+                                                                             
+                                            | 4. Reçoit les données
+                               [ API EXTERNE ] ------------------------------>
+
+                                            | 5. Traite les données et met à jour
+                                            |    la BDD via le Repository
+                                            +-------------------------------> [ Base de Données ]
+Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
