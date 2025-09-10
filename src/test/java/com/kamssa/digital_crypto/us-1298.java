@@ -1560,3 +1560,125 @@ Code
                                             |    la BDD via le Repository
                                             +-------------------------------> [ Base de Données ]
 Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
+///////////////////
+Fichier : ExternalSanRuleDto.java
+Rôle : Représente une seule règle de SAN (avec son type, min, max, etc.) telle qu'elle est définie dans le JSON de l'API externe. C'est un simple conteneur de données.
+Emplacement : src/main/java/com/bnpparibas/certis/automationhub/dto/external/ (ou un autre package dto)
+code
+Java
+package com.bnpparibas.certis.automationhub.dto.external;
+
+import com.bnpparibas.certis.certificate.request.dto.SanTypeEnum; // Assurez-vous d'importer votre Enum existant
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+import java.io.Serializable;
+
+/**
+ * DTO représentant une règle de SAN (Subject Alternative Name)
+ * telle que retournée par l'API externe des profils de certificats.
+ * Cette classe est utilisée par Jackson pour désérialiser la réponse JSON.
+ */
+// @JsonIgnoreProperties(ignoreUnknown = true) est très important :
+// Il permet à votre application de ne pas planter si l'API externe ajoute de nouvelles
+// propriétés que vous ne gérez pas encore dans ce DTO.
+@JsonIgnoreProperties(ignoreUnknown = true)
+public class ExternalSanRuleDto implements Serializable {
+
+    private static final long serialVersionUID = 1L;
+
+    /**
+     * Le type de SAN. Ex: CN, DNSNAME, IPADDRESS...
+     * La désérialisation se basera sur la valeur textuelle du JSON pour trouver la bonne constante de l'Enum.
+     */
+    @JsonProperty("type")
+    private SanTypeEnum type;
+
+    /**
+     * Indique si cette valeur de SAN peut être éditée par le demandeur.
+     * C'est une information cruciale pour la logique métier (si false, max = 0).
+     */
+    @JsonProperty("editableByRequester")
+    private Boolean editableByRequester;
+
+    /**
+     * Le nombre minimum de SANs de ce type autorisés.
+     * Peut être null dans la réponse JSON.
+     */
+    @JsonProperty("min")
+    private Integer min;
+
+    /**
+     * Le nombre maximum de SANs de ce type autorisés.
+     * Peut être null dans la réponse JSON.
+     */
+    @JsonProperty("max")
+    private Integer max;
+    
+    // Ajoutez d'autres champs si vous en avez besoin, par exemple :
+    // @JsonProperty("editableByApprover")
+    // private Boolean editableByApprover;
+
+    // --- Constructeurs ---
+
+    /**
+     * Constructeur par défaut requis pour la désérialisation.
+     */
+    public ExternalSanRuleDto() {
+    }
+
+    // --- Getters et Setters ---
+    // Ils sont indispensables pour que la librairie de désérialisation (Jackson)
+    // puisse peupler les champs de l'objet.
+
+    public SanTypeEnum getType() {
+        return type;
+    }
+
+    public void setType(SanTypeEnum type) {
+        this.type = type;
+    }
+
+    public Boolean getEditableByRequester() {
+        return editableByRequester;
+    }
+
+    public void setEditableByRequester(Boolean editableByRequester) {
+        this.editableByRequester = editableByRequester;
+    }
+
+    public Integer getMin() {
+        return min;
+    }
+
+    public void setMin(Integer min) {
+        this.min = min;
+    }
+
+    public Integer getMax() {
+        return max;
+    }
+
+    public void setMax(Integer max) {
+        this.max = max;
+    }
+
+    // --- toString() (Utile pour le débogage) ---
+
+    @Override
+    public String toString() {
+        return "ExternalSanRuleDto{" +
+                "type=" + type +
+                ", editableByRequester=" + editableByRequester +
+                ", min=" + min +
+                ", max=" + max +
+                '}';
+    }
+}
+Points Clés de ce Fichier
+@JsonIgnoreProperties(ignoreUnknown = true) : C'est une protection très importante. Elle rend votre application plus résiliente aux changements de l'API externe.
+@JsonProperty("...") : Cette annotation mappe explicitement un champ JSON à un champ Java. C'est une bonne pratique, même si les noms sont identiques, car cela rend le code plus clair et vous protège si vous décidez de renommer vos variables Java.
+Types Wrapper (Integer, Boolean) : Comme discuté précédemment, on utilise les classes Wrapper au lieu des types primitifs (int, boolean). C'est essentiel car les champs dans le JSON peuvent être absents (null), et un type primitif ne peut pas représenter cet état.
+Serializable : C'est une bonne pratique pour les DTOs, bien que ce ne soit pas toujours strictement nécessaire selon l'usage.
+SanTypeEnum : J'ai supposé que votre SanTypeEnum existant correspond aux valeurs textuelles du JSON ("CN", "RFC822NAME", etc.). Si ce n'est pas le cas, il faudra peut-être ajouter une logique de conversion personnalisée, mais en général, Jackson gère très bien la désérialisation des Enums.
+Getters et Setters : Ils sont absolument nécessaires pour que Jackson puisse créer une instance de l'objet et y injecter les valeurs lues depuis le JSON.
