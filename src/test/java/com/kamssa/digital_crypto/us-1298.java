@@ -1975,3 +1975,5 @@ public class DevRestTemplateConfig {
 Avec cette configuration, lorsque vous lancerez votre application avec le profil "dev", elle n'essaiera plus de contacter le vrai serveur. Elle utilisera le RestTemplate mocké qui retourne des données de test, ce qui vous permettra de travailler sur le reste de votre code sans être bloqué par des problèmes de réseau.
 Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
 
+////////////////
+spring.profiles.active=dev
