@@ -1171,3 +1171,207 @@ Rapide et Fiable : Le test s'exécute en quelques millisecondes et n'a pas de d�
 Ciblé : Il teste la logique de la tâche elle-même, pas le framework Spring. C'est le principe du test unitaire.
 Facile à Maintenir : Si vous ajoutez de la logique à votre tâche (par exemple, envoyer un email en cas d'erreur), vous n'avez qu'à ajouter des verify() à ce test pour vérifier que le service d'email est bien appelé.
 Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
+///////////////////////////////////////////////////////////////////////////// 
+Absolument. Votre intuition est excellente et c'est la bonne manière de faire : au lieu de deviner la liste des profils, il faut demander à l'API de tous les lister. C'est beaucoup plus robuste et efficace.
+En analysant vos images, on peut déduire la solution complète.
+Réponse Directe à votre Question
+Quel est le type de retour pour RestTemplate ?
+Image 1 montre une liste de profils. Cela implique qu'il existe un endpoint d'API pour récupérer cette liste, probablement .../api/v1/certificate/profiles (sans nom de profil à la fin).
+Image 2 montre la structure JSON pour un seul profil.
+Selon les conventions des API REST, un endpoint qui liste des ressources retourne un tableau JSON ([...]) où chaque élément est un objet ressource.
+Donc, quand vous appellerez restTemplate.getForObject() sur l'URL de la liste, le type de retour attendu sera un tableau de l'objet que vous avez vu dans l'image 2.
+En Java, cela se traduit par ExternalProfileDto[].
+Voici le plan d'action complet pour implémenter cette solution, qui est bien meilleure que la précédente.
+Étape 1 : Modifier vos DTOs pour correspondre à la réponse de l'API
+Votre DTO ExternalSanProfileResponse n'était pas tout à fait correct. D'après l'image 2, le sans est une propriété à l'intérieur de l'objet profil. Nous allons créer des DTOs qui correspondent exactement à cette structure.
+Fichier 1 : ExternalProfileDto.java (Le DTO pour un profil complet)
+(Ce DTO remplace votre ancien ExternalSanProfileResponse)
+code
+Java
+package com.bnpparibas.certis.automationhub.dto.external;
+
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import java.util.List;
+
+// Ignore les propriétés inconnues pour ne pas avoir d'erreur si l'API en ajoute
+@JsonIgnoreProperties(ignoreUnknown = true)
+public class ExternalProfileDto {
+
+    // On a besoin du nom pour le retrouver en base !
+    private String name;
+    
+    // Et de la liste des règles de SANs
+    private List<ExternalSanRuleDto> sans;
+    
+    // Ajoutez d'autres champs de l'API si vous en avez besoin (ex: description)
+    // private String description;
+
+    // Getters and Setters
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public List<ExternalSanRuleDto> getSans() {
+        return sans;
+    }
+
+    public void setSans(List<ExternalSanRuleDto> sans) {
+        this.sans = sans;
+    }
+}
+Fichier 2 : ExternalSanRuleDto.java (Le DTO pour une règle de SAN)
+(Ce DTO remplace votre ancien ExternalSanTypeRuleDto)
+code
+Java
+package com.bnpparibas.certis.automationhub.dto.external;
+
+import com.bnpparibas.certis.certificate.request.dto.SanTypeEnum;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
+@JsonIgnoreProperties(ignoreUnknown = true)
+public class ExternalSanRuleDto {
+
+    private SanTypeEnum type;
+    private Boolean editableByRequester;
+    private Integer min;
+    private Integer max;
+
+    // Getters and Setters pour tous les champs...
+}
+Étape 2 : Modifier votre Service CertificateProfileService
+Nous allons créer une nouvelle méthode publique pour le scheduler et une méthode privée pour la logique de traitement afin d'éviter la duplication de code.
+code
+Java
+package com.bnpparibas.certis.automationhub.service;
+
+// ... tous vos imports ...
+import com.bnpparibas.certis.automationhub.dto.external.ExternalProfileDto;
+import org.springframework.transaction.annotation.Transactional;
+import java.util.Arrays;
+
+@Service
+public class CertificateProfileService {
+    
+    // ... vos dépendances (RestTemplate, Repository) ...
+
+    /**
+     * NOUVELLE méthode que le scheduler appellera.
+     * Elle ne prend aucun paramètre et synchronise TOUS les profils.
+     */
+    @Transactional
+    public void syncAllProfilesFromApi() {
+        // L'URL de base, SANS nom de profil
+        String listApiUrl = externalApiBaseUrl; 
+        
+        LOGGER.info("Appel de l'API pour lister tous les profils depuis : {}", listApiUrl);
+        
+        // C'est ici que l'on récupère le TABLEAU de profils
+        ExternalProfileDto[] allProfiles = restTemplate.getForObject(listApiUrl, ExternalProfileDto[].class);
+        
+        if (allProfiles == null || allProfiles.length == 0) {
+            LOGGER.warn("Aucun profil n'a été retourné par l'API externe.");
+            return;
+        }
+
+        LOGGER.info("{} profils ont été récupérés depuis l'API. Début du traitement...", allProfiles.length);
+
+        // On boucle sur chaque profil retourné par l'API
+        Arrays.stream(allProfiles).forEach(this::processAndSaveProfile);
+        
+        LOGGER.info("Traitement de tous les profils terminé.");
+    }
+    
+    /**
+     * Méthode privée qui contient la logique de traitement pour UN profil.
+     * Elle est appelée par la nouvelle méthode de synchronisation.
+     * @param profileData Le DTO d'un profil récupéré depuis l'API.
+     */
+    private void processAndSaveProfile(ExternalProfileDto profileData) {
+        if (profileData == null || profileData.getName() == null || profileData.getName().isEmpty()) {
+            LOGGER.warn("Un profil retourné par l'API est invalide (pas de nom), il est ignoré.");
+            return;
+        }
+
+        String profileName = profileData.getName();
+        
+        // 1. Récupérer ou créer le CertificateProfileEntity
+        CertificateProfileEntity profileEntity = certificateProfileRepository.findByProfileName(profileName)
+                .orElseGet(() -> {
+                    LOGGER.info("Le profil '{}' est nouveau, création de l'entité.", profileName);
+                    CertificateProfileEntity newProfile = new CertificateProfileEntity();
+                    newProfile.setProfileName(profileName);
+                    return newProfile;
+                });
+
+        // 2. Vider les anciennes règles pour les remplacer par les nouvelles
+        profileEntity.getSanTypeRules().clear();
+        
+        // 3. Traiter et ajouter les nouvelles règles
+        if (profileData.getSans() != null) {
+            for (ExternalSanRuleDto ruleDto : profileData.getSans()) {
+                SanTypeRuleEntity ruleEntity = new SanTypeRuleEntity();
+                
+                // Appliquer les règles du ticket Jira
+                Integer minVal = ruleDto.getMin() != null ? ruleDto.getMin() : 0;
+                Integer maxVal = ruleDto.getMax() != null ? ruleDto.getMax() : 250;
+                if (Boolean.FALSE.equals(ruleDto.getEditableByRequester())) {
+                    maxVal = 0;
+                }
+
+                ruleEntity.setSanType(ruleDto.getType());
+                ruleEntity.setMinValue(minVal);
+                ruleEntity.setMaxValue(maxVal);
+                ruleEntity.setEditableByRequester(ruleDto.getEditableByRequester());
+                
+                // Lier la règle au profil parent
+                ruleEntity.setCertificateProfile(profileEntity);
+                profileEntity.getSanTypeRules().add(ruleEntity);
+            }
+        }
+        
+        // 4. Sauvegarder le profil (et ses règles en cascade)
+        certificateProfileRepository.save(profileEntity);
+        LOGGER.debug("Profil '{}' sauvegardé avec {} règles.", profileName, profileEntity.getSanTypeRules().size());
+    }
+}
+Étape 3 : Simplifier le Scheduler SyncSanProfilesTask
+Maintenant, le scheduler devient extrêmement simple. Il n'a plus besoin d'une liste de profils dans la configuration. Il n'a qu'une seule chose à faire : appeler la nouvelle méthode du service.
+code
+Java
+package com.bnpparibas.certis.api.tasks;
+
+// ... imports ...
+
+@Component
+public class SyncSanProfilesTask {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(SyncSanProfilesTask.class);
+    private final CertificateProfileService profileService;
+
+    public SyncSanProfilesTask(CertificateProfileService profileService) {
+        this.profileService = profileService;
+    }
+
+    @Scheduled(cron = "${certis.profiles.sync-cron:0 0 2 * * ?}")
+    @SchedulerLock(name = "SyncSanProfilesTask_lock")
+    public void runTask() {
+        LOGGER.info("Début de la tâche planifiée de synchronisation de tous les profils de SANs.");
+        try {
+            // Un seul appel pour tout synchroniser !
+            profileService.syncAllProfilesFromApi();
+            LOGGER.info("Tâche de synchronisation des profils terminée avec succès.");
+        } catch (Exception e) {
+            LOGGER.error("Une erreur critique est survenue durant la tâche de synchronisation des profils.", e);
+        }
+    }
+}
+Étape 4 : Mettre à jour la Configuration
+Vous pouvez maintenant supprimer la ligne certis.profiles.to-sync de votre fichier application.properties, elle n'est plus nécessaire !
+Avantages de cette nouvelle approche
+Efficacité : Un seul appel à l'API pour tout récupérer.
+Robustesse : Si un administrateur ajoute un nouveau profil dans Horizon, votre scheduler le découvrira et le synchronisera automatiquement à la prochaine exécution. Vous n'avez plus besoin de penser à mettre à jour votre fichier de configuration.
+Simplicité : La configuration est plus simple et le code du scheduler est plus direct.
