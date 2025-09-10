@@ -1889,3 +1889,89 @@ public class CertificateProfileService {
         }
     }
 }
+//////////////////// erreur////////////////////
+Oui, c'est une autre erreur très instructive ! Vous avez bien fait de créer un @Bean pour tester le service au démarrage, c'est une excellente technique de débogage.
+Diagnostic de l'Erreur
+L'erreur est très claire et se trouve à la fin des logs :
+org.springframework.web.client.ResourceAccessException: I/O error on GET request for "https://automation.staging.echonet.net.intra/api/v1/certificate/profiles": automation.staging.echonet.net.intra; nested exception is java.net.UnknownHostException: automation.staging.echonet.net.intra
+Traduction en français simple :
+C'est une erreur réseau. Votre application a essayé de contacter le serveur automation.staging.echonet.net.intra, mais votre ordinateur n'a pas réussi à trouver son adresse IP.
+L'exception java.net.UnknownHostException est la cause racine et signifie littéralement "Hôte inconnu".
+Analogie : C'est comme si vous tapiez une adresse dans votre GPS, et le GPS vous répondait : "Je ne connais pas cette rue, elle n'existe pas dans ma carte". Votre ordinateur demande à son "annuaire" (le système DNS) : "Quelle est l'adresse IP de automation.staging.echonet.net.intra ?", et l'annuaire répond : "Je ne connais pas ce nom".
+Pourquoi cette erreur se produit-elle ?
+Le nom de domaine se termine par .intra, ce qui indique qu'il s'agit d'un serveur sur le réseau interne de votre entreprise. Il n'est pas accessible depuis l'internet public.
+Les causes les plus probables sont :
+Vous n'êtes pas connecté au réseau de l'entreprise (Cause la plus fréquente). Si vous travaillez de chez vous ou d'un autre endroit, vous devez être connecté via un VPN pour que votre ordinateur puisse accéder aux ressources internes.
+Problème de Proxy. De nombreuses entreprises exigent que le trafic passe par un proxy. Votre application Java (et donc le RestTemplate) doit peut-être être configurée pour utiliser ce proxy.
+Pare-feu (Firewall). Un pare-feu sur votre machine ou sur le réseau de l'entreprise pourrait bloquer la connexion.
+Faute de frappe dans l'URL. Il est toujours bon de vérifier si l'URL dans votre fichier application.properties est parfaitement correcte.
+Solutions à Essayer (dans l'ordre)
+1. Vérifiez votre connexion VPN (Le plus probable)
+Êtes-vous bien connecté au VPN de votre entreprise ? Si ce n'est pas le cas, connectez-vous et relancez l'application. C'est la solution dans 95% des cas pour ce type d'erreur.
+2. Testez la connectivité manuellement
+Ouvrez une ligne de commande (Terminal, PowerShell, CMD) et essayez de "pinger" le serveur :
+code
+Bash
+ping automation.staging.echonet.net.intra
+Si la commande ping répond "hôte inconnu" ou "ping request could not find host", cela confirme que le problème est bien lié à votre connectivité réseau (VPN, etc.) et non à votre code Java.
+3. Configurez le Proxy (si votre entreprise en utilise un)
+Si votre entreprise utilise un proxy, vous devez le spécifier au démarrage de votre application Java. Vous pouvez le faire en ajoutant des arguments à la JVM dans votre configuration de lancement IntelliJ :
+Allez dans "Edit Configurations..."
+Dans le champ "VM options", ajoutez :
+code
+Code
+-Dhttps.proxyHost=proxy.votre-entreprise.com -Dhttps.proxyPort=8080
+(Remplacez l'hôte et le port par ceux de votre entreprise).
+Solution de Contournement pour le Développement (Très Utile !)
+Pour pouvoir continuer à développer même si vous n'avez pas accès au réseau, vous pouvez temporairement "mocker" (simuler) la réponse de l'API.
+Modifiez votre CertisApp pour créer un RestTemplate "bidon" lorsque vous êtes dans un profil de développement.
+Ouvrez votre fichier application.properties et ajoutez cette ligne :
+code
+Properties
+spring.profiles.active=dev
+Créez une nouvelle classe de configuration pour le développement :
+code
+Java
+// Dans un package de configuration
+package com.bnpparibas.certis.config;
+
+import com.bnpparibas.certis.automationhub.dto.external.ExternalProfileDto;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
+import org.springframework.web.client.RestTemplate;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+@Configuration
+@Profile("dev") // Cette configuration ne sera active que si le profil "dev" est activé
+public class DevRestTemplateConfig {
+
+    @Bean
+    public RestTemplate automationHubRestTemplate() {
+        System.out.println("--- ATTENTION : UTILISATION D'UN RESTTEMPLATE MOCKÉ POUR LE DÉVELOPPEMENT ---");
+        
+        // On crée un mock de RestTemplate
+        RestTemplate mockRestTemplate = mock(RestTemplate.class);
+        
+        // On crée une fausse réponse
+        ExternalProfileDto[] fakeResponse = new ExternalProfileDto[1];
+        ExternalProfileDto fakeProfile = new ExternalProfileDto();
+        fakeProfile.setName("PROFIL_DE_TEST_MOCKE");
+        // Ajoutez quelques règles de SANs si vous voulez tester la logique de sauvegarde
+        fakeResponse[0] = fakeProfile;
+
+        // On dit au mock : "quand on t'appelle avec cette URL, retourne la fausse réponse"
+        when(mockRestTemplate.getForObject(any(String.class), eq(ExternalProfileDto[].class)))
+            .thenReturn(fakeResponse);
+            
+        return mockRestTemplate;
+    }
+}
+Avec cette configuration, lorsque vous lancerez votre application avec le profil "dev", elle n'essaiera plus de contacter le vrai serveur. Elle utilisera le RestTemplate mocké qui retourne des données de test, ce qui vous permettra de travailler sur le reste de votre code sans être bloqué par des problèmes de réseau.
+Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
+
