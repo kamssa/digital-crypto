@@ -1682,3 +1682,210 @@ Types Wrapper (Integer, Boolean) : Comme discuté précédemment, on utilise les
 Serializable : C'est une bonne pratique pour les DTOs, bien que ce ne soit pas toujours strictement nécessaire selon l'usage.
 SanTypeEnum : J'ai supposé que votre SanTypeEnum existant correspond aux valeurs textuelles du JSON ("CN", "RFC822NAME", etc.). Si ce n'est pas le cas, il faudra peut-être ajouter une logique de conversion personnalisée, mais en général, Jackson gère très bien la désérialisation des Enums.
 Getters et Setters : Ils sont absolument nécessaires pour que Jackson puisse créer une instance de l'objet et y injecter les valeurs lues depuis le JSON.
+
+//////////////////////////////// explication detille du service/////////////////////////////////
+Voici le code complet de la classe CertificateProfileService, avec des explications très détaillées pour chaque section, chaque ligne importante et chaque décision de conception.
+Fichier : CertificateProfileService.java
+Rôle principal : Orchestrer la synchronisation des règles de profils de certificats. C'est l'expert qui sait comment parler à l'API externe et comment mettre à jour la base de données locale.
+Déclenchement : Cette classe est conçue pour être appelée par le SyncSanProfilesTask (le scheduler).
+Emplacement : src/main/java/com/bnpparibas/certis/automationhub/service/
+code
+Java
+// Le package où se trouve votre service
+package com.bnpparibas.certis.automationhub.service;
+
+// --- Imports ---
+// On importe toutes les classes nécessaires pour que le service fonctionne.
+import com.bnpparibas.certis.automationhub.dto.external.ExternalProfileDto;
+import com.bnpparibas.certis.automationhub.dto.external.ExternalSanRuleDto;
+import com.bnpparibas.certis.automationhub.model.CertificateProfileEntity;
+import com.bnpparibas.certis.automationhub.model.SanTypeRuleEntity;
+import com.bnpparibas.certis.automationhub.repository.CertificateProfileRepository;
+import com.bnpparibas.certis.automationhub.repository.SanTypeRuleRepository; // Import pour gérer les règles de SAN
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestTemplate;
+
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+/**
+ * Service chargé de la gestion des profils de certificats.
+ * Sa responsabilité principale est de synchroniser les règles de profils
+ * depuis une API externe vers la base de données locale.
+ */
+@Service // Annotation qui déclare cette classe comme un "Service" Spring. Spring va en créer une instance (un "bean") et la gérer.
+public class CertificateProfileService {
+    
+    // Un logger pour écrire des messages dans les logs de l'application. C'est essentiel pour le débogage.
+    private static final Logger LOGGER = LoggerFactory.getLogger(CertificateProfileService.class);
+
+    // --- Dépendances ---
+    // Ce sont les "outils" dont notre service a besoin pour travailler. Spring les injectera automatiquement.
+
+    private final RestTemplate restTemplate; // L'outil pour faire des appels HTTP vers l'API externe.
+    private final CertificateProfileRepository certificateProfileRepository; // L'outil pour parler à la table CERTIFICATE_PROFILE.
+    private final SanTypeRuleRepository sanTypeRuleRepository; // L'outil pour parler à la table SAN_TYPE_RULE.
+
+    // La valeur de cette variable sera injectée depuis le fichier application.properties.
+    // C'est ici qu'on configure l'URL de base de l'API externe.
+    @Value("${external.api.url.profiles}")
+    private String externalApiBaseUrl;
+
+    /**
+     * Constructeur du service.
+     * C'est la méthode recommandée pour l'injection de dépendances.
+     * Spring va automatiquement trouver les beans correspondants et les passer en paramètres.
+     * @param restTemplate Le RestTemplate spécifique pour l'automation hub.
+     * @param certificateProfileRepository Le repository pour les profils.
+     * @param sanTypeRuleRepository Le repository pour les règles de SAN.
+     */
+    public CertificateProfileService(
+            @Qualifier("automationHubRestTemplate") RestTemplate restTemplate, // @Qualifier est crucial car vous avez plusieurs RestTemplate
+            CertificateProfileRepository certificateProfileRepository,
+            SanTypeRuleRepository sanTypeRuleRepository) {
+        this.restTemplate = restTemplate;
+        this.certificateProfileRepository = certificateProfileRepository;
+        this.sanTypeRuleRepository = sanTypeRuleRepository;
+    }
+
+    /**
+     * Méthode principale orchestrant la synchronisation de TOUS les profils.
+     * C'est cette méthode qui sera appelée par le scheduler.
+     * 
+     * @Transactional : C'est une annotation très puissante. Elle dit à Spring de démarrer une transaction
+     * avec la base de données avant d'exécuter cette méthode. Si la méthode se termine sans erreur,
+     * la transaction est "commit" (toutes les modifications sont sauvegardées). Si une erreur (Exception)
+     * se produit, la transaction est "rollback" (toutes les modifications sont annulées).
+     * Cela garantit que votre base de données reste dans un état cohérent.
+     */
+    @Transactional
+    public void syncAllProfilesFromApi() {
+        LOGGER.info("Appel de l'API externe pour lister tous les profils depuis l'URL : {}", externalApiBaseUrl);
+        
+        // 1. RÉCUPÉRER LES DONNÉES DEPUIS L'API EXTERNE
+        // On utilise restTemplate pour faire un appel GET sur l'URL de base.
+        // On s'attend à recevoir un tableau de profils, donc le type de retour est ExternalProfileDto[].
+        ExternalProfileDto[] allProfilesFromApi = restTemplate.getForObject(externalApiBaseUrl, ExternalProfileDto[].class);
+        
+        // C'est une bonne pratique de vérifier si la réponse n'est pas vide.
+        if (allProfilesFromApi == null || allProfilesFromApi.length == 0) {
+            LOGGER.warn("Aucun profil n'a été retourné par l'API externe. La synchronisation est terminée.");
+            return; // On arrête la méthode ici car il n'y a rien à faire.
+        }
+
+        LOGGER.info("{} profils ont été récupérés de l'API. Début de la mise à jour en base de données...", allProfilesFromApi.length);
+
+        // On transforme le tableau en Set de noms pour une recherche plus efficace plus tard.
+        Set<String> profileNamesFromApi = Arrays.stream(allProfilesFromApi)
+                                                .map(ExternalProfileDto::getName)
+                                                .collect(Collectors.toSet());
+
+        // 2. METTRE À JOUR LA BASE DE DONNÉES
+        // On boucle sur chaque profil retourné par l'API pour le traiter et le sauvegarder.
+        Arrays.stream(allProfilesFromApi).forEach(this::processAndSaveSingleProfile);
+        
+        // 3. (Optionnel mais recommandé) DÉSACTIVER LES ANCIENS PROFILS
+        // On cherche les profils qui sont dans notre base mais qui n'ont PAS été retournés par l'API.
+        // Cela signifie qu'ils ont été supprimés ou désactivés dans le système source (Horizon).
+        deactivateOrphanedProfiles(profileNamesFromApi);
+        
+        LOGGER.info("Mise à jour de tous les profils en base de données terminée.");
+    }
+    
+    /**
+     * Logique pour traiter et sauvegarder UN seul profil reçu de l'API.
+     * Cette méthode est privée car elle n'est qu'un détail d'implémentation de la méthode principale.
+     * @param profileData Le DTO d'un profil contenant les données de l'API.
+     */
+    private void processAndSaveSingleProfile(ExternalProfileDto profileData) {
+        // Validation simple pour ignorer les données invalides.
+        if (profileData == null || profileData.getName() == null || profileData.getName().isEmpty()) {
+            LOGGER.warn("Un profil retourné par l'API est invalide (nom manquant) et est ignoré.");
+            return;
+        }
+
+        String profileName = profileData.getName();
+        
+        // On cherche le profil dans notre BDD. S'il n'existe pas, on en crée un nouveau.
+        // C'est une opération "upsert" (update or insert).
+        CertificateProfileEntity profileEntity = certificateProfileRepository.findByProfileName(profileName)
+                .orElseGet(() -> {
+                    LOGGER.info("Le profil '{}' est nouveau. Création d'une nouvelle entité.", profileName);
+                    CertificateProfileEntity newProfile = new CertificateProfileEntity();
+                    newProfile.setProfileName(profileName);
+                    return newProfile;
+                });
+        
+        // Si le profil existait mais était désactivé, on le réactive.
+        profileEntity.setActive(true);
+
+        // On utilise un Set pour stocker les nouvelles règles.
+        Set<SanTypeRuleEntity> newRules = new HashSet<>();
+        
+        // On traite les règles de SANs si la liste n'est pas vide.
+        if (profileData.getSans() != null) {
+            for (ExternalSanRuleDto ruleDto : profileData.getSans()) {
+                SanTypeRuleEntity ruleEntity = new SanTypeRuleEntity();
+                
+                // --- Logique métier du ticket Jira ---
+                Integer minVal = ruleDto.getMin() != null ? ruleDto.getMin() : 0;
+                Integer maxVal = ruleDto.getMax() != null ? ruleDto.getMax() : 250;
+                if (Boolean.FALSE.equals(ruleDto.getEditableByRequester())) {
+                    maxVal = 0;
+                }
+                // --- Fin de la logique métier ---
+
+                ruleEntity.setSanType(ruleDto.getType());
+                ruleEntity.setMinValue(minVal);
+                ruleEntity.setMaxValue(maxVal);
+                ruleEntity.setEditableByRequester(ruleDto.getEditableByRequester());
+                
+                // C'est crucial : on lie la règle à son profil parent.
+                // Cela va remplir la colonne de clé étrangère PROFILE_ID.
+                ruleEntity.setCertificateProfile(profileEntity);
+                newRules.add(ruleEntity);
+            }
+        }
+        
+        // On remplace complètement l'ancienne collection de règles par la nouvelle.
+        // `orphanRemoval=true` dans `CertificateProfileEntity` s'assurera que les anciennes règles
+        // qui ne sont plus dans la collection seront supprimées de la base de données.
+        profileEntity.getSanTypeRules().clear();
+        profileEntity.getSanTypeRules().addAll(newRules);
+        
+        // JPA est intelligent. Grâce à @Transactional, il sauvegardera automatiquement les changements
+        // à la fin de la méthode. Mais un `save` explicite ne fait pas de mal et rend le code plus clair.
+        certificateProfileRepository.save(profileEntity);
+        LOGGER.debug("Profil '{}' sauvegardé/mis à jour avec {} règles.", profileName, profileEntity.getSanTypeRules().size());
+    }
+
+    /**
+     * Méthode utilitaire pour gérer les profils qui existent dans notre base
+     * mais qui ne sont plus retournés par l'API. Au lieu de les supprimer,
+     * il est plus sûr de simplement les marquer comme inactifs.
+     * @param activeProfileNamesFromApi Le Set des noms de profils qui sont actuellement valides selon l'API.
+     */
+    private void deactivateOrphanedProfiles(Set<String> activeProfileNamesFromApi) {
+        LOGGER.debug("Recherche des profils à désactiver...");
+        
+        // On récupère tous les profils de notre base.
+        List<CertificateProfileEntity> allProfilesInDb = certificateProfileRepository.findAll();
+        
+        for (CertificateProfileEntity profileInDb : allProfilesInDb) {
+            // Si un profil de notre base n'est PAS dans la liste de l'API ET qu'il est actuellement actif...
+            if (!activeProfileNamesFromApi.contains(profileInDb.getProfileName()) && profileInDb.isActive()) {
+                // ...alors on le désactive.
+                LOGGER.info("Le profil '{}' n'est plus retourné par l'API. Il va être désactivé.", profileInDb.getProfileName());
+                profileInDb.setActive(false);
+                certificateProfileRepository.save(profileInDb); // On sauvegarde le changement de statut.
+            }
+        }
+    }
+}
