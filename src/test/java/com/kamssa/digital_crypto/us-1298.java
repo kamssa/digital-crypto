@@ -2052,3 +2052,128 @@ Sélectionnez tout le bloc de code et cliquez sur l'icône "Exécuter le script"
 Une fois que c'est fait, copiez-collez le deuxième bloc de code (CREATE TABLE SAN_TYPE_RULE).
 Sélectionnez ce deuxième bloc et exécutez-le de la même manière.
 Après ces deux étapes, vos tables seront créées dans la base de données CERTIS_QUAL, prêtes à être utilisées par votre application. Vous pouvez vérifier leur existence en rafraîchissant le noeud "Tables" dans l'explorateur de connexions sur la gauche.
+/////////////////////////
+La Solution : Corriger vos Classes DTO
+Pour que la désérialisation fonctionne, vos classes DTO doivent être un miroir parfait des champs JSON qui vous intéressent. Voici le code exact et complet pour vos deux DTOs, qui fonctionnera avec le JSON que vous avez montré.
+Fichier 1 : ExternalProfileDto.java (Le DTO pour un profil)
+C'est très probablement dans ce fichier que se trouve l'erreur. Assurez-vous qu'il ressemble exactement à ceci.
+code
+Java
+package com.bnpparibas.certis.automationhub.dto.external; // Assurez-vous que le package est correct
+
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+import java.util.List;
+
+// Ignore les nombreux champs du JSON que nous ne voulons pas mapper.
+@JsonIgnoreProperties(ignoreUnknown = true)
+public class ExternalProfileDto {
+
+    // On mappe le champ JSON "name" à notre variable Java "name"
+    @JsonProperty("name")
+    private String name;
+
+    // C'EST LA PARTIE LA PLUS IMPORTANTE
+    // On mappe explicitement le champ JSON "sans" à notre variable Java "sans"
+    @JsonProperty("sans")
+    private List<ExternalSanRuleDto> sans;
+
+    // --- Getters et Setters ---
+    // Ils sont OBLIGATOIRES pour que Jackson puisse fonctionner.
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public List<ExternalSanRuleDto> getSans() {
+        return sans;
+    }
+
+    // Ce setter est CRUCIAL. Sans lui, la liste "sans" sera toujours null.
+    public void setSans(List<ExternalSanRuleDto> sans) {
+        this.sans = sans;
+    }
+}
+Fichier 2 : ExternalSanRuleDto.java (Le DTO pour une règle de SAN)
+Assurez-vous également que ce fichier est correct, avec tous ses getters et setters.
+code
+Java
+package com.bnpparibas.certis.automationhub.dto.external; // Assurez-vous que le package est correct
+
+import com.bnpparibas.certis.certificate.request.dto.SanTypeEnum; // L'Enum que vous utilisez déjà
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+@JsonIgnoreProperties(ignoreUnknown = true)
+public class ExternalSanRuleDto {
+
+    @JsonProperty("type")
+    private SanTypeEnum type;
+
+    @JsonProperty("editableByRequester")
+    private Boolean editableByRequester;
+
+    @JsonProperty("min")
+    private Integer min;
+
+    @JsonProperty("max")
+    private Integer max;
+
+    // --- Getters et Setters OBLIGATOIRES ---
+
+    public SanTypeEnum getType() {
+        return type;
+    }
+
+    public void setType(SanTypeEnum type) {
+        this.type = type;
+    }
+
+    public Boolean getEditableByRequester() {
+        return editableByRequester;
+    }
+
+    public void setEditableByRequester(Boolean editableByRequester) {
+        this.editableByRequester = editableByRequester;
+    }
+
+    public Integer getMin() {
+        return min;
+    }
+
+    public void setMin(Integer min) {
+        this.min = min;
+    }
+
+    public Integer getMax() {
+        return max;
+    }
+
+    public void setMax(Integer max) {
+        this.max = max;
+    }
+
+    @Override
+    public String toString() {
+        // Un toString() est très utile pour le débogage !
+        return "ExternalSanRuleDto{" +
+                "type=" + type +
+                ", min=" + min +
+                ", max=" + max +
+                '}';
+    }
+}
+Étapes à suivre
+Vérifiez et remplacez le contenu de vos deux fichiers DTO (ExternalProfileDto.java et ExternalSanRuleDto.java) par le code que je viens de vous fournir. Faites particulièrement attention au setter setSans dans ExternalProfileDto.
+Relancez votre application.
+Regardez la sortie de votre console. Votre System.out.println("Test 1:" + fromApi); ne devrait plus afficher [null, null, null, ...]. Il devrait maintenant afficher la vraie liste des règles de SANs, quelque chose comme :
+code
+Code
+Test 1:[[ExternalSanRuleDto{type=DNSNAME, min=0, max=3}, ExternalSanRuleDto{type=IPADDRESS, min=0, max=3}], [ExternalSanRuleDto{type=CN, min=1, max=1}], ...]
+(grâce au toString() que nous avons ajouté).
+C'est un problème de mapping très classique lorsqu'on interagit avec des APIs externes. Une fois que vos DTOs sont correctement alignés avec le JSON, tout fonctionnera parfaitement.
