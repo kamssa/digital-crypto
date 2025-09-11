@@ -2177,3 +2177,35 @@ Code
 Test 1:[[ExternalSanRuleDto{type=DNSNAME, min=0, max=3}, ExternalSanRuleDto{type=IPADDRESS, min=0, max=3}], [ExternalSanRuleDto{type=CN, min=1, max=1}], ...]
 (grâce au toString() que nous avons ajouté).
 C'est un problème de mapping très classique lorsqu'on interagit avec des APIs externes. Une fois que vos DTOs sont correctement alignés avec le JSON, tout fonctionnera parfaitement.
+/////////////////////
+Supprimez l'interface ExternalSanRuleDto.java.
+Renommez votre classe d'implémentation ExternalSanRuleDtoImpl.java en ExternalSanRuleDto.java.
+Modifiez sa déclaration pour qu'elle n'implémente plus rien :
+code
+Java
+// Fichier renommé : ExternalSanRuleDto.java
+
+// On enlève "implements ExternalSanRuleDto"
+public class ExternalSanRuleDto implements Serializable { // Juste Serializable, c'est bien
+
+    // ... tous vos champs, @JsonProperty, getters et setters ...
+
+}
+Faites de même pour ExternalProfileDto s'il suit le même modèle (interface + impl).
+En faisant cela, vous simplifiez énormément votre code. Quand Jackson verra List<ExternalSanRuleDto>, il saura qu'il doit créer des instances de la classe ExternalSanRuleDto, et tout fonctionnera parfaitement.
+Solution B : Utiliser des annotations Jackson pour lier l'interface à l'implémentation (Plus complexe)
+Si, pour une raison très spécifique, vous devez absolument conserver l'interface, vous devez dire explicitement à Jackson quelle classe utiliser pour l'implémentation.
+Dans votre interface ExternalSanRuleDto.java :
+code
+Java
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+
+@JsonDeserialize(as = ExternalSanRuleDtoImpl.class)
+public interface ExternalSanRuleDto {
+    // ... signatures des getters ...
+}
+L'annotation @JsonDeserialize(as = ...) dit à Jackson : "Quand tu as besoin de créer un objet de ce type d'interface, utilise cette classe concrète."
+Dans votre classe ExternalSanRuleDtoImpl.java :
+Assurez-vous qu'elle implémente bien l'interface et qu'elle a un constructeur par défaut.
+Conclusion :
+Je vous recommande très fortement la Solution A. Elle est plus simple, plus lisible et suit les conventions standard pour les DTOs. La complexité d'une interface n'est pas justifiée ici et c'est la source de votre problème de désérialisation.
