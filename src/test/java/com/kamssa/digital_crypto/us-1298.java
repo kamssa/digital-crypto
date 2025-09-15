@@ -3045,3 +3045,154 @@ COMMENT ON COLUMN AUTOMATIONHUB_PROFILE.ID IS 'Identifiant technique unique (cl�
 COMMENT ON COLUMN AUTOMATIONHUB_PROFILE.PROFILE_NAME IS 'Nom unique et fonctionnel du profil (ex: Appli-SSL-Client-Server).';
 COMMENT ON COLUMN AUTOMATIONHUB_PROFILE.PROFILE_CERTIS_CODE IS 'Code interne Certis associé au profil.';
 Explication des choix pour Oracle
+////////////////////////// relation unidirectionnelle //////////////////////////////////
+Étape 2 : Créer le Repository SanTypeRuleRepository
+Vous avez besoin d'un repository pour pouvoir interagir directement avec la table SAN_TYPE_RULE.
+Emplacement : ...certis.automationhub.dao ou ...repository
+code
+Java
+package com.bnpparibas.certis.automationhub.dao;
+
+import com.bnpparibas.certis.automationhub.model.SanTypeRule;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+
+@Repository
+public interface SanTypeRuleRepository extends JpaRepository<SanTypeRule, Long> {
+
+    // On ajoute une méthode pour pouvoir supprimer toutes les règles d'un profil
+    // avant d'insérer les nouvelles.
+    void deleteByAutomationHubProfile(AutomationHubProfile profile);
+    
+    // Optionnel : Une méthode pour retrouver les règles d'un profil si besoin
+    List<SanTypeRule> findByAutomationHubProfile(AutomationHubProfile profile);
+}
+Étape 3 : Corriger le Service AutomationHubProfileServiceImpl
+Maintenant, on adapte la logique de sauvegarde dans la méthode processSingleProfile.
+code
+Java
+// Dans AutomationHubProfileServiceImpl.java
+
+// ... imports ...
+import com.bnpparibas.certis.automationhub.dao.SanTypeRuleRepository; // <-- NOUVEL IMPORT
+
+@Service
+public class AutomationHubProfileServiceImpl implements AutomationHubProfileService {
+
+    // --- NOUVELLE Dépendance ---
+    private final SanTypeRuleRepository sanTypeRuleRepository;
+    
+    // --- Dépendances existantes ---
+    private final AutomationHubClient automationHubClient;
+    private final AutomationHubProfileDao automationHubProfileDao; // Vous l'appelez certisTypeToAutomationHubProfileDao
+    // ...
+
+    // --- Mettez à jour votre constructeur pour injecter le nouveau repository ---
+    public AutomationHubProfileServiceImpl(SanTypeRuleRepository sanTypeRuleRepository, /*...autres deps...*/ ) {
+        this.sanTypeRuleRepository = sanTypeRuleRepository;
+        // ...
+    }
+    
+    // La méthode syncAllSanRulesFromHorizonApi() ne change pas.
+    
+    /**
+     * Méthode privée avec la NOUVELLE logique de sauvegarde.
+     */
+    private void processSingleProfile(AutomationHubProfile internalProfile) {
+        String profileName = internalProfile.getProfileName();
+
+        // --- ÉTAPE 1 : OBTENIR LES DONNÉES (inchangé) ---
+        ExternalProfileDto horizonProfileData = automationHubClient.fetchProfileDetailsFromHorizon(profileName);
+
+        if (horizonProfileData == null) {
+            LOGGER.warn("Aucune donnée disponible sur Horizon pour '{}'.", profileName);
+            // Si le profil n'existe plus sur Horizon, on supprime ses anciennes règles
+            sanTypeRuleRepository.deleteByAutomationHubProfile(internalProfile);
+            LOGGER.info("Anciennes règles pour le profil '{}' supprimées.", profileName);
+            return;
+        }
+
+        // --- ÉTAPE 2 : LOGIQUE MÉTIER DE SAUVEGARDE (modifiée) ---
+
+        // Le profil parent (internalProfile) existe déjà, on n'a plus besoin de le chercher
+        // ou de le créer. On va juste l'utiliser pour lier les règles.
+
+        // 1. On supprime toutes les anciennes règles pour ce profil.
+        // C'est une étape cruciale pour garantir que seules les nouvelles règles existent.
+        sanTypeRuleRepository.deleteByAutomationHubProfile(internalProfile);
+
+        // 2. On prépare une liste pour les nouvelles entités à sauvegarder.
+        List<SanTypeRule> newRulesToSave = new ArrayList<>();
+
+        if (horizonProfileData.getSans() != null) {
+            for (ExternalSanRuleDto ruleDto : horizonProfileData.getSans()) {
+                SanTypeRule ruleEntity = new SanTypeRule();
+
+                // Logique du ticket Jira (inchangée)
+                Integer minVal = ruleDto.getMin() != null ? ruleDto.getMin() : 0;
+                Integer maxVal = ruleDto.getMax() != null ? ruleDto.getMax() : 250;
+                if (Boolean.FALSE.equals(ruleDto.getEditableByRequester())) {
+                    maxVal = 0;
+                }
+
+                ruleEntity.setSanTypeEnum(ruleDto.getType());
+                ruleEntity.setMinValue(minVal);
+                ruleEntity.setMaxValue(maxVal);
+                
+                // On lie la règle à son profil parent (qui est `internalProfile`)
+                ruleEntity.setAutomationHubProfile(internalProfile);
+                
+                newRulesToSave.add(ruleEntity);
+            }
+        }
+        
+        // 3. On sauvegarde la liste des nouvelles règles directement avec leur repository.
+        if (!newRulesToSave.isEmpty()) {
+            sanTypeRuleRepository.saveAll(newRulesToSave);
+        }
+        
+        LOGGER.info("Profil '{}' mis à jour avec {} règles de SANs.", profileName, newRulesToSave.size());
+    }
+}
+Étape 4 : Corriger le Service de Validation SanServiceImpl
+La méthode verifySansLimitsDynamically doit maintenant charger les règles d'une manière différente, puisqu'elles ne sont plus dans l'entité AutomationHubProfile.
+code
+Java
+// Dans SanServiceImpl.java
+
+// ... imports ...
+import com.bnpparibas.certis.automationhub.dao.SanTypeRuleRepository; // <-- NOUVEL IMPORT
+
+@Service
+public class SanServiceImpl implements SanService {
+
+    private final AutomationHubProfileDao automationHubProfileDao;
+    // --- NOUVELLE Dépendance ---
+    private final SanTypeRuleRepository sanTypeRuleRepository;
+    
+    // --- Mettez à jour le constructeur ---
+    public SanServiceImpl(AutomationHubProfileDao automationHubProfileDao, SanTypeRuleRepository sanTypeRuleRepository) {
+        this.automationHubProfileDao = automationHubProfileDao;
+        this.sanTypeRuleRepository = sanTypeRuleRepository;
+    }
+    
+    private void verifySansLimitsDynamically(RequestDto requestDto) throws CertisRequestException {
+        // ... (début de la méthode inchangé) ...
+        String profileName = requestDto.getCertificate().getType().getName();
+
+        // Étape 1 : Charger le profil parent
+        Optional<AutomationHubProfile> profileOpt = automationHubProfileDao.findByProfileName(profileName);
+        if (!profileOpt.isPresent()) {
+            throw new CertisRequestException("error.profile.unknown", new Object[]{profileName}, HttpStatus.BAD_REQUEST);
+        }
+        AutomationHubProfile profile = profileOpt.get();
+
+        // Étape 2 : Charger les règles associées en utilisant le SanTypeRuleRepository
+        List<SanTypeRule> rules = sanTypeRuleRepository.findByAutomationHubProfile(profile);
+
+        // ... (le reste de la méthode de validation est identique) ...
+        // La validation se base sur la liste "rules" que nous venons de charger.
+    }
+}
