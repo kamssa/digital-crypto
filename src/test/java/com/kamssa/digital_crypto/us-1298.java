@@ -3016,3 +3016,32 @@ public class SanTypeRule implements Serializable {
     
     // ...
 }
+/////////////////// sql //////////////////////////////
+code
+SQL
+-- D'abord, on crée la séquence Oracle qui sera utilisée pour générer les IDs.
+-- C'est nécessaire car votre entité utilise GenerationType.SEQUENCE.
+CREATE SEQUENCE SEQ_AUTOMATIONHUB_PROFILE_ID
+    START WITH 1
+    INCREMENT BY 1
+    NOCACHE
+    NOCYCLE;
+
+-- Ensuite, on crée la table elle-même.
+CREATE TABLE AUTOMATIONHUB_PROFILE (
+    -- Clé primaire, qui utilisera la séquence définie ci-dessus.
+    ID NUMBER(19,0) NOT NULL PRIMARY KEY,
+
+    -- Colonne pour le nom du profil
+    PROFILE_NAME VARCHAR2(255 CHAR),
+    
+    -- Colonne pour le code certis
+    PROFILE_CERTIS_CODE VARCHAR2(255 CHAR)
+);
+
+-- Ajout de commentaires pour la documentation de la base de données.
+COMMENT ON TABLE AUTOMATIONHUB_PROFILE IS 'Stocke les profils connus par l''Automation Hub.';
+COMMENT ON COLUMN AUTOMATIONHUB_PROFILE.ID IS 'Identifiant technique unique (clé primaire).';
+COMMENT ON COLUMN AUTOMATIONHUB_PROFILE.PROFILE_NAME IS 'Nom unique et fonctionnel du profil (ex: Appli-SSL-Client-Server).';
+COMMENT ON COLUMN AUTOMATIONHUB_PROFILE.PROFILE_CERTIS_CODE IS 'Code interne Certis associé au profil.';
+Explication des choix pour Oracle
