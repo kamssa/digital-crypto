@@ -3196,3 +3196,90 @@ public class SanServiceImpl implements SanService {
         // La validation se base sur la liste "rules" que nous venons de charger.
     }
 }
+/////////////////////////////
+Code Complet de la méthode processSingleProfile
+Vous pouvez copier ce bloc de code et le coller dans votre classe AutomationHubProfileServiceImpl pour remplacer l'ancienne version.
+code
+Java
+/**
+     * Traite un seul profil : récupère ses règles depuis Horizon et les sauvegarde en base de données.
+     * Cette version utilise une relation unidirectionnelle et un repository dédié pour les règles.
+     *
+     * @param internalProfile L'entité de profil de notre base de données locale (table AUTOMATIONHUB_PROFILE) que nous devons traiter.
+     */
+    private void processSingleProfile(AutomationHubProfile internalProfile) {
+        String profileName = internalProfile.getProfileName();
+
+        // --- ÉTAPE 1 : RÉCUPÉRER LES DONNÉES DEPUIS L'API EXTERNE ---
+        // On délègue l'appel réseau à notre client spécialisé, AutomationHubClient.
+        // Cela sépare la logique métier de la logique de communication.
+        ExternalProfileDto horizonProfileData = automationHubClient.fetchProfileDetailsFromHorizon(profileName);
+
+        // --- ÉTAPE 2 : GÉRER LE CAS OÙ LE PROFIL N'EXISTE PLUS SUR HORIZON ---
+        // Si le client retourne null (ce qui signifie que l'API a répondu 404 Not Found),
+        // cela veut dire que le profil a été supprimé ou désactivé sur le système source.
+        if (horizonProfileData == null) {
+            LOGGER.warn("Le profil '{}' n'a pas été trouvé sur Horizon. Suppression des anciennes règles locales.", profileName);
+            
+            // On nettoie notre base de données en supprimant les règles qui sont maintenant obsolètes.
+            sanTypeRuleRepository.deleteByAutomationHubProfile(internalProfile);
+            return; // On arrête le traitement pour ce profil.
+        }
+
+        // --- ÉTAPE 3 : PRÉPARATION AVANT LA SAUVEGARDE ---
+        
+        // 3a. Suppression des anciennes règles.
+        // C'est l'étape la plus importante pour garantir que nos données sont toujours à jour.
+        // On supprime toutes les règles existantes pour ce profil avant d'insérer les nouvelles.
+        // C'est une stratégie de "remplacement complet".
+        LOGGER.debug("Suppression des anciennes règles pour le profil '{}'...", profileName);
+        sanTypeRuleRepository.deleteByAutomationHubProfile(internalProfile);
+
+        // 3b. Préparation de la liste qui contiendra les nouvelles entités à sauvegarder.
+        List<SanTypeRule> newRulesToSave = new ArrayList<>();
+
+        // --- ÉTAPE 4 : CONVERSION DES DONNÉES ET APPLICATION DE LA LOGIQUE MÉTIER ---
+
+        // On vérifie que la réponse de l'API contient bien une liste de règles de SANs.
+        if (horizonProfileData.getSans() != null && !horizonProfileData.getSans().isEmpty()) {
+            
+            // On boucle sur chaque DTO de règle reçu de l'API.
+            for (ExternalSanRuleDto ruleDto : horizonProfileData.getSans()) {
+                
+                // On crée une nouvelle instance de notre ENTITÉ JPA SanTypeRule.
+                SanTypeRule ruleEntity = new SanTypeRule();
+
+                // --- Application de la logique métier du ticket Jira ---
+                Integer minVal = (ruleDto.getMin() != null) ? ruleDto.getMin() : 0;
+                Integer maxVal = (ruleDto.getMax() != null) ? ruleDto.getMax() : 250;
+                if (Boolean.FALSE.equals(ruleDto.getEditableByRequester())) {
+                    maxVal = 0;
+                }
+                // --- Fin de la logique métier ---
+
+                // On peuple notre entité avec les données traitées.
+                ruleEntity.setSanTypeEnum(ruleDto.getType());
+                ruleEntity.setMinValue(minVal);
+                ruleEntity.setMaxValue(maxVal);
+                
+                // On établit le lien crucial : on attache cette règle à son profil parent (l'entité `internalProfile`).
+                // C'est ce qui va remplir la colonne de clé étrangère PROFILE_ID dans la base.
+                ruleEntity.setAutomationHubProfile(internalProfile);
+                
+                // On ajoute l'entité prête à être sauvegardée à notre liste.
+                newRulesToSave.add(ruleEntity);
+            }
+        } else {
+            LOGGER.info("Le profil '{}' n'a aucune règle de SAN définie sur Horizon.", profileName);
+        }
+        
+        // --- ÉTAPE 5 : ENREGISTREMENT EN BASE DE DONNÉES ---
+        
+        // Si nous avons de nouvelles règles à sauvegarder...
+        if (!newRulesToSave.isEmpty()) {
+            // ...on les sauvegarde toutes en une seule opération optimisée grâce à `saveAll`.
+            sanTypeRuleRepository.saveAll(newRulesToSave);
+        }
+        
+        LOGGER.info("Profil '{}' mis à jour avec {} règles de SANs.", profileName, newRulesToSave.size());
+    }
