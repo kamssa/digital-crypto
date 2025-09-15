@@ -2209,3 +2209,207 @@ Dans votre classe ExternalSanRuleDtoImpl.java :
 Assurez-vous qu'elle implémente bien l'interface et qu'elle a un constructeur par défaut.
 Conclusion :
 Je vous recommande très fortement la Solution A. Elle est plus simple, plus lisible et suit les conventions standard pour les DTOs. La complexité d'une interface n'est pas justifiée ici et c'est la source de votre problème de désérialisation.
+///////////////////////////// revu ticket ////////////////////////////////////////////
+La Solution Complète
+Voici un plan d'action qui s'intègre à votre projet existant et résout le ticket de manière propre et robuste.
+Étape 1 : Le Vrai Point de Départ : AUTOMATIONHUB_PROFILE
+Le scheduler ne devrait pas appeler l'API directement. Il devrait d'abord lire la liste des profils qui existent déjà dans votre table AUTOMATIONHUB_PROFILE et ensuite, pour chacun d'eux, aller chercher les détails sur l'API d'Horizon.
+Étape 2 : Adapter le Service
+Votre CertificateProfileService (que nous avons créé) est parfait, mais il est un peu redondant avec le service existant AutomationHubProfileService. Nous allons fusionner les logiques.
+La nouvelle logique sera dans AutomationHubProfileServiceImpl (le service existant).
+Modifications de Code Détaillées
+1. Supprimer la nouvelle classe CertificateProfileService.java
+Nous allons intégrer sa logique dans le service existant. Vous pouvez supprimer cette classe et son interface pour ne pas créer de confusion.
+2. Modifier la Tâche SyncSanProfilesTask.java (le Scheduler)
+Le scheduler va maintenant utiliser le service AutomationHubProfileService existant pour obtenir la liste des profils à synchroniser.
+code
+Java
+package com.bnpparibas.certis.api.tasks;
+
+import com.bnpparibas.certis.automationhub.service.AutomationHubProfileService;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Component;
+
+@Component
+public class SyncSanProfilesTask {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(SyncSanProfilesTask.class);
+    
+    // On injecte le service existant qui gère les profils de l'Automation Hub
+    private final AutomationHubProfileService automationHubProfileService;
+
+    public SyncSanProfilesTask(AutomationHubProfileService automationHubProfileService) {
+        this.automationHubProfileService = automationHubProfileService;
+    }
+
+    /**
+     * Tâche planifiée qui déclenche la mise à jour des règles de SANs pour tous les profils
+     * connus dans la base de données locale (table AUTOMATIONHUB_PROFILE).
+     */
+    @Scheduled(cron = "${certis.profiles.sync-cron:0 0 2 * * ?}")
+    @SchedulerLock(name = "SyncSanProfilesTask_lock")
+    public void runTask() {
+        LOGGER.info("Début de la tâche planifiée de synchronisation des règles de SANs.");
+        try {
+            // Le scheduler demande au service de tout synchroniser.
+            automationHubProfileService.syncAllSanRulesFromHorizonApi();
+            
+            LOGGER.info("Tâche de synchronisation des règles de SANs terminée avec succès.");
+        } catch (Exception e) {
+            LOGGER.error("Une erreur critique est survenue durant la tâche de synchronisation des règles de SANs.", e);
+        }
+    }
+}
+3. Enrichir le Service AutomationHubProfileServiceImpl.java (Le Cœur de la Solution)
+C'est ici que nous allons ajouter la nouvelle logique. On va ajouter une nouvelle méthode publique syncAllSanRulesFromHorizonApi et une méthode privée pour traiter chaque profil.
+code
+Java
+// Dans le fichier AutomationHubProfileServiceImpl.java
+
+// ... autres imports existants ...
+import com.bnpparibas.certis.automationhub.dto.external.ExternalProfileDto;
+import com.bnpparibas.certis.automationhub.dto.external.ExternalSanRuleDto;
+import com.bnpparibas.certis.certificate.request.model.CertificateProfile; // Votre nouvelle entité
+import com.bnpparibas.certis.certificate.request.model.SanTypeRule;     // Votre nouvelle entité
+import com.bnpparibas.certis.certificate.request.repository.CertificateProfileRepository; // Le nouveau repository
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestTemplate;
+
+import java.util.List;
+import java.util.Set;
+import java.util.HashSet;
+
+
+@Service
+@RequiredArgsConstructor // Si vous utilisez Lombok, sinon créez le constructeur
+public class AutomationHubProfileServiceImpl implements AutomationHubProfileService {
+
+    // --- Champs existants ---
+    private static final Logger LOGGER = LoggerFactory.getLogger(AutomationHubProfileServiceImpl.class);
+    private final CertisTypeToAutomationHubProfileDao certisTypeToAutomationHubProfileDao;
+    private final AutomationHubProfileMapper automationHubProfileMapper;
+    
+    // --- NOUVEAUX Champs à ajouter ---
+    @Qualifier("automationHubRestTemplate")
+    private final RestTemplate restTemplate;
+    
+    private final CertificateProfileRepository certificateProfileRepository; // Le repository pour la NOUVELLE table
+
+    @Value("${external.api.url.profiles}") // La même propriété que nous avons définie
+    private String horizonApiBaseUrl;
+
+
+    // --- Méthodes existantes (getProfileByTypeAndSubType, etc.) restent inchangées ---
+    // ...
+
+    // --- NOUVELLE Méthode Publique pour le Scheduler ---
+    @Override
+    @Transactional
+    public void syncAllSanRulesFromHorizonApi() {
+        LOGGER.info("Début de la synchronisation des règles de SANs depuis Horizon.");
+
+        // 1. On récupère la liste des profils à traiter depuis NOTRE base de données.
+        List<AutomationHubProfile> profilesToSync = certisTypeToAutomationHubProfileDao.findAll();
+        
+        if (profilesToSync.isEmpty()) {
+            LOGGER.warn("Aucun profil trouvé dans la table AUTOMATIONHUB_PROFILE. La synchronisation est annulée.");
+            return;
+        }
+        
+        LOGGER.info("{} profils vont être traités.", profilesToSync.size());
+
+        // 2. Pour chaque profil de notre base, on va chercher les détails sur l'API Horizon.
+        for (AutomationHubProfile internalProfile : profilesToSync) {
+            try {
+                processSingleProfile(internalProfile);
+            } catch (Exception e) {
+                // On log l'erreur pour un profil mais on continue avec les autres.
+                LOGGER.error("Échec de la synchronisation pour le profil '{}'. Cause: {}", internalProfile.getProfileName(), e.getMessage());
+            }
+        }
+    }
+
+    // --- NOUVELLE Méthode Privée pour la logique de traitement ---
+    private void processSingleProfile(AutomationHubProfile internalProfile) {
+        String profileName = internalProfile.getProfileName();
+        String apiUrl = horizonApiBaseUrl + "/" + profileName;
+
+        LOGGER.info("Récupération des règles pour le profil '{}' depuis l'URL: {}", profileName, apiUrl);
+
+        // On appelle l'API pour UN seul profil. La réponse est un objet, pas un tableau.
+        ExternalProfileDto horizonProfileData = restTemplate.getForObject(apiUrl, ExternalProfileDto.class);
+
+        if (horizonProfileData == null) {
+            LOGGER.warn("Aucune donnée retournée par Horizon pour le profil '{}'.", profileName);
+            return;
+        }
+
+        // On récupère ou on crée l'entité dans notre NOUVELLE table CERTIFICATE_PROFILE
+        CertificateProfile sanProfile = certificateProfileRepository.findByProfileName(profileName)
+            .orElseGet(() -> {
+                LOGGER.info("Création d'une nouvelle entrée dans CERTIFICATE_PROFILE pour '{}'", profileName);
+                CertificateProfile newProfile = new CertificateProfile();
+                newProfile.setProfileName(profileName);
+                return newProfile;
+            });
+
+        sanProfile.setActive(true); // On s'assure qu'il est actif
+        
+        // On remplace les anciennes règles par les nouvelles
+        sanProfile.getSanTypeRules().clear();
+        Set<SanTypeRule> newRules = new HashSet<>();
+
+        if (horizonProfileData.getSans() != null) {
+            for (ExternalSanRuleDto ruleDto : horizonProfileData.getSans()) {
+                SanTypeRule ruleEntity = new SanTypeRule();
+
+                // Logique du ticket Jira (min/max par défaut, etc.)
+                Integer minVal = ruleDto.getMin() != null ? ruleDto.getMin() : 0;
+                Integer maxVal = ruleDto.getMax() != null ? ruleDto.getMax() : 250;
+                if (Boolean.FALSE.equals(ruleDto.getEditableByRequester())) {
+                    maxVal = 0;
+                }
+
+                ruleEntity.setSanTypeEnum(ruleDto.getType()); // J'ai vu que vous aviez renommé le champ
+                ruleEntity.setMinValue(minVal);
+                ruleEntity.setMaxValue(maxVal);
+                
+                ruleEntity.setCertificateProfile(sanProfile); // On lie la règle à son parent
+                newRules.add(ruleEntity);
+            }
+        }
+        
+        sanProfile.getSanTypeRules().addAll(newRules);
+        
+        // On sauvegarde l'entité dans la nouvelle table
+        certificateProfileRepository.save(sanProfile);
+        LOGGER.info("Profil '{}' mis à jour avec {} règles de SANs.", profileName, newRules.size());
+    }
+}
+4. Interface AutomationHubProfileService.java
+N'oubliez pas d'ajouter la signature de la nouvelle méthode à l'interface.
+code
+Java
+// Dans le fichier AutomationHubProfileService.java
+
+public interface AutomationHubProfileService {
+    // ... méthodes existantes ...
+
+    /**
+     * Lance la synchronisation complète des règles de SANs depuis l'API Horizon
+     * pour tous les profils connus en base de données.
+     */
+    void syncAllSanRulesFromHorizonApi();
+}
+Résumé de cette Solution
+Réutilisation Maximale : On s'appuie sur les services, DAOs et entités qui existent déjà dans votre projet.
+Source de Vérité Interne : Le point de départ est votre table AUTOMATIONHUB_PROFILE, ce qui est logique et robuste.
+Enrichissement des Données : On "enrichit" les profils de votre base avec les règles de SANs récupérées depuis l'API externe, et on stocke ce résultat dans les nouvelles tables CERTIFICATE_PROFILE et SAN_TYPE_RULE.
+Logique Centralisée : Toute la nouvelle logique est ajoutée au service AutomationHubProfileServiceImpl, qui est le bon endroit pour cela.
+Simplicité du Scheduler : Le scheduler reste très simple, son seul rôle est de déclencher le processus.
+Cette approche est beaucoup plus intégrée et respectueuse de l'architecture de votre projet.
