@@ -3380,3 +3380,183 @@ Java
         
         LOGGER.info("Validation des limites de SANs réussie pour la requête avec le profil '{}'.", profileName);
     }
+	/////////////////// test pour relation unidirectionnelle//////////////////
+	Model
+Absolument. Créer un test unitaire après cette refactorisation est une excellente idée pour valider la nouvelle architecture unidirectionnelle.
+Nous allons tester le service (AutomationHubProfileServiceImpl), car c'est lui qui contient toute la logique métier. Le but du test est de s'assurer qu'il interagit correctement avec ses dépendances (le client et les repositories) sans avoir besoin d'une vraie base de données ou d'une vraie API.
+Fichier de Test : AutomationHubProfileServiceImplTest.java
+Rôle : Isoler et tester la logique de synchronisation de la classe AutomationHubProfileServiceImpl.
+Emplacement : src/test/java/com/bnpparibas/certis/automationhub/service/impl/
+code
+Java
+package com.bnpparibas.certis.automationhub.service.impl;
+
+// --- Imports pour les tests ---
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
+// --- Imports des classes de votre projet ---
+import com.bnpparibas.certis.automationhub.client.AutomationHubClient;
+import com.bnpparibas.certis.automationhub.dao.AutomationHubProfileDao;
+import com.bnpparibas.certis.automationhub.dao.SanTypeRuleRepository;
+import com.bnpparibas.certis.automationhub.dto.external.ExternalProfileDto;
+import com.bnpparibas.certis.automationhub.dto.external.ExternalSanRuleDto;
+import com.bnpparibas.certis.automationhub.model.AutomationHubProfile;
+import com.bnpparibas.certis.automationhub.model.SanTypeRule;
+import com.bnpparibas.certis.certificate.request.enums.SanType; // J'utilise votre enum SanType
+
+// --- Imports statiques pour les assertions et Mockito ---
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
+
+/**
+ * Test unitaire pour AutomationHubProfileServiceImpl avec une relation unidirectionnelle.
+ */
+@ExtendWith(MockitoExtension.class)
+class AutomationHubProfileServiceImplTest {
+
+    // --- Mocks des dépendances ---
+    // On simule les dépendances externes du service.
+    @Mock
+    private AutomationHubProfileDao automationHubProfileDao;
+
+    @Mock
+    private SanTypeRuleRepository sanTypeRuleRepository;
+
+    @Mock
+    private AutomationHubClient automationHubClient;
+
+    // --- Service à tester ---
+    // On injecte les mocks ci-dessus dans une vraie instance du service.
+    @InjectMocks
+    private AutomationHubProfileServiceImpl automationHubProfileService;
+
+    private AutomationHubProfile mockInternalProfile;
+    private ExternalProfileDto mockHorizonData;
+
+    @BeforeEach
+    void setUp() {
+        // Préparation des objets de test communs
+
+        // 1. Un faux profil tel qu'il existerait dans notre table AUTOMATIONHUB_PROFILE
+        mockInternalProfile = new AutomationHubProfile();
+        mockInternalProfile.setId(1L);
+        mockInternalProfile.setProfileName("SSL_SRVR");
+
+        // 2. Une fausse réponse de l'API Horizon, retournée par le client
+        mockHorizonData = new ExternalProfileDto();
+        mockHorizonData.setName("SSL_SRVR");
+        
+        ExternalSanRuleDto cnRuleDto = new ExternalSanRuleDto();
+        cnRuleDto.setType(SanType.CN); // J'utilise votre enum SanType
+        cnRuleDto.setMin(1);
+        cnRuleDto.setMax(1);
+        cnRuleDto.setEditableByRequester(true);
+        
+        mockHorizonData.setSans(Collections.singletonList(cnRuleDto));
+    }
+
+    @Test
+    void whenSyncing_thenFetchesDataFromClientAndSavesRules() {
+        // ARRANGE (Préparation du scénario)
+
+        // On dit au DAO de retourner notre faux profil quand on cherche tous les profils.
+        when(automationHubProfileDao.findAll()).thenReturn(Collections.singletonList(mockInternalProfile));
+
+        // On dit au client de retourner nos fausses données quand on lui demande les détails du profil.
+        when(automationHubClient.fetchProfileDetailsFromHorizon("SSL_SRVR")).thenReturn(mockHorizonData);
+        
+        // ACT (Exécution de la méthode à tester)
+        automationHubProfileService.syncAllSanRulesFromHorizonApi();
+
+        // ASSERT (Vérification du comportement)
+
+        // 1. On vérifie que la méthode pour supprimer les anciennes règles a bien été appelée pour notre profil.
+        verify(sanTypeRuleRepository, times(1)).deleteByAutomationHubProfile(mockInternalProfile);
+
+        // 2. On capture la liste de règles qui a été passée à la méthode `saveAll`.
+        ArgumentCaptor<List<SanTypeRule>> rulesCaptor = ArgumentCaptor.forClass(List.class);
+        verify(sanTypeRuleRepository, times(1)).saveAll(rulesCaptor.capture());
+        
+        // 3. On inspecte les règles capturées pour s'assurer qu'elles sont correctes.
+        List<SanTypeRule> savedRules = rulesCaptor.getValue();
+        assertNotNull(savedRules);
+        assertEquals(1, savedRules.size(), "Une seule règle aurait dû être sauvegardée.");
+
+        SanTypeRule savedRule = savedRules.get(0);
+        assertEquals(SanType.CN, savedRule.getSanTypeEnum()); // Vérifie le type
+        assertEquals(1, savedRule.getMinValue()); // Vérifie le min
+        assertEquals(1, savedRule.getMaxValue()); // Vérifie le max
+        assertEquals(mockInternalProfile, savedRule.getAutomationHubProfile(), "La règle doit être liée au bon profil parent.");
+    }
+    
+    @Test
+    void whenHorizonReturnsNoData_thenOldRulesAreDeletedAndNothingIsSaved() {
+        // ARRANGE
+        
+        // Le DAO retourne notre profil
+        when(automationHubProfileDao.findAll()).thenReturn(Collections.singletonList(mockInternalProfile));
+        
+        // Mais le client retourne null (simule un 404 de l'API)
+        when(automationHubClient.fetchProfileDetailsFromHorizon("SSL_SRVR")).thenReturn(null);
+        
+        // ACT
+        automationHubProfileService.syncAllSanRulesFromHorizonApi();
+        
+        // ASSERT
+        
+        // On vérifie que les anciennes règles ont bien été supprimées.
+        verify(sanTypeRuleRepository, times(1)).deleteByAutomationHubProfile(mockInternalProfile);
+        
+        // On vérifie qu'AUCUNE nouvelle règle n'a été sauvegardée.
+        verify(sanTypeRuleRepository, never()).saveAll(any());
+    }
+
+    @Test
+    void whenNoProfilesInLocalDb_thenClientIsNeverCalled() {
+        // ARRANGE
+        
+        // Le DAO ne retourne aucun profil. Notre "liste de travail" est vide.
+        when(automationHubProfileDao.findAll()).thenReturn(new ArrayList<>());
+        
+        // ACT
+        automationHubProfileService.syncAllSanRulesFromHorizonApi();
+        
+        // ASSERT
+        
+        // On vérifie que le client HTTP n'a JAMAIS été appelé.
+        verify(automationHubClient, never()).fetchProfileDetailsFromHorizon(anyString());
+        
+        // On vérifie qu'aucune opération de base de données n'a été tentée sur les règles.
+        verify(sanTypeRuleRepository, never()).deleteByAutomationHubProfile(any());
+        verify(sanTypeRuleRepository, never()).saveAll(any());
+    }
+}
+Explication de ce Test
+Mise en place (@Mock, @InjectMocks, @BeforeEach) :
+On simule (@Mock) toutes les dépendances externes : le DAO, le nouveau repository de règles, et le client HTTP.
+On injecte (@InjectMocks) ces mocks dans une vraie instance de AutomationHubProfileServiceImpl.
+La méthode setUp prépare des objets de test réutilisables pour chaque scénario.
+Scénario Nominal (whenSyncing_...) :
+On configure les mocks pour qu'ils retournent des données valides.
+On exécute la méthode principale syncAllSanRulesFromHorizonApi().
+On vérifie (verify) que les bonnes méthodes de nos mocks ont été appelées :
+deleteByAutomationHubProfile a bien été appelée pour nettoyer les anciennes règles.
+saveAll a bien été appelée pour enregistrer les nouvelles.
+On utilise un ArgumentCaptor pour "attraper" la liste de règles qui a été sauvegardée et on vérifie son contenu pour s'assurer que la logique de mapping et les règles du ticket Jira ont été correctement appliquées.
+Scénario d'Erreur (whenHorizonReturnsNoData_...) :
+On simule le cas où l'API Horizon ne trouve pas un profil (le client retourne null).
+On vérifie que les anciennes règles sont bien supprimées et que saveAll n'est jamais appelée.
+Scénario Limite (whenNoProfilesInLocalDb_...) :
+On simule le cas où notre base de données locale est vide.
+On vérifie que l'application ne fait rien : pas d'appel réseau, pas d'opération sur la base de données des règles.
+Ce test vous assure que votre nouvelle architecture unidirectionnelle fonctionne exactement comme prévu.
