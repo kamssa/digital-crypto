@@ -2598,3 +2598,181 @@ AutomationHubClient : Gère le "comment" on parle à l'API (HTTP, JSON, URLs, er
 AutomationHubProfileServiceImpl : Gère le "quoi" on fait avec les données (logique métier, interaction avec la base de données).
 Testabilité Améliorée : Il est maintenant très facile de tester votre service. Il suffit de "mocker" le AutomationHubClient et de lui faire retourner les données que vous voulez, sans avoir besoin de simuler un RestTemplate.
 Réutilisabilité : Si un autre service a besoin de récupérer des informations de profil depuis Horizon, il peut maintenant réutiliser AutomationHubClient sans avoir à connaître les détails de l'API.
+///////////////////////// resumer final //////////////////////////////////
+
+Model
+Absolument. Voici le code complet de la classe SanServiceImpl avec la méthode verifySansLimitsDynamically intégrée.
+Cette classe utilise les règles que AutomationHubProfileServiceImpl a sauvegardées pour valider les nouvelles demandes de certificats.
+Fichier : SanServiceImpl.java (Version finale)
+Rôle : Valider les demandes de certificats entrants en se basant sur les règles dynamiques stockées en base de données.
+Emplacement : ...certis.certificate.request.service.impl
+code
+Java
+package com.bnpparibas.certis.certificate.request.service.impl;
+
+// --- Imports existants ---
+import com.bnpparibas.certis.certificate.request.dto.RequestDto;
+import com.bnpparibas.certis.certificate.request.dto.San;
+import com.bnpparibas.certis.certificate.request.dto.SanTypeEnum;
+import com.bnpparibas.certis.certificate.request.service.SanService;
+import com.bnpparibas.certis.exception.CertisRequestException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.util.CollectionUtils;
+
+// --- NOUVEAUX Imports ---
+import com.bnpparibas.certis.automationhub.model.AutomationHubProfile; // L'entité existante que vous utilisez
+import com.bnpparibas.certis.automationhub.model.SanTypeRule;         // Votre nouvelle entité de règles
+import com.bnpparibas.certis.automationhub.dao.AutomationHubProfileDao; // Le DAO/Repository pour l'entité de profil existante
+
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+@Service
+public class SanServiceImpl implements SanService {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(SanServiceImpl.class);
+
+    // --- NOUVELLE Dépendance ---
+    // On a besoin du DAO/Repository pour accéder aux profils et à leurs règles.
+    // D'après vos images, c'est AutomationHubProfileDao qui est utilisé.
+    private final AutomationHubProfileDao automationHubProfileDao;
+
+    // --- Conservez vos autres dépendances existantes si nécessaire ---
+    // private final UrlRacineService urlRacineService;
+
+    /**
+     * Constructeur pour l'injection de dépendances.
+     * @param automationHubProfileDao Le DAO pour accéder aux profils et à leurs règles.
+     */
+    public SanServiceImpl(AutomationHubProfileDao automationHubProfileDao /*, ... autres dépendances */) {
+        this.automationHubProfileDao = automationHubProfileDao;
+        // ...
+    }
+
+    // =======================================================================================
+    // --- À SUPPRIMER ---
+    // Supprimez toutes les anciennes constantes de limites (EXT_SSL_LIMIT, INT_SSL_SRVR_LIMIT, etc.)
+    // et les anciennes méthodes de validation des limites (verifySansLimitForInternalCertificates, etc.).
+    // =======================================================================================
+
+    /**
+     * Méthode principale de validation des SANs pour une requête donnée.
+     * C'est le point d'entrée appelé par d'autres services (comme RequestServiceImpl).
+     */
+    @Override
+    public void validateSansPerRequest(RequestDto requestDto) throws CertisRequestException {
+        // Conservez cette vérification si vous l'avez
+        if (this.skipValidationIfDataMissing(requestDto)) {
+            return;
+        }
+
+        // --- DÉBUT DE LA LOGIQUE DE VALIDATION DYNAMIQUE ---
+
+        // On appelle la nouvelle méthode qui contient toute la logique.
+        this.verifySansLimitsDynamically(requestDto);
+
+        // --- FIN DE LA LOGIQUE DE VALIDATION DYNAMIQUE ---
+
+        // Conservez les autres validations qui ne sont pas liées aux limites min/max.
+        // Par exemple, la validation du format des SANs.
+        // this.verifySanFormats(requestDto); 
+    }
+
+    /**
+     * NOUVELLE méthode qui valide une requête par rapport aux règles dynamiques
+     * stockées dans les tables AUTOMATIONHUB_PROFILE et SAN_TYPE_RULE.
+     * C'est le "garde du corps" qui vérifie chaque nouvelle demande.
+     */
+    private void verifySansLimitsDynamically(RequestDto requestDto) throws CertisRequestException {
+        // On vérifie que les informations nécessaires sont présentes dans la requête.
+        if (requestDto.getCertificate() == null || requestDto.getCertificate().getType() == null || requestDto.getCertificate().getType().getName() == null) {
+            LOGGER.warn("Validation des limites de SANs ignorée : le type de certificat (profil) est manquant dans la requête.");
+            return; 
+        }
+
+        // On récupère le nom du profil depuis la requête (ex: "SSL_SRVR").
+        String profileName = requestDto.getCertificate().getType().getName();
+        List<San> sansInRequest = requestDto.getCertificate().getSans();
+
+        // Étape 1 : Charger les règles depuis la base de données pour ce profil.
+        // On utilise le DAO existant pour trouver le profil par son nom.
+        Optional<AutomationHubProfile> profileOpt = automationHubProfileDao.findByProfileName(profileName);
+        if (!profileOpt.isPresent()) {
+            // Si le profil n'existe pas dans notre base, c'est une erreur.
+            LOGGER.error("Validation échouée : Le profil de certificat '{}' est inconnu de notre système.", profileName);
+            throw new CertisRequestException("error.profile.unknown", new Object[]{profileName}, HttpStatus.BAD_REQUEST);
+        }
+        
+        // On récupère la collection de règles associées à ce profil.
+        // D'après votre entité, la collection s'appelle "sans".
+        Set<SanTypeRule> rules = profileOpt.get().getSans();
+
+        if (CollectionUtils.isEmpty(rules)) {
+            LOGGER.warn("Aucune règle de SAN n'est définie en base pour le profil '{}'.", profileName);
+            // Comportement à définir : doit-on accepter ou rejeter ?
+            // Si des SANs sont présents dans la requête alors qu'aucune règle n'existe, il est plus sûr de rejeter.
+            if (!CollectionUtils.isEmpty(sansInRequest)) {
+                throw new CertisRequestException("error.san.not_allowed_for_profile", new Object[]{profileName}, HttpStatus.BAD_REQUEST);
+            }
+            return; // S'il n'y a pas de règles et pas de SANs dans la requête, c'est OK.
+        }
+
+        // Étape 2 : Compter le nombre de SANs par type dans la requête de l'utilisateur.
+        Map<SanTypeEnum, Long> sanCountsByType = sansInRequest.stream()
+                .filter(san -> san.getSanType() != null)
+                .collect(Collectors.groupingBy(San::getSanType, Collectors.counting()));
+
+        // Étape 3 : Vérifier si la requête contient des types de SANs non autorisés.
+        for (SanTypeEnum requestedSanType : sanCountsByType.keySet()) {
+            boolean isTypeAllowedInProfile = rules.stream()
+                    .anyMatch(rule -> rule.getSanTypeEnum().equals(requestedSanType));
+
+            if (!isTypeAllowedInProfile) {
+                LOGGER.error("Validation échouée : le type de SAN '{}' n'est pas autorisé pour le profil '{}'", requestedSanType, profileName);
+                throw new CertisRequestException("error.san.type.unauthorized", new Object[]{requestedSanType.name(), profileName}, HttpStatus.BAD_REQUEST);
+            }
+        }
+
+        // Étape 4 : Valider les limites MIN et MAX pour chaque règle du profil.
+        for (SanTypeRule rule : rules) {
+            SanTypeEnum sanType = rule.getSanTypeEnum();
+            long countInRequest = sanCountsByType.getOrDefault(sanType, 0L);
+
+            // Validation de la limite MAXIMALE
+            if (countInRequest > rule.getMaxValue()) {
+                LOGGER.error("Validation échouée : {} SANs de type '{}' soumis, mais le maximum est de {} pour le profil '{}'",
+                        countInRequest, sanType, rule.getMaxValue(), profileName);
+                throw new CertisRequestException("error.san.max.violation", new Object[]{sanType.name(), rule.getMaxValue()}, HttpStatus.BAD_REQUEST);
+            }
+
+            // Validation de la limite MINIMALE
+            if (countInRequest < rule.getMinValue()) {
+                 LOGGER.error("Validation échouée : {} SANs de type '{}' soumis, mais le minimum requis est de {} pour le profil '{}'",
+                        countInRequest, sanType, rule.getMinValue(), profileName);
+                throw new CertisRequestException("error.san.min.violation", new Object[]{sanType.name(), rule.getMinValue()}, HttpStatus.BAD_REQUEST);
+            }
+        }
+        
+        LOGGER.info("Validation des limites de SANs réussie pour la requête avec le profil '{}'.", profileName);
+    }
+
+    // Conservez vos autres méthodes utilitaires si elles existent
+    private boolean skipValidationIfDataMissing(RequestDto requestDto) {
+        // ... votre code existant ici ...
+        return false;
+    }
+}
+Comment l'intégrer ?
+Remplacez le contenu de votre SanServiceImpl.java par ce code.
+Adaptez le constructeur pour qu'il inclue toutes les dépendances dont la classe a besoin. J'ai mis en commentaire UrlRacineService car je ne sais pas si vous en avez toujours besoin.
+Supprimez les anciennes constantes et méthodes de validation des limites pour ne pas laisser de code mort.
+Assurez-vous que le DAO/Repository AutomationHubProfileDao est bien injecté. D'après vos images, il est déjà déclaré, donc Spring devrait le trouver sans problème.
+Ajoutez les clés d'erreur (error.profile.unknown, etc.) dans vos fichiers de messages (messages.properties) pour que les messages d'erreur soient clairs pour l'utilisateur.
+Une fois cela fait, votre solution sera complète. Le scheduler mettra à jour les règles, et ce service les utilisera pour valider les nouvelles demandes.
+Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
