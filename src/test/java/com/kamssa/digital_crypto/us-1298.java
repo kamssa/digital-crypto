@@ -2776,3 +2776,175 @@ Assurez-vous que le DAO/Repository AutomationHubProfileDao est bien injecté. D'
 Ajoutez les clés d'erreur (error.profile.unknown, etc.) dans vos fichiers de messages (messages.properties) pour que les messages d'erreur soient clairs pour l'utilisateur.
 Une fois cela fait, votre solution sera complète. Le scheduler mettra à jour les règles, et ce service les utilisera pour valider les nouvelles demandes.
 Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
+////////////////// test logic de validation //////////////////////
+Fichier de Test : SanServiceImplTest.java
+Rôle : Isoler et tester la logique de validation de la classe SanServiceImpl.
+Emplacement : src/test/java/com/bnpparibas/certis/certificate/request/service/impl/
+code
+Java
+package com.bnpparibas.certis.certificate.request.service.impl;
+
+// --- Imports pour les tests ---
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Optional;
+
+// --- Imports des classes de votre projet ---
+import com.bnpparibas.certis.automationhub.dao.AutomationHubProfileDao;
+import com.bnpparibas.certis.automationhub.model.AutomationHubProfile;
+import com.bnpparibas.certis.automationhub.model.SanTypeRule;
+import com.bnpparibas.certis.certificate.request.dto.CertificateDto;
+import com.bnpparibas.certis.certificate.request.dto.CertificateTypeDto;
+import com.bnpparibas.certis.certificate.request.dto.RequestDto;
+import com.bnpparibas.certis.certificate.request.dto.San;
+import com.bnpparibas.certis.certificate.request.dto.SanTypeEnum;
+import com.bnpparibas.certis.exception.CertisRequestException;
+
+// --- Imports statiques pour les assertions et Mockito ---
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.when;
+
+/**
+ * Test unitaire pour la classe SanServiceImpl.
+ * Ce test se concentre sur la logique de validation dynamique des limites de SANs.
+ */
+@ExtendWith(MockitoExtension.class) // Active Mockito pour ce test
+class SanServiceImplTest {
+
+    // On crée un "mock" (un faux objet) du DAO. On ne veut pas dépendre de la vraie base de données.
+    @Mock
+    private AutomationHubProfileDao automationHubProfileDao;
+
+    // On injecte le mock ci-dessus dans une VRAIE instance de SanServiceImpl.
+    @InjectMocks
+    private SanServiceImpl sanService;
+
+    private AutomationHubProfile mockProfile;
+    private RequestDto requestDto;
+    private final String PROFILE_NAME = "SSL_SRVR";
+
+    /**
+     * Méthode exécutée avant CHAQUE test.
+     * Elle prépare les objets communs pour éviter la duplication de code.
+     */
+    @BeforeEach
+    void setUp() {
+        // 1. On crée un faux profil en mémoire, comme s'il venait de la base de données.
+        mockProfile = new AutomationHubProfile();
+        mockProfile.setProfileName(PROFILE_NAME);
+        
+        // 2. On crée de fausses règles et on les attache à notre faux profil.
+        SanTypeRule cnRule = new SanTypeRule();
+        cnRule.setSanTypeEnum(SanTypeEnum.CN);
+        cnRule.setMinValue(1);
+        cnRule.setMaxValue(1);
+
+        SanTypeRule dnsRule = new SanTypeRule();
+        dnsRule.setSanTypeEnum(SanTypeEnum.DNSNAME);
+        dnsRule.setMinValue(0);
+        dnsRule.setMaxValue(10);
+        
+        mockProfile.setSans(new HashSet<>(Arrays.asList(cnRule, dnsRule))); // On utilise setSans pour définir la collection
+
+        // 3. On prépare une DTO de requête de base, prête à être utilisée dans les tests.
+        requestDto = new RequestDto();
+        CertificateDto certificateDto = new CertificateDto();
+        CertificateTypeDto typeDto = new CertificateTypeDto();
+        typeDto.setName(PROFILE_NAME);
+        certificateDto.setType(typeDto);
+        requestDto.setCertificate(certificateDto);
+    }
+
+    // --- Tests des différents scénarios ---
+
+    @Test
+    void whenRequestIsValid_thenValidationSucceeds() {
+        // ARRANGE (Préparation)
+        // On dit au mock : "Quand on t'appelle avec findByProfileName('SSL_SRVR'), retourne notre faux profil."
+        when(automationHubProfileDao.findByProfileName(PROFILE_NAME)).thenReturn(Optional.of(mockProfile));
+        
+        // On crée une liste de SANs qui respecte les règles (1 CN, 2 DNSNAMEs).
+        requestDto.getCertificate().setSans(Arrays.asList(
+            new San(SanTypeEnum.CN, "example.com"),
+            new San(SanTypeEnum.DNSNAME, "www.example.com"),
+            new San(SanTypeEnum.DNSNAME, "api.example.com")
+        ));
+
+        // ACT & ASSERT (Action & Vérification)
+        // On s'attend à ce que la méthode s'exécute SANS lancer d'exception.
+        assertDoesNotThrow(() -> sanService.validateSansPerRequest(requestDto));
+    }
+
+    @Test
+    void whenTooManyOfOneSanType_thenThrowsException() {
+        // ARRANGE
+        when(automationHubProfileDao.findByProfileName(PROFILE_NAME)).thenReturn(Optional.of(mockProfile));
+        
+        // On crée une liste de SANs qui viole la règle du max (2 CNs alors que max=1).
+        requestDto.getCertificate().setSans(Arrays.asList(
+            new San(SanTypeEnum.CN, "example.com"),
+            new San(SanTypeEnum.CN, "another.com") 
+        ));
+
+        // ACT & ASSERT
+        // On s'attend à ce que la méthode lance une CertisRequestException.
+        assertThrows(CertisRequestException.class, () -> sanService.validateSansPerRequest(requestDto));
+    }
+
+    @Test
+    void whenNotEnoughOfRequiredSanType_thenThrowsException() {
+        // ARRANGE
+        when(automationHubProfileDao.findByProfileName(PROFILE_NAME)).thenReturn(Optional.of(mockProfile));
+        
+        // On crée une liste de SANs qui viole la règle du min (0 CNs alors que min=1).
+        requestDto.getCertificate().setSans(Collections.singletonList(
+            new San(SanTypeEnum.DNSNAME, "www.example.com")
+        ));
+
+        // ACT & ASSERT
+        assertThrows(CertisRequestException.class, () -> sanService.validateSansPerRequest(requestDto));
+    }
+
+    @Test
+    void whenUnauthorizedSanType_thenThrowsException() {
+        // ARRANGE
+        when(automationHubProfileDao.findByProfileName(PROFILE_NAME)).thenReturn(Optional.of(mockProfile));
+        
+        // On crée une liste de SANs avec un type non autorisé (IPADDRESS).
+        requestDto.getCertificate().setSans(Arrays.asList(
+            new San(SanTypeEnum.CN, "example.com"),
+            new San(SanTypeEnum.IPADDRESS, "127.0.0.1") 
+        ));
+
+        // ACT & ASSERT
+        assertThrows(CertisRequestException.class, () -> sanService.validateSansPerRequest(requestDto));
+    }
+
+    @Test
+    void whenProfileIsNotFoundInDb_thenThrowsException() {
+        // ARRANGE
+        // On dit au mock de retourner un Optional vide, comme si le profil n'existait pas en BDD.
+        when(automationHubProfileDao.findByProfileName(PROFILE_NAME)).thenReturn(Optional.empty());
+        
+        requestDto.getCertificate().setSans(Collections.singletonList(
+            new San(SanTypeEnum.CN, "example.com")
+        ));
+        
+        // ACT & ASSERT
+        assertThrows(CertisRequestException.class, () -> sanService.validateSansPerRequest(requestDto));
+    }
+}
+Comment l'utiliser ?
+Placez ce fichier dans votre répertoire de test src/test/java/....
+Adaptez les imports si les chemins de vos classes sont différents.
+Vérifiez la méthode setSans dans votre entité AutomationHubProfile. J'ai supposé qu'elle existait pour pouvoir attacher les fausses règles. Si elle n'existe pas, vous devrez peut-être utiliser mockProfile.getSans().add(...) à la place.
+Exécutez les tests depuis votre IDE (clic droit sur le fichier -> "Run 'SanServiceImplTest'") ou avec la commande mvn test.
+Ce test unitaire vous donne une grande confiance dans le fait que votre logique de validation est correcte, indépendamment de la base de données ou de l'API externe.
