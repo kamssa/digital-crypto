@@ -2413,3 +2413,188 @@ Enrichissement des Données : On "enrichit" les profils de votre base avec les r
 Logique Centralisée : Toute la nouvelle logique est ajoutée au service AutomationHubProfileServiceImpl, qui est le bon endroit pour cela.
 Simplicité du Scheduler : Le scheduler reste très simple, son seul rôle est de déclencher le processus.
 Cette approche est beaucoup plus intégrée et respectueuse de l'architecture de votre projet.
+//////////////////////////////////////////
+Étape 1 : Créer ou Modifier la classe AutomationHubClient.java
+Cette classe sera responsable de tous les appels HTTP vers l'API d'Horizon.
+Emplacement : ...certis.automationhub.client (comme sur votre capture d'écran)
+code
+Java
+package com.bnpparibas.certis.automationhub.client;
+
+import com.bnpparibas.certis.automationhub.dto.external.ExternalProfileDto;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.RestTemplate;
+
+/**
+ * Client HTTP pour communiquer avec l'API d'Horizon (Automation Hub).
+ * Centralise tous les appels réseau vers cette API.
+ */
+@Component // On déclare cette classe comme un bean Spring
+public class AutomationHubClient {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(AutomationHubClient.class);
+
+    private final RestTemplate restTemplate;
+
+    @Value("${external.api.url.profiles}")
+    private String horizonApiBaseUrl;
+    
+    // Le constructeur est parfait comme sur votre image, on l'utilise pour l'injection
+    public AutomationHubClient(@Qualifier("automationHubRestTemplate") RestTemplate restTemplate,
+                               /* ... injectez ici les autres dépendances dont ce client pourrait avoir besoin,
+                                      mais PAS les services ou repositories métier ... */ ) {
+        this.restTemplate = restTemplate;
+    }
+
+    /**
+     * NOUVELLE MÉTHODE
+     * Récupère les détails d'un profil spécifique depuis l'API d'Horizon.
+     * 
+     * @param profileName Le nom du profil à récupérer.
+     * @return Un ExternalProfileDto contenant les données du profil, ou null si le profil n'est pas trouvé ou en cas d'erreur.
+     */
+    public ExternalProfileDto fetchProfileDetailsFromHorizon(String profileName) {
+        String apiUrl = horizonApiBaseUrl + "/" + profileName;
+        
+        LOGGER.info("Appel de l'API Horizon pour le profil '{}' sur l'URL: {}", profileName, apiUrl);
+        
+        try {
+            // On appelle l'API pour UN seul profil. La réponse est un objet, pas un tableau.
+            return restTemplate.getForObject(apiUrl, ExternalProfileDto.class);
+        } catch (HttpClientErrorException.NotFound e) {
+            // L'API a retourné une erreur 404 (Not Found), ce qui est une information métier !
+            LOGGER.warn("Le profil '{}' n'a pas été trouvé dans Horizon (erreur 404).", profileName);
+            return null; // On retourne null pour indiquer que le profil n'existe pas
+        } catch (Exception e) {
+            // Pour toutes les autres erreurs (réseau, serveur indisponible...), on logue une erreur et on propage l'exception
+            LOGGER.error("Erreur lors de l'appel à l'API Horizon pour le profil '{}'", profileName, e);
+            // On pourrait relancer une exception personnalisée ici
+            throw e; 
+        }
+    }
+    
+    // ... autres méthodes du client si vous en avez (ex: pour révoquer un certificat, etc.)
+}
+Étape 2 : Simplifier le Service AutomationHubProfileServiceImpl.java
+Maintenant, le service n'a plus besoin de connaître RestTemplate ou l'URL de l'API. Son rôle est purement métier : orchestrer la logique de synchronisation en utilisant le AutomationHubClient pour obtenir les données.
+code
+Java
+// Dans le fichier AutomationHubProfileServiceImpl.java
+
+// ... imports ...
+import com.bnpparibas.certis.automationhub.client.AutomationHubClient; // <-- NOUVEL IMPORT
+
+@Service
+@RequiredArgsConstructor
+public class AutomationHubProfileServiceImpl implements AutomationHubProfileService {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(AutomationHubProfileServiceImpl.class);
+
+    // --- Anciennes dépendances à SUPPRIMER ---
+    // @Qualifier("automationHubRestTemplate")
+    // private final RestTemplate restTemplate;
+    // @Value("${external.api.url.profiles}") 
+    // private String horizonApiBaseUrl;
+
+    // --- NOUVELLE Dépendance ---
+    private final AutomationHubClient automationHubClient;
+
+    // --- Dépendances métier existantes (à conserver) ---
+    private final CertisTypeToAutomationHubProfileDao certisTypeToAutomationHubProfileDao;
+    private final CertificateProfileRepository certificateProfileRepository;
+    private final AutomationHubProfileMapper automationHubProfileMapper;
+    
+    // Assurez-vous que votre constructeur injecte bien le nouveau AutomationHubClient !
+
+    @Override
+    @Transactional
+    public void syncAllSanRulesFromHorizonApi() {
+        LOGGER.info("Début de la synchronisation des règles de SANs depuis Horizon.");
+
+        List<AutomationHubProfile> profilesToSync = certisTypeToAutomationHubProfileDao.findAll();
+        
+        if (profilesToSync.isEmpty()) {
+            LOGGER.warn("Aucun profil trouvé dans la table AUTOMATIONHUB_PROFILE. La synchronisation est annulée.");
+            return;
+        }
+        
+        LOGGER.info("{} profils vont être traités.", profilesToSync.size());
+
+        for (AutomationHubProfile internalProfile : profilesToSync) {
+            try {
+                // On appelle la méthode privée pour traiter chaque profil
+                processSingleProfile(internalProfile);
+            } catch (Exception e) {
+                LOGGER.error("Échec de la synchronisation pour le profil '{}'. Cause: {}", internalProfile.getProfileName(), e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * La méthode privée est maintenant beaucoup plus simple.
+     * Elle délègue l'appel réseau au AutomationHubClient.
+     */
+    private void processSingleProfile(AutomationHubProfile internalProfile) {
+        String profileName = internalProfile.getProfileName();
+
+        // ÉTAPE 1 : OBTENIR LES DONNÉES
+        // On appelle notre nouveau client pour récupérer les informations d'Horizon
+        ExternalProfileDto horizonProfileData = automationHubClient.fetchProfileDetailsFromHorizon(profileName);
+
+        // Si le client retourne null (ex: 404), on arrête le traitement pour ce profil
+        if (horizonProfileData == null) {
+            LOGGER.warn("Aucune donnée disponible sur Horizon pour le profil '{}'. Ce profil sera ignoré.", profileName);
+            // Optionnel : vous pourriez vouloir désactiver le profil ici
+            // deactivateProfile(profileName);
+            return;
+        }
+
+        // ÉTAPE 2 : LOGIQUE MÉTIER DE SAUVEGARDE (ce code ne change pas)
+        CertificateProfile sanProfile = certificateProfileRepository.findByProfileName(profileName)
+            .orElseGet(() -> {
+                LOGGER.info("Création d'une nouvelle entrée dans CERTIFICATE_PROFILE pour '{}'", profileName);
+                CertificateProfile newProfile = new CertificateProfile();
+                newProfile.setProfileName(profileName);
+                return newProfile;
+            });
+
+        sanProfile.setActive(true);
+        
+        Set<SanTypeRule> newRules = new HashSet<>();
+        if (horizonProfileData.getSans() != null) {
+            for (ExternalSanRuleDto ruleDto : horizonProfileData.getSans()) {
+                SanTypeRule ruleEntity = new SanTypeRule();
+
+                Integer minVal = ruleDto.getMin() != null ? ruleDto.getMin() : 0;
+                Integer maxVal = ruleDto.getMax() != null ? ruleDto.getMax() : 250;
+                if (Boolean.FALSE.equals(ruleDto.getEditableByRequester())) {
+                    maxVal = 0;
+                }
+
+                ruleEntity.setSanTypeEnum(ruleDto.getType());
+                ruleEntity.setMinValue(minVal);
+                ruleEntity.setMaxValue(maxVal);
+                
+                ruleEntity.setCertificateProfile(sanProfile);
+                newRules.add(ruleEntity);
+            }
+        }
+        
+        sanProfile.getSanTypeRules().clear();
+        sanProfile.getSanTypeRules().addAll(newRules);
+        
+        certificateProfileRepository.save(sanProfile);
+        LOGGER.info("Profil '{}' mis à jour avec {} règles de SANs.", profileName, newRules.size());
+    }
+}
+Avantages de cette nouvelle architecture
+Séparation Claire des Responsabilités :
+AutomationHubClient : Gère le "comment" on parle à l'API (HTTP, JSON, URLs, erreurs réseau).
+AutomationHubProfileServiceImpl : Gère le "quoi" on fait avec les données (logique métier, interaction avec la base de données).
+Testabilité Améliorée : Il est maintenant très facile de tester votre service. Il suffit de "mocker" le AutomationHubClient et de lui faire retourner les données que vous voulez, sans avoir besoin de simuler un RestTemplate.
+Réutilisabilité : Si un autre service a besoin de récupérer des informations de profil depuis Horizon, il peut maintenant réutiliser AutomationHubClient sans avoir à connaître les détails de l'API.
