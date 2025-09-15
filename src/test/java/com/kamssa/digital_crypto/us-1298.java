@@ -2948,3 +2948,71 @@ Adaptez les imports si les chemins de vos classes sont différents.
 Vérifiez la méthode setSans dans votre entité AutomationHubProfile. J'ai supposé qu'elle existait pour pouvoir attacher les fausses règles. Si elle n'existe pas, vous devrez peut-être utiliser mockProfile.getSans().add(...) à la place.
 Exécutez les tests depuis votre IDE (clic droit sur le fichier -> "Run 'SanServiceImplTest'") ou avec la commande mvn test.
 Ce test unitaire vous donne une grande confiance dans le fait que votre logique de validation est correcte, indépendamment de la base de données ou de l'API externe.
+/////////////////// correction erreur //////////////////////
+Voici le code corrigé et complet pour cette partie de l'entité :
+code
+Java
+// Dans votre fichier AutomationHubProfile.java
+
+// ... autres imports ...
+import javax.persistence.OneToMany;
+import javax.persistence.CascadeType;
+import javax.persistence.FetchType;
+import java.util.List;
+import java.util.ArrayList;
+
+@Entity
+@Table(name = "AUTOMATIONHUB_PROFILE")
+public class AutomationHubProfile implements Serializable {
+
+    // ... autres champs (id, profileName, etc.) ...
+
+    /**
+     * C'EST LA PARTIE À CORRIGER
+     * On déclare la relation Un-vers-Plusieurs avec l'entité SanTypeRule.
+     * 
+     * @OneToMany : Indique qu'un AutomationHubProfile peut avoir plusieurs SanTypeRule.
+     * 
+     * mappedBy = "automationHubProfile" : C'est CRUCIAL. Il dit à Hibernate que la
+     *   gestion de la clé étrangère se trouve dans l'autre entité (SanTypeRule), dans le
+     *   champ nommé "automationHubProfile".
+     * 
+     * cascade = CascadeType.ALL : Si on sauvegarde/supprime un profil, ses règles sont
+     *   aussi sauvegardées/supprimées.
+     * 
+     * orphanRemoval = true : Si on retire une règle de cette liste, elle sera supprimée de la BDD.
+     */
+    @OneToMany(
+        mappedBy = "automationHubProfile", 
+        cascade = CascadeType.ALL,
+        orphanRemoval = true,
+        fetch = FetchType.EAGER // EAGER est plus simple pour commencer, LAZY est mieux pour la performance
+    )
+    private List<SanTypeRule> sans = new ArrayList<>();
+
+    // ... getters et setters ...
+
+    public List<SanTypeRule> getSans() {
+        return sans;
+    }
+
+    public void setSans(List<SanTypeRule> sans) {
+        this.sans = sans;
+    }
+}
+N'oubliez pas de vérifier aussi votre entité SanTypeRule.java pour vous assurer que la relation inverse (@ManyToOne) est bien présente :
+code
+Java
+// Dans votre fichier SanTypeRule.java
+
+@Entity
+@Table(name = "SAN_TYPE_RULE")
+public class SanTypeRule implements Serializable {
+    // ...
+    
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "PROFILE_ID", nullable = false)
+    private AutomationHubProfile automationHubProfile; // Ce nom de champ ("automationHubProfile") DOIT correspondre au "mappedBy"
+    
+    // ...
+}
