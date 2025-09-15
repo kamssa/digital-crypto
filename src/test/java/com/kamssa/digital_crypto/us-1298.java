@@ -3283,3 +3283,100 @@ Java
         
         LOGGER.info("Profil '{}' mis à jour avec {} règles de SANs.", profileName, newRulesToSave.size());
     }
+	///////////////////////////////
+	Code Complet de la méthode verifySansLimitsDynamically
+Vous pouvez copier ce bloc de code et le coller dans votre classe SanServiceImpl pour remplacer l'ancienne version.
+code
+Java
+/**
+     * Valide les SANs d'une requête de certificat par rapport aux règles dynamiques
+     * stockées en base de données.
+     * Cette méthode est le "gardien" qui vérifie chaque nouvelle demande.
+     * Elle utilise une relation unidirectionnelle pour charger les règles.
+     *
+     * @param requestDto L'objet contenant la demande de certificat à valider.
+     * @throws CertisRequestException Si une règle de validation (min, max, type non autorisé) est violée.
+     */
+    private void verifySansLimitsDynamically(RequestDto requestDto) throws CertisRequestException {
+        
+        // --- ÉTAPE 1 : VÉRIFICATIONS PRÉLIMINAIRES ---
+        // On s'assure que la requête contient les informations nécessaires pour la validation.
+        if (requestDto.getCertificate() == null || requestDto.getCertificate().getType() == null || requestDto.getCertificate().getType().getName() == null) {
+            LOGGER.warn("Validation des limites de SANs ignorée : le type de certificat (profil) est manquant dans la requête.");
+            return; // On ne peut pas valider sans savoir de quel profil il s'agit.
+        }
+
+        String profileName = requestDto.getCertificate().getType().getName();
+        List<San> sansInRequest = requestDto.getCertificate().getSans();
+
+        // --- ÉTAPE 2 : CHARGER LES RÈGLES DEPUIS LA BASE DE DONNÉES ---
+        
+        // 2a. On charge d'abord l'entité de profil parente.
+        // C'est nécessaire pour pouvoir ensuite trouver les règles qui lui sont associées.
+        Optional<AutomationHubProfile> profileOpt = automationHubProfileDao.findByProfileName(profileName);
+        if (!profileOpt.isPresent()) {
+            // Si le profil demandé par l'utilisateur n'existe pas dans notre base, c'est une erreur de configuration ou de saisie.
+            LOGGER.error("Validation échouée : Le profil de certificat '{}' est inconnu de notre système.", profileName);
+            throw new CertisRequestException("error.profile.unknown", new Object[]{profileName}, HttpStatus.BAD_REQUEST);
+        }
+        AutomationHubProfile profile = profileOpt.get(); // On récupère l'objet profil
+
+        // 2b. On utilise le profil chargé pour trouver toutes ses règles de SANs associées.
+        // C'est ici qu'on utilise le SanTypeRuleRepository, comme la relation est unidirectionnelle.
+        List<SanTypeRule> rules = sanTypeRuleRepository.findByAutomationHubProfile(profile);
+
+        // --- ÉTAPE 3 : GÉRER LE CAS OÙ AUCUNE RÈGLE N'EST DÉFINIE ---
+        if (rules.isEmpty()) {
+            LOGGER.warn("Aucune règle de SAN n'est définie en base pour le profil '{}'.", profileName);
+            // Si aucune règle n'est définie pour ce profil, alors AUCUN SAN ne devrait être autorisé.
+            // Si l'utilisateur a quand même soumis des SANs, on rejette la demande.
+            if (sansInRequest != null && !sansInRequest.isEmpty()) {
+                LOGGER.error("Validation échouée : La requête contient des SANs alors qu'aucune règle n'est définie pour le profil '{}'.", profileName);
+                throw new CertisRequestException("error.san.not_allowed_for_profile", new Object[]{profileName}, HttpStatus.BAD_REQUEST);
+            }
+            return; // S'il n'y a ni règles, ni SANs dans la requête, tout va bien.
+        }
+
+        // --- ÉTAPE 4 : COMPTER LES SANS DANS LA REQUÊTE DE L'UTILISATEUR ---
+        // On crée une Map pour compter facilement combien de SANs de chaque type ont été soumis.
+        // Ex: { CN: 1, DNSNAME: 3, IPADDRESS: 0, ... }
+        Map<SanTypeEnum, Long> sanCountsByType = (sansInRequest == null) ? Collections.emptyMap() :
+                sansInRequest.stream()
+                        .filter(san -> san.getSanType() != null)
+                        .collect(Collectors.groupingBy(San::getSanType, Collectors.counting()));
+
+        // --- ÉTAPE 5 : APPLIQUER LES RÈGLES DE VALIDATION ---
+
+        // 5a. On vérifie d'abord que l'utilisateur n'a pas soumis de types de SANs non autorisés.
+        for (SanTypeEnum requestedSanType : sanCountsByType.keySet()) {
+            boolean isTypeDefinedInRules = rules.stream()
+                    .anyMatch(rule -> rule.getSanTypeEnum().equals(requestedSanType));
+
+            if (!isTypeDefinedInRules) {
+                LOGGER.error("Validation échouée : le type de SAN '{}' n'est pas autorisé pour le profil '{}'", requestedSanType, profileName);
+                throw new CertisRequestException("error.san.type.unauthorized", new Object[]{requestedSanType.name(), profileName}, HttpStatus.BAD_REQUEST);
+            }
+        }
+
+        // 5b. On boucle sur chaque règle définie en base de données et on la compare au contenu de la requête.
+        for (SanTypeRule rule : rules) {
+            SanTypeEnum sanType = rule.getSanTypeEnum();
+            long countInRequest = sanCountsByType.getOrDefault(sanType, 0L);
+
+            // Validation de la limite MAXIMALE
+            if (countInRequest > rule.getMaxValue()) {
+                LOGGER.error("Validation échouée : {} SANs de type '{}' soumis, mais le maximum est de {} pour le profil '{}'",
+                        countInRequest, sanType, rule.getMaxValue(), profileName);
+                throw new CertisRequestException("error.san.max.violation", new Object[]{sanType.name(), rule.getMaxValue()}, HttpStatus.BAD_REQUEST);
+            }
+
+            // Validation de la limite MINIMALE
+            if (countInRequest < rule.getMinValue()) {
+                 LOGGER.error("Validation échouée : {} SANs de type '{}' soumis, mais le minimum requis est de {} pour le profil '{}'",
+                        countInRequest, sanType, rule.getMinValue(), profileName);
+                throw new CertisRequestException("error.san.min.violation", new Object[]{sanType.name(), rule.getMinValue()}, HttpStatus.BAD_REQUEST);
+            }
+        }
+        
+        LOGGER.info("Validation des limites de SANs réussie pour la requête avec le profil '{}'.", profileName);
+    }
