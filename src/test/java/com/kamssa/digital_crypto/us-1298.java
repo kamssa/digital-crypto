@@ -3817,3 +3817,50 @@ Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to
         // ASSERT (Vérification du comportement)
         // ... votre code de vérification ici (qui est correct) ...
     }
+	///////////////////////////////////////////
+	 if (horizonProfileData.getSans() != null && !horizonProfileData.getSans().isEmpty()) {
+        for (ExternalSanRuleDto ruleDto : horizonProfileData.getSans()) {
+            
+            SanType currentSanType = ruleDto.getType();
+            
+            // On ignore les règles sans type
+            if (currentSanType == null) {
+                LOGGER.warn("Une règle de SAN pour le profil '{}' a été ignorée car son type est null.", profileName);
+                continue;
+            }
+            
+            // --- LOGIQUE ANTI-DOUBLONS ---
+            // Si on a déjà traité une règle pour ce type de SAN, on ignore celle-ci et on passe à la suivante.
+            if (processedSanTypes.contains(currentSanType)) {
+                LOGGER.warn("Règle de SAN doublon pour le type '{}' dans le profil '{}'. Seule la première occurrence sera sauvegardée.", currentSanType, profileName);
+                continue;
+            }
+            // --- FIN DE LA LOGIQUE ANTI-DOUBLONS ---
+
+            SanTypeRule ruleEntity = new SanTypeRule();
+
+            Integer minVal = (ruleDto.getMin() != null) ? ruleDto.getMin() : 0;
+            Integer maxVal = (ruleDto.getMax() != null) ? ruleDto.getMax() : 250;
+            if (Boolean.FALSE.equals(ruleDto.getEditableByRequester())) {
+                maxVal = 0;
+            }
+
+            ruleEntity.setType(currentSanType);
+            ruleEntity.setMinValue(minVal);
+            ruleEntity.setMaxValue(maxVal);
+            ruleEntity.setAutomationHubProfile(internalProfile);
+            
+            newRulesToSave.add(ruleEntity);
+            
+            // On ajoute le type au Set des types déjà traités
+            processedSanTypes.add(currentSanType);
+        }
+    }
+
+    // ... (le reste de la méthode ne change pas)
+    if (!newRulesToSave.isEmpty()) {
+        sanTypeRuleRepository.saveAll(newRulesToSave);
+    }
+    
+    LOGGER.info("Profil '{}' mis à jour avec {} règles de SANs.", profileName, newRulesToSave.size());
+}
