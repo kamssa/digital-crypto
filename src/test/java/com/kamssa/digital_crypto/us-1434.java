@@ -531,3 +531,16 @@ Robustesse : Toute la logique de "traduction" est centralisée et cachée dans l
 Code Propre : Le controller reste très simple et délègue tout le travail au service, ce qui est le bon design.
 C'est une excellente suggestion de votre part. Cette version est bien meilleure.
 Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
+////////////////////////////
+[
+  {
+    "type": "CN",
+    "min": 1,
+    "max": 1
+  },
+  {
+    "type": "DNSNAME",
+    "min": 0,
+    "max": 10
+  }
+]
