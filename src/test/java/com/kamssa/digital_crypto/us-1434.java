@@ -434,3 +434,100 @@ Avec ces modifications, votre backend est maintenant complet pour ce ticket. Vou
 Intégré la validation dynamique dans votre flux de création.
 Exposé un endpoint sécurisé et propre pour que le front-end puisse récupérer les règles.
 Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
+/////////////////////////////////////////
+Fichier à modifier : RequestController.java
+code
+Java
+// Dans RequestController.java
+
+@RestController
+@RequestMapping(value = "/request")
+public class RequestController {
+
+    // ... (dépendances et constructeur existants, y compris AutomationHubProfileService)
+
+    /**
+     * NOUVEL ENDPOINT AMÉLIORÉ
+     * Récupère les règles de SANs en se basant sur les IDs du type et sous-type de certificat.
+     * C'est l'endpoint que le front-end appellera.
+     *
+     * @param typeId L'ID du CertificateType sélectionné par l'utilisateur.
+     * @param subTypeId L'ID du CertificateSubType (optionnel).
+     * @return Une liste de règles de SANs.
+     */
+    @GetMapping("/certificate-types/{typeId}/san-rules")
+    public ResponseEntity<List<SanRuleResponseDto>> getSanRulesForCertificateType(
+            @PathVariable Long typeId,
+            @RequestParam(required = false) Long subTypeId) {
+        
+        // On délègue la logique au service, qui saura faire la "traduction".
+        List<SanRuleResponseDto> rules = automationHubProfileService.getSanRulesByCertificateType(typeId, subTypeId);
+        
+        return ResponseEntity.ok(rules);
+    }
+}
+Explication des changements :
+URL : L'URL est maintenant /request/certificate-types/{typeId}/san-rules. C'est très clair et RESTful.
+@PathVariable Long typeId : On récupère l'ID du type directement depuis l'URL.
+@RequestParam(required = false) Long subTypeId : On récupère l'ID du sous-type comme un paramètre de requête optionnel. Le front-end appellera donc /.../san-rules?subTypeId=5 s'il y a un sous-type.
+Étape 2 : Le Service (AutomationHubProfileServiceImpl.java)
+On crée la nouvelle méthode getSanRulesByCertificateType qui va orchestrer la traduction et la récupération des règles.
+Fichier à modifier : AutomationHubProfileServiceImpl.java
+code
+Java
+// Dans AutomationHubProfileServiceImpl.java
+
+@Service
+public class AutomationHubProfileServiceImpl implements AutomationHubProfileService {
+
+    // ... (dépendances et méthodes existantes)
+
+    /**
+     * NOUVELLE MÉTHODE PUBLIQUE
+     * Trouve le profil technique correspondant à un type/sous-type,
+     * puis récupère et convertit ses règles de SANs en DTOs.
+     *
+     * @param typeId L'ID du CertificateType.
+     * @param subTypeId L'ID du CertificateSubType (peut être null).
+     * @return Une liste de DTOs de règles, ou une liste vide si aucun profil/règle n'est trouvé.
+     */
+    public List<SanRuleResponseDto> getSanRulesByCertificateType(Long typeId, Long subTypeId) {
+        try {
+            // 1. On réutilise notre méthode de "traduction" pour trouver le profil technique.
+            AutomationHubProfile profile = this.findProfileEntityByTypeAndSubType(typeId, subTypeId);
+            
+            // 2. On récupère les règles associées à ce profil technique.
+            List<SanTypeRule> ruleEntities = sanTypeRuleRepository.findByAutomationHubProfile(profile);
+
+            // 3. On convertit les entités en DTOs pour les retourner au controller.
+            return ruleEntities.stream()
+                    .map(this::convertToSanRuleDto)
+                    .collect(Collectors.toList());
+
+        } catch (FailedToRetrieveProfileException e) {
+            // Si aucun profil technique ne correspond au type/sous-type,
+            // on loggue l'information et on retourne une liste vide.
+            // C'est plus simple à gérer pour le front-end qu'une erreur 404.
+            LOGGER.warn("Aucun profil technique trouvé pour le typeId {} / subTypeId {}. Retour d'une liste de règles vide.", typeId, subTypeId);
+            return Collections.emptyList();
+        }
+    }
+    
+    // La méthode de conversion privée convertToSanRuleDto(...) reste la même.
+    private SanRuleResponseDto convertToSanRuleDto(SanTypeRule entity) {
+        // ...
+    }
+
+    // La méthode findProfileEntityByTypeAndSubType(...) que nous avons créée reste la même.
+    @Override
+    public AutomationHubProfile findProfileEntityByTypeAndSubType(Long typeId, Long subTypeId) throws FailedToRetrieveProfileException {
+        // ...
+    }
+}
+(N'oubliez pas d'ajouter la signature de getSanRulesByCertificateType à l'interface AutomationHubProfileService)
+Avantages de cette nouvelle approche
+Logique pour le Front-end : L'API est maintenant conçue du point de vue du client (le front-end), ce qui est une excellente pratique. Le front n'a pas besoin de connaître les détails de votre mapping interne.
+Robustesse : Toute la logique de "traduction" est centralisée et cachée dans le backend. Si un jour vous changez la façon dont les types sont mappés aux profils, le front-end n'aura pas besoin d'être modifié.
+Code Propre : Le controller reste très simple et délègue tout le travail au service, ce qui est le bon design.
+C'est une excellente suggestion de votre part. Cette version est bien meilleure.
+Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
