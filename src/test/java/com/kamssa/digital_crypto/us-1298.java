@@ -3560,3 +3560,31 @@ Scénario Limite (whenNoProfilesInLocalDb_...) :
 On simule le cas où notre base de données locale est vide.
 On vérifie que l'application ne fait rien : pas d'appel réseau, pas d'opération sur la base de données des règles.
 Ce test vous assure que votre nouvelle architecture unidirectionnelle fonctionne exactement comme prévu.
+///////////////////////////////
+CREATE TABLE SAN_TYPE_RULE (
+    -- Clé primaire, qui utilisera la séquence définie ci-dessus
+    ID NUMBER(19,0) NOT NULL PRIMARY KEY,
+    
+    -- Clé étrangère pointant vers la table AUTOMATIONHUB_PROFILE (obligatoire)
+    PROFILE_ID NUMBER(19,0) NOT NULL,
+    
+    -- Le type de SAN (Common Name, DNS Name, etc.) stocké en tant que chaîne de caractères
+    TYPE VARCHAR2(255 CHAR) NOT NULL,
+    
+    -- Le nombre minimum de SANs de ce type (obligatoire)
+    MIN_VALUE NUMBER(10,0) NOT NULL,
+    
+    -- Le nombre maximum de SANs de ce type (obligatoire)
+    MAX_VALUE NUMBER(10,0) NOT NULL,
+    
+    -- Déclaration de la contrainte de clé étrangère qui lie cette table à AUTOMATIONHUB_PROFILE
+    CONSTRAINT FK_SANRULE_TO_AH_PROFILE 
+        FOREIGN KEY (PROFILE_ID) 
+        REFERENCES AUTOMATIONHUB_PROFILE (ID) 
+        ON DELETE CASCADE, -- Si on supprime un profil, ses règles sont aussi supprimées
+
+    -- Contrainte d'unicité pour garantir qu'il n'y a qu'une seule règle
+    -- pour un type de SAN donné au sein d'un même profil.
+    CONSTRAINT UQ_PROFILE_ID_AND_SAN_TYPE_RULE
+        UNIQUE (PROFILE_ID, TYPE)
+);
