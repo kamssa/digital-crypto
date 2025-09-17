@@ -168,3 +168,85 @@ Java
         }
     }
 Explication : Cette méthode est maintenant le "couteau suisse" de la validation des SANs. Elle orchestre la récupération des données, leur fusion, la recherche du bon contexte (le profil), et enfin l'application des règles. En la plaçant dans SanServiceImpl, vous respectez bien le principe de responsabilité unique.
+//////////////////////////////////////////////////////////////////////////////////
+code
+Java
+// Dans l'interface AutomationHubProfileService
+
+public interface AutomationHubProfileService {
+    // ... (vos méthodes existantes comme `getProfileByTypeAndSubType`)
+
+    // --- AJOUTEZ LA SIGNATURE DE LA NOUVELLE MÉTHODE CI-DESSOUS ---
+
+    /**
+     * Récupère l'ENTITÉ JPA AutomationHubProfile correspondante pour un type et sous-type de certificat.
+     * Cette méthode est utilisée en interne par d'autres services qui ont besoin de l'objet Entité.
+     *
+     * @param typeId L'ID du CertificateType.
+     * @param subTypeId L'ID du CertificateSubType (peut être null).
+     * @return L'entité AutomationHubProfile correspondante.
+     * @throws FailedToRetrieveProfileException si aucun mapping n'est trouvé en base de données.
+     */
+    AutomationHubProfile findProfileEntityByTypeAndSubType(Long typeId, Long subTypeId) throws FailedToRetrieveProfileException;
+}
+Étape 2 : Implémenter la nouvelle méthode dans le Service
+Maintenant, ouvrez la classe d'implémentation pour y ajouter le code de cette nouvelle méthode. La logique sera très similaire à celle de getProfileByTypeAndSubType, mais au lieu de retourner un DTO, elle retournera directement l'entité.
+Fichier : AutomationHubProfileServiceImpl.java
+code
+Java
+@Service
+public class AutomationHubProfileServiceImpl implements AutomationHubProfileService {
+    
+    // ... (vos dépendances existantes comme certisTypeToAutomationHubProfileDao et automationHubProfileMapper)
+
+    /**
+     * Votre méthode existante, qui retourne un DTO. On n'y touche pas.
+     */
+    @Override
+    public AutomationHubProfileDto getProfileByTypeAndSubType(Long typeId, Long subTypeId) throws FailedToRetrieveProfileException {
+        AutomationHubProfile automationHubProfile = findProfileEntityByTypeAndSubType(typeId, subTypeId);
+        return automationHubProfileMapper.toDto(automationHubProfile);
+    }
+    
+    // --- AJOUTEZ LA NOUVELLE MÉTHODE CI-DESSOUS ---
+
+    /**
+     * Implémentation de la nouvelle méthode qui retourne l'entité.
+     * Elle utilise le DAO de la table de mapping pour faire la "traduction".
+     */
+    @Override
+    public AutomationHubProfile findProfileEntityByTypeAndSubType(Long typeId, Long subTypeId) throws FailedToRetrieveProfileException {
+        
+        // On suppose ici que votre DAO "certisTypeToAutomationHubProfileDao"
+        // a une méthode pour trouver l'entité de mapping CertisTypeToAutomationHubProfile.
+        // Si la méthode n'existe pas, il faudra la créer dans l'interface du DAO.
+        
+        CertisTypeToAutomationHubProfile mapping = certisTypeToAutomationHubProfileDao
+                .findByCertificateTypeIdAndCertificateSubTypeId(typeId, subTypeId)
+                .orElseThrow(() -> new FailedToRetrieveProfileException(String.valueOf(typeId), String.valueOf(subTypeId)));
+        
+        // Une fois qu'on a trouvé l'objet de mapping, on retourne le profil technique qui lui est associé.
+        // C'est l'entité que notre SanServiceImpl pourra utiliser.
+        return mapping.getAutomationHubProfile();
+    }
+}
+Étape 3 (Si nécessaire) : Créer la méthode dans le DAO
+Il est possible que la méthode findByCertificateTypeIdAndCertificateSubTypeId n'existe pas encore dans votre interface CertisTypeToAutomationHubProfileDao. Si c'est le cas, ajoutez-la. Spring Data JPA s'occupera de l'implémenter pour vous.
+Fichier : CertisTypeToAutomationHubProfileDao.java
+code
+Java
+// Dans l'interface CertisTypeToAutomationHubProfileDao
+
+public interface CertisTypeToAutomationHubProfileDao extends JpaRepository<CertisTypeToAutomationHubProfile, Long> {
+    
+    // Spring Data JPA va automatiquement générer la requête SQL pour cette méthode
+    // en se basant sur les noms des champs dans l'entité CertisTypeToAutomationHubProfile.
+    Optional<CertisTypeToAutomationHubProfile> findByCertificateTypeIdAndCertificateSubTypeId(Long certificateTypeId, Long certificateSubTypeId);
+
+}
+Résumé
+Vous ajoutez une nouvelle "capacité" à votre AutomationHubProfileService en lui demandant de pouvoir retourner l'entité AutomationHubProfile brute.
+Vous implémentez cette capacité en utilisant la logique de mapping qui existe déjà dans votre application.
+Votre SanServiceImpl peut maintenant utiliser cette nouvelle capacité pour obtenir l'entité dont il a besoin pour sa validation, sans avoir à connaître les détails complexes du mapping.
+C'est une excellente façon de réutiliser le code et de respecter l'architecture de votre projet. Une fois ces modifications faites, l'erreur "cannot find symbol" sur la méthode findProfileEntityByTypeAndSubType disparaîtra.
+Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
