@@ -3864,3 +3864,59 @@ Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to
     
     LOGGER.info("Profil '{}' mis à jour avec {} règles de SANs.", profileName, newRulesToSave.size());
 }
+///////////////////////////////////
+
+// ... imports ...
+import org.hibernate.exception.ConstraintViolationException; // <-- NOUVEL IMPORT
+import javax.persistence.PersistenceException; // <-- NOUVEL IMPORT
+
+@Service
+public class AutomationHubProfileServiceImpl implements AutomationHubProfileService {
+
+    // ... (dépendances et constructeur) ...
+
+    @Override
+    @Transactional
+    public void syncAllSanRulesFromHorizonApi() {
+        LOGGER.info("Début de la synchronisation des règles de SANs depuis Horizon.");
+
+        List<AutomationHubProfile> profilesToSync = certisTypeToAutomationHubProfileDao.findAll();
+        
+        if (profilesToSync.isEmpty()) {
+            LOGGER.warn("Aucun profil trouvé dans la table AUTOMATIONHUB_PROFILE. La synchronisation est annulée.");
+            return;
+        }
+        
+        LOGGER.info("{} profils vont être traités.", profilesToSync.size());
+
+        for (AutomationHubProfile internalProfile : profilesToSync) {
+            try {
+                processSingleProfile(internalProfile);
+            } 
+            // --- C'EST ICI QU'ON AJOUTE LA GESTION D'ERREUR SPÉCIFIQUE ---
+            catch (PersistenceException e) {
+                // PersistenceException est une exception standard de JPA.
+                // On vérifie si sa cause racine est une violation de contrainte.
+                if (e.getCause() instanceof ConstraintViolationException) {
+                    // Si oui, on affiche notre message personnalisé !
+                    LOGGER.error("Échec de la synchronisation pour le profil '{}' : " +
+                                 "les données reçues d'Horizon violent une contrainte d'unicité en base de données " +
+                                 "(probablement un type de SAN en double). Le profil est ignoré.", 
+                                 internalProfile.getProfileName());
+                } else {
+                    // Si c'est une autre erreur de persistance, on loggue l'erreur technique.
+                    LOGGER.error("Échec de la synchronisation pour le profil '{}' à cause d'une erreur de persistance inattendue.", 
+                                 internalProfile.getProfileName(), e);
+                }
+            } 
+            // --- FIN DE L'AJOUT ---
+            catch (Exception e) {
+                // On garde un catch général pour les autres erreurs (ex: réseau)
+                LOGGER.error("Échec de la synchronisation pour le profil '{}'. Cause inattendue: {}", 
+                             internalProfile.getProfileName(), e.getMessage());
+            }
+        }
+    }
+
+    // ... (le reste de la classe ne change pas) ...
+}
