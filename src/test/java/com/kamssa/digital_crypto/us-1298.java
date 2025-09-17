@@ -3794,3 +3794,26 @@ class AutomationHubProfileServiceImplTest {
     }
 }
 Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
+///////////////////////////////
+@Test
+    void whenSyncing_thenSavesOnlyValidRules() {
+        // ARRANGE (Préparation du scénario)
+
+        // 1. Le DAO de profil retourne notre profil de test
+        // Cette ligne est parfaite.
+        when(automationHubProfileDao.findAll()).thenReturn(Collections.singletonList(mockInternalProfile));
+
+        // 2. Le client Horizon retourne nos données de test
+        // --- C'EST ICI QU'IL FAUT CORRIGER ---
+        // On doit utiliser le nom de profil de notre objet de test 'mockInternalProfile'
+        // pour s'assurer que le mock réagira au bon appel.
+        when(automationHubClient.fetchProfileDetailsFromHorizon(mockInternalProfile.getProfileName()))
+            .thenReturn(mockHorizonDataWithInvalidRule);
+        // --- FIN DE LA CORRECTION ---
+        
+        // ACT (Exécution de la méthode à tester)
+        automationHubProfileService.syncAllSanRulesFromHorizonApi();
+
+        // ASSERT (Vérification du comportement)
+        // ... votre code de vérification ici (qui est correct) ...
+    }
