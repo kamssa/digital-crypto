@@ -250,3 +250,187 @@ Vous implémentez cette capacité en utilisant la logique de mapping qui existe 
 Votre SanServiceImpl peut maintenant utiliser cette nouvelle capacité pour obtenir l'entité dont il a besoin pour sa validation, sans avoir à connaître les détails complexes du mapping.
 C'est une excellente façon de réutiliser le code et de respecter l'architecture de votre projet. Une fois ces modifications faites, l'erreur "cannot find symbol" sur la méthode findProfileEntityByTypeAndSubType disparaîtra.
 Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
+//////////////////////////////////////////////////////
+Tâche 1 : Intégrer la validation dans RequestServiceImpl
+L'objectif est d'appeler notre SanService au bon moment lors de la création d'une requête.
+Fichier à modifier : RequestServiceImpl.java
+code
+Java
+package com.bnpparibas.certis.certificate.request.service.impl;
+
+// ... (tous vos imports existants)
+import com.bnpparibas.certis.certificate.request.service.SanService; // <-- Assurez-vous d'importer l'interface
+
+@Service
+public class RequestServiceImpl implements RequestService {
+
+    // ... (toutes vos dépendances existantes comme RequestDao, etc.)
+
+    // --- AJOUTER LA DÉPENDANCE VERS SANSERVICE ---
+    @Autowired
+    private SanService sanService;
+
+    // ...
+
+    /**
+     * C'est dans la méthode qui crée une nouvelle requête de certificat
+     * que nous devons insérer notre logique de validation.
+     */
+    @Override
+    public RequestDto createRequest(RequestDto requestDto) throws Exception { // ou le type d'exception que vous utilisez
+        
+        // ... (votre code existant pour initialiser, extraire le CSR, etc.)
+
+        // --- DÉBUT DE L'INTÉGRATION DE LA VALIDATION ---
+        
+        // Ici, on suppose que votre logique de fusion des SANs (depuis la requête et le CSR)
+        // a déjà eu lieu et que la liste finale est dans requestDto.getCertificate().getSans().
+        // Si ce n'est pas le cas, il faudrait d'abord faire la fusion.
+        
+        LOGGER.info("Début de la validation dynamique des limites de SANs...");
+        
+        // On appelle la méthode principale de validation du SanService.
+        // Tout le travail complexe que nous avons fait (fusion, traduction de profil, validation)
+        // est maintenant caché derrière cet appel unique.
+        sanService.validateSansPerRequest(requestDto);
+        
+        LOGGER.info("Validation dynamique des SANs réussie.");
+
+        // --- FIN DE L'INTÉGRATION DE LA VALIDATION ---
+
+        // Le reste de votre logique de création de requête continue ici.
+        // Si la validation a échoué, une exception aura déjà été levée et ce code ne sera pas atteint.
+        
+        // ... (sauvegarde de l'entité Request, etc.)
+        
+        return savedRequestDto;
+    }
+    
+    // ... (le reste de vos méthodes dans RequestServiceImpl)
+}
+Explication :
+On injecte SanService.
+Dans la méthode createRequest (ou une méthode similaire comme submitRequest), avant de sauvegarder quoi que ce soit en base, on appelle sanService.validateSansPerRequest(requestDto).
+C'est aussi simple que ça ! Si la validation échoue, une CertisRequestException sera levée, ce qui interrompra le processus et retournera une erreur à l'utilisateur. Si elle réussit, le code continue son exécution normale.
+Tâche 2 : Créer l'endpoint pour le Front-end
+Ici, nous créons un DTO de réponse, ajoutons une méthode au service AutomationHubProfileService, et créons le controller.
+Fichier 1 : SanRuleResponseDto.java (Nouveau DTO de réponse)
+Emplacement : Dans un package DTO approprié, par exemple com.bnpparibas.certis.dto
+code
+Java
+package com.bnpparibas.certis.dto;
+
+import com.bnpparibas.certis.certificate.request.enums.SanType;
+
+/**
+ * DTO simple pour retourner les règles de SANs au front-end.
+ */
+public class SanRuleResponseDto {
+
+    private SanType type;
+    private Integer min;
+    private Integer max;
+
+    // --- Getters et Setters ---
+    public SanType getType() { return type; }
+    public void setType(SanType type) { this.type = type; }
+    public Integer getMin() { return min; }
+    public void setMin(Integer min) { this.min = min; }
+    public Integer getMax() { return max; }
+    public void setMax(Integer max) { this.max = max; }
+}
+Fichier 2 : AutomationHubProfileServiceImpl.java (Ajouter la méthode de récupération)
+Fichier à modifier : AutomationHubProfileServiceImpl.java
+code
+Java
+// ... (imports existants)
+import com.bnpparibas.certis.dto.SanRuleResponseDto; // Le nouveau DTO
+import com.bnpparibas.certis.automationhub.model.SanTypeRule;
+import java.util.stream.Collectors;
+
+@Service
+public class AutomationHubProfileServiceImpl implements AutomationHubProfileService {
+
+    // ... (dépendances et méthodes existantes)
+
+    // --- NOUVELLE MÉTHODE PUBLIQUE POUR LE CONTROLLER ---
+    
+    /**
+     * Récupère les règles de SANs pour un profil technique donné.
+     * @param profileName Le nom du profil technique (ex: "SSL_SRVR").
+     * @return Une liste de DTOs contenant les règles.
+     */
+    public List<SanRuleResponseDto> getSanRulesForProfile(String profileName) {
+        // 1. On cherche le profil dans la table AUTOMATIONHUB_PROFILE
+        AutomationHubProfile profile = automationHubProfileDao.findByProfileName(profileName)
+            .orElseThrow(() -> new ResourceNotFoundException("Profil non trouvé : " + profileName)); // Lance 404 si non trouvé
+
+        // 2. On récupère les règles associées depuis la table SAN_TYPE_RULE
+        List<SanTypeRule> ruleEntities = sanTypeRuleRepository.findByAutomationHubProfile(profile);
+
+        // 3. On convertit les Entités en DTOs pour le front-end
+        return ruleEntities.stream()
+            .map(this::convertToSanRuleDto)
+            .collect(Collectors.toList());
+    }
+
+    // Méthode de conversion privée. Vous pouvez aussi utiliser une classe Mapper (MapStruct).
+    private SanRuleResponseDto convertToSanRuleDto(SanTypeRule entity) {
+        SanRuleResponseDto dto = new SanRuleResponseDto();
+        dto.setType(entity.getType());
+        dto.setMin(entity.getMinValue());
+        dto.setMax(entity.getMaxValue());
+        return dto;
+    }
+}
+(N'oubliez pas d'ajouter la signature de getSanRulesForProfile à l'interface AutomationHubProfileService)
+Fichier 3 : RequestController.java (Ajouter le nouvel endpoint)
+Fichier à modifier : RequestController.java
+code
+Java
+// ... (imports existants)
+import com.bnpparibas.certis.dto.SanRuleResponseDto; // Le nouveau DTO
+import com.bnpparibas.certis.automationhub.service.AutomationHubProfileService;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+
+@RestController
+@RequestMapping(value = "/request")
+public class RequestController {
+
+    // ... (dépendances et endpoints existants)
+    
+    // --- NOUVELLE DÉPENDANCE ---
+    private final AutomationHubProfileService automationHubProfileService;
+
+    // --- METTRE À JOUR LE CONSTRUCTEUR ---
+    public RequestController(/* ... autres services */, AutomationHubProfileService automationHubProfileService) {
+        // ...
+        this.automationHubProfileService = automationHubProfileService;
+    }
+    
+    // --- NOUVEL ENDPOINT POUR LE FRONT-END ---
+
+    /**
+     * Endpoint GET pour récupérer les règles de SANs pour un profil de certificat.
+     * Le front-end appellera cette API lorsqu'un utilisateur sélectionne un type de certificat
+     * pour savoir quelles contraintes de SANs afficher.
+     *
+     * @param profileName Le nom du profil technique (ex: "SSL_SRVR")
+     * @return Une liste de règles de SANs.
+     */
+    @GetMapping("/profiles/{profileName}/san-rules")
+    public ResponseEntity<List<SanRuleResponseDto>> getSanRulesForProfile(@PathVariable String profileName) {
+        // On délègue toute la logique au service.
+        List<SanRuleResponseDto> rules = automationHubProfileService.getSanRulesForProfile(profileName);
+        
+        // Même si la liste est vide (pas de règles ou profil inconnu), on retourne OK avec une liste vide.
+        // C'est souvent plus simple à gérer pour le front-end qu'une erreur 404.
+        return ResponseEntity.ok(rules);
+    }
+}
+Avec ces modifications, votre backend est maintenant complet pour ce ticket. Vous avez :
+Intégré la validation dynamique dans votre flux de création.
+Exposé un endpoint sécurisé et propre pour que le front-end puisse récupérer les règles.
+Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
