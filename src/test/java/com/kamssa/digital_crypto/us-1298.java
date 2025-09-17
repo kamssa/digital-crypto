@@ -3588,3 +3588,44 @@ CREATE TABLE SAN_TYPE_RULE (
     CONSTRAINT UQ_PROFILE_ID_AND_SAN_TYPE_RULE
         UNIQUE (PROFILE_ID, TYPE)
 );
+/////////////////////////////////////
+Créez la séquence dans Oracle si ce n'est pas déjà fait.
+code
+SQL
+CREATE SEQUENCE SEQ_SAN_TYPE_RULE_ID
+    START WITH 1
+    INCREMENT BY 1
+    NOCACHE
+    NOCYCLE;
+Modifiez votre entité SanTypeRule.java pour y ajouter les annotations de génération d'ID.
+code
+Java
+// Dans le fichier SanTypeRule.java
+
+// ... imports ...
+
+@Entity
+@Table(name = "SAN_TYPE_RULE")
+public class SanTypeRule implements Serializable {
+
+    // --- C'EST ICI QU'IL FAUT CORRIGER ---
+
+    @Id
+    // @GeneratedValue dit à JPA de générer l'ID automatiquement.
+    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "seq_san_type_rule_id_gen")
+    // @SequenceGenerator configure la séquence à utiliser.
+    @SequenceGenerator(
+        name = "seq_san_type_rule_id_gen", 
+        sequenceName = "SEQ_SAN_TYPE_RULE_ID", // Le nom de la séquence dans Oracle
+        allocationSize = 1 // Doit correspondre à INCREMENT BY de la séquence
+    )
+    private Long id;
+
+    // --- Le reste de la classe ne change pas ---
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "PROFILE_ID", nullable = false)
+    private AutomationHubProfile automationHubProfile;
+
+    // ... autres champs, getters et setters ...
+}
