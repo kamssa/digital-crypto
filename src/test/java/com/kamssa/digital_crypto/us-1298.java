@@ -3629,3 +3629,168 @@ public class SanTypeRule implements Serializable {
 
     // ... autres champs, getters et setters ...
 }
+////////////////////// test ////////////////////////
+Fichier de Test : AutomationHubProfileServiceImplTest.java (Version finale)
+Rôle : Valider la logique de synchronisation de la classe AutomationHubProfileServiceImpl avec la relation unidirectionnelle et le filtrage des règles invalides.
+Emplacement : src/test/java/com/bnpparibas/certis/automationhub/service/impl/
+code
+Java
+package com.bnpparibas.certis.automationhub.service.impl;
+
+import com.bnpparibas.certis.automationhub.client.AutomationHubClient;
+import com.bnpparibas.certis.automationhub.dao.AutomationHubProfileDao;
+import com.bnpparibas.certis.automationhub.dao.SanTypeRuleRepository;
+import com.bnpparibas.certis.automationhub.dto.external.ExternalProfileDto;
+import com.bnpparibas.certis.automationhub.dto.external.ExternalSanRuleDto;
+import com.bnpparibas.certis.automationhub.model.AutomationHubProfile;
+import com.bnpparibas.certis.automationhub.model.SanTypeRule;
+import com.bnpparibas.certis.certificate.request.enums.SanType;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
+
+@ExtendWith(MockitoExtension.class)
+class AutomationHubProfileServiceImplTest {
+
+    // --- Mocks des dépendances du service ---
+    @Mock
+    private AutomationHubProfileDao automationHubProfileDao;
+
+    @Mock
+    private SanTypeRuleRepository sanTypeRuleRepository;
+
+    @Mock
+    private AutomationHubClient automationHubClient;
+
+    // --- Service à tester ---
+    @InjectMocks
+    private AutomationHubProfileServiceImpl automationHubProfileService;
+
+    private AutomationHubProfile mockInternalProfile;
+    private ExternalProfileDto mockHorizonDataWithInvalidRule;
+
+    @BeforeEach
+    void setUp() {
+        // Préparation d'un faux profil de notre base de données locale
+        mockInternalProfile = new AutomationHubProfile();
+        mockInternalProfile.setId(1L);
+        mockInternalProfile.setProfileName("SSL_SRVR");
+
+        // Préparation d'une fausse réponse de l'API Horizon
+        mockHorizonDataWithInvalidRule = new ExternalProfileDto();
+        mockHorizonDataWithInvalidRule.setName("SSL_SRVR");
+        
+        // On crée une règle VALIDE
+        ExternalSanRuleDto validRuleDto = new ExternalSanRuleDto();
+        validRuleDto.setType(SanType.DNSNAME);
+        validRuleDto.setMin(0);
+        validRuleDto.setMax(10);
+        validRuleDto.setEditableByRequester(true);
+        
+        // On crée une règle INVALIDE (avec le type null, comme dans votre dernière erreur)
+        ExternalSanRuleDto invalidRuleDto = new ExternalSanRuleDto();
+        invalidRuleDto.setType(null); 
+        invalidRuleDto.setMin(1);
+        invalidRuleDto.setMax(1);
+        
+        // La réponse de l'API contient les deux règles
+        mockHorizonDataWithInvalidRule.setSans(Arrays.asList(validRuleDto, invalidRuleDto));
+    }
+
+    /**
+     * Teste le scénario nominal : la synchronisation se déroule bien
+     * et la logique de filtrage des règles invalides fonctionne.
+     */
+    @Test
+    void whenSyncing_thenSavesOnlyValidRules() {
+        // ARRANGE (Préparation du scénario)
+
+        // 1. Le DAO de profil retourne notre profil de test
+        when(automationHubProfileDao.findAll()).thenReturn(Collections.singletonList(mockInternalProfile));
+
+        // 2. Le client Horizon retourne nos données de test (avec une règle valide et une invalide)
+        when(automationHubClient.fetchProfileDetailsFromHorizon("SSL_SRVR")).thenReturn(mockHorizonDataWithInvalidRule);
+        
+        // ACT (Exécution de la méthode à tester)
+        automationHubProfileService.syncAllSanRulesFromHorizonApi();
+
+        // ASSERT (Vérification du comportement)
+
+        // 1. On vérifie que la méthode pour supprimer les anciennes règles a bien été appelée.
+        verify(sanTypeRuleRepository, times(1)).deleteByAutomationHubProfile(mockInternalProfile);
+
+        // 2. On utilise un ArgumentCaptor pour "capturer" la liste de règles qui a été passée à la méthode `saveAll`.
+        // C'est la meilleure façon de vérifier ce qui a été réellement sauvegardé.
+        ArgumentCaptor<List<SanTypeRule>> rulesToSaveCaptor = ArgumentCaptor.forClass(List.class);
+        verify(sanTypeRuleRepository, times(1)).saveAll(rulesToSaveCaptor.capture());
+        
+        // 3. On inspecte la liste capturée.
+        List<SanTypeRule> savedRules = rulesToSaveCaptor.getValue();
+        assertNotNull(savedRules);
+        
+        // === LA VÉRIFICATION LA PLUS IMPORTANTE ===
+        // On vérifie que la règle invalide (avec type=null) a bien été filtrée.
+        assertEquals(1, savedRules.size(), "Seule la règle valide aurait dû être sauvegardée.");
+
+        // 4. On vérifie en détail le contenu de la règle sauvegardée.
+        SanTypeRule savedRule = savedRules.get(0);
+        assertEquals(SanType.DNSNAME, savedRule.getType()); // Le type est correct
+        assertEquals(0, savedRule.getMinValue());             // Le min est correct
+        assertEquals(10, savedRule.getMaxValue());            // Le max est correct
+        assertEquals(mockInternalProfile, savedRule.getAutomationHubProfile(), "La règle est bien liée au bon profil parent.");
+    }
+    
+    /**
+     * Teste le cas où l'API Horizon ne trouve pas un profil (retourne null).
+     */
+    @Test
+    void whenHorizonReturnsNull_thenOldRulesAreDeletedAndNothingIsSaved() {
+        // ARRANGE
+        when(automationHubProfileDao.findAll()).thenReturn(Collections.singletonList(mockInternalProfile));
+        // Le client retourne null, simulant une réponse 404 de l'API
+        when(automationHubClient.fetchProfileDetailsFromHorizon("SSL_SRVR")).thenReturn(null);
+        
+        // ACT
+        automationHubProfileService.syncAllSanRulesFromHorizonApi();
+        
+        // ASSERT
+        // On vérifie que les anciennes règles ont bien été supprimées pour nettoyer la base.
+        verify(sanTypeRuleRepository, times(1)).deleteByAutomationHubProfile(mockInternalProfile);
+        
+        // On vérifie qu'AUCUNE nouvelle règle n'a été sauvegardée.
+        verify(sanTypeRuleRepository, never()).saveAll(any());
+    }
+
+    /**
+     * Teste le cas où il n'y a aucun profil à synchroniser dans notre base locale.
+     */
+    @Test
+    void whenNoProfilesInLocalDb_thenClientAndRepositoryAreNeverCalled() {
+        // ARRANGE
+        // Le DAO ne retourne aucun profil.
+        when(automationHubProfileDao.findAll()).thenReturn(new ArrayList<>());
+        
+        // ACT
+        automationHubProfileService.syncAllSanRulesFromHorizonApi();
+        
+        // ASSERT
+        // On vérifie que le client HTTP n'a JAMAIS été appelé, car il n'y avait rien à traiter.
+        verify(automationHubClient, never()).fetchProfileDetailsFromHorizon(anyString());
+        // On vérifie qu'aucune opération n'a été tentée sur le repository des règles.
+        verify(sanTypeRuleRepository, never()).deleteByAutomationHubProfile(any());
+        verify(sanTypeRuleRepository, never()).saveAll(any());
+    }
+}
+Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
