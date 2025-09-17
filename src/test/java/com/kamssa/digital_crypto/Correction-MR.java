@@ -496,4 +496,31 @@ Recherchez dans tout votre projet les appels à cette méthode et assurez-vous q
 Supprimez la classe SanValidator si vous l'aviez créée, car la validation est maintenant implicite via le parsing.
 En suivant ces étapes, vous aurez une solution robuste, maintenable et qui suit les meilleures pratiques, exactement comme le suggérait la revue de code.
 Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
+/////////////////////////
+CREATE TABLE SAN_TYPE_RULE (
+    -- Clé primaire, qui utilisera la séquence définie ci-dessus
+    ID NUMBER(19,0) NOT NULL PRIMARY KEY,
+    
+    -- Clé étrangère pointant vers la table AUTOMATIONHUB_PROFILE (obligatoire)
+    PROFILE_ID NUMBER(19,0) NOT NULL,
+    
+    -- Le type de SAN (Common Name, DNS Name, etc.) stocké en tant que chaîne de caractères
+    TYPE VARCHAR2(255 CHAR) NOT NULL,
+    
+    -- Le nombre minimum de SANs de ce type (obligatoire)
+    MIN_VALUE NUMBER(10,0) NOT NULL,
+    
+    -- Le nombre maximum de SANs de ce type (obligatoire)
+    MAX_VALUE NUMBER(10,0) NOT NULL,
+    
+    -- Déclaration de la contrainte de clé étrangère qui lie cette table à AUTOMATIONHUB_PROFILE
+    CONSTRAINT FK_SANRULE_TO_AH_PROFILE 
+        FOREIGN KEY (PROFILE_ID) 
+        REFERENCES AUTOMATIONHUB_PROFILE (ID) 
+        ON DELETE CASCADE, -- Si on supprime un profil, ses règles sont aussi supprimées
 
+    -- Contrainte d'unicité pour garantir qu'il n'y a qu'une seule règle
+    -- pour un type de SAN donné au sein d'un même profil.
+    CONSTRAINT UQ_PROFILE_ID_AND_SAN_TYPE_RULE
+        UNIQUE (PROFILE_ID, TYPE)
+);
