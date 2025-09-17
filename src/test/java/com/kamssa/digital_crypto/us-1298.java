@@ -3920,3 +3920,69 @@ public class AutomationHubProfileServiceImpl implements AutomationHubProfileServ
 
     // ... (le reste de la classe ne change pas) ...
 }
+//////////////////////////////////////
+
+Model
+Absolument. Voici le bloc de code complet pour la validation (étape 4), prêt à être inséré dans la méthode verifySansLimitsDynamically.
+Ce code reprend exactement la logique que nous avons validée ensemble, qui gère les cas limites (pas de règles, pas de SANs dans la requête) et applique les contraintes.
+Code Complet de la Logique de Validation
+Copiez ce bloc de code et collez-le à l'endroit indiqué (// ... ici, toute la logique de validation ...).
+code
+Java
+// --- ÉTAPE C (suite) : APPLICATION DES RÈGLES ---
+
+            // On récupère la liste des SANs de la demande utilisateur.
+            List<San> sansInRequest = requestDto.getCertificate().getSans();
+
+            // CAS 1 : Aucune règle n'est définie en base pour ce profil.
+            if (rules.isEmpty()) {
+                LOGGER.warn("Aucune règle de SAN n'est définie en base pour le profil '{}'.", profile.getProfileName());
+                // Si aucune règle n'est définie, alors AUCUN SAN ne devrait être autorisé.
+                // Si l'utilisateur en a quand même soumis, on rejette la demande.
+                if (sansInRequest != null && !sansInRequest.isEmpty()) {
+                    LOGGER.error("Validation échouée : La requête contient des SANs alors qu'aucune règle n'est définie pour le profil '{}'.", profile.getProfileName());
+                    throw new CertisRequestException("error.san.not_allowed_for_profile", new Object[]{profile.getProfileName()}, HttpStatus.BAD_REQUEST);
+                }
+                // S'il n'y a ni règles, ni SANs dans la requête, tout va bien, on peut sortir.
+                return;
+            }
+
+            // CAS 2 : Des règles existent, on doit les appliquer.
+
+            // On compte le nombre de SANs par type dans la requête de l'utilisateur.
+            Map<SanType, Long> sanCountsByType = (sansInRequest == null) ? Collections.emptyMap() :
+                    sansInRequest.stream()
+                            .filter(san -> san.getType() != null)
+                            .collect(Collectors.groupingBy(San::getType, Collectors.counting()));
+
+            // Validation 1 : Vérifier que l'utilisateur n'a pas soumis de types de SANs non autorisés.
+            for (SanType requestedSanType : sanCountsByType.keySet()) {
+                boolean isTypeDefinedInRules = rules.stream()
+                        .anyMatch(rule -> rule.getType().equals(requestedSanType));
+
+                if (!isTypeDefinedInRules) {
+                    LOGGER.error("Validation échouée : le type de SAN '{}' n'est pas autorisé pour le profil '{}'", requestedSanType, profile.getProfileName());
+                    throw new CertisRequestException("error.san.type.unauthorized", new Object[]{requestedSanType.name(), profile.getProfileName()}, HttpStatus.BAD_REQUEST);
+                }
+            }
+
+            // Validation 2 : Vérifier les limites MIN et MAX pour chaque règle du profil.
+            for (SanTypeRule rule : rules) {
+                SanType sanTypeInRule = rule.getType();
+                long countInRequest = sanCountsByType.getOrDefault(sanTypeInRule, 0L);
+
+                // Validation de la limite MAXIMALE
+                if (countInRequest > rule.getMaxValue()) {
+                    LOGGER.error("Validation échouée : {} SANs de type '{}' soumis, mais le maximum autorisé est de {} pour le profil '{}'",
+                            countInRequest, sanTypeInRule, rule.getMaxValue(), profile.getProfileName());
+                    throw new CertisRequestException("error.san.max.violation", new Object[]{sanTypeInRule.name(), rule.getMaxValue()}, HttpStatus.BAD_REQUEST);
+                }
+
+                // Validation de la limite MINIMALE
+                if (countInRequest < rule.getMinValue()) {
+                     LOGGER.error("Validation échouée : {} SANs de type '{}' soumis, mais le minimum requis est de {} pour le profil '{}'",
+                            countInRequest, sanTypeInRule, rule.getMinValue(), profile.getProfileName());
+                    throw new CertisRequestException("error.san.min.violation", new Object[]{sanTypeInRule.name(), rule.getMinValue()}, HttpStatus.BAD_REQUEST);
+                }
+            }
+Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
