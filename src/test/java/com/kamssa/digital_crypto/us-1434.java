@@ -811,3 +811,5 @@ public class RequestController {
         return ResponseEntity.ok(rules);
     }
 }
+///////////////////////////
+Insomnia va automatiquement construire l'URL complète pour vous : http://localhost:8080/request/certificatetypes/3/san-rules?subTypeId=5.
