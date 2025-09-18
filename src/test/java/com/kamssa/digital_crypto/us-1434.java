@@ -544,3 +544,270 @@ Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to
     "max": 10
   }
 ]
+///////////////////////////////// resumer /////////////////////////////////////
+Tâche 1 : Intégrer la Validation Dynamique
+Fichier 1 : SanServiceImpl.java (Version finale)
+Rôle : Le service de validation des SANs, maintenant autonome et dynamique.
+code
+Java
+package com.bnpparibas.certis.certificate.request.service.impl;
+
+// --- Imports ---
+import com.bnpparibas.certis.automationhub.dao.SanTypeRuleRepository;
+import com.bnpparibas.certis.automationhub.model.AutomationHubProfile;
+import com.bnpparibas.certis.automationhub.model.SanTypeRule;
+import com.bnpparibas.certis.automationhub.service.AutomationHubProfileService;
+import com.bnpparibas.certis.certificate.request.csr.CertificateCsrDecoder;
+import com.bnpparibas.certis.certificate.request.dto.RequestDto;
+import com.bnpparibas.certis.certificate.request.dto.San;
+import com.bnpparibas.certis.certificate.request.enums.SanType;
+import com.bnpparibas.certis.certificate.request.service.FileManageService;
+import com.bnpparibas.certis.certificate.request.service.SanService;
+import com.bnpparibas.certis.exception.CertisRequestException;
+import com.bnpparibas.certis.exception.FailedToRetrieveProfileException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+
+import java.util.*;
+import java.util.stream.Collectors;
+
+@Service
+public class SanServiceImpl implements SanService {
+    private static final Logger LOGGER = LoggerFactory.getLogger(SanServiceImpl.class);
+
+    // --- Dépendances nécessaires ---
+    private final AutomationHubProfileService automationHubProfileService;
+    private final SanTypeRuleRepository sanTypeRuleRepository;
+    private final FileManageService fileManageService;
+    private final CertificateCsrDecoder csrDecoder;
+
+    public SanServiceImpl(AutomationHubProfileService automationHubProfileService,
+                          SanTypeRuleRepository sanTypeRuleRepository,
+                          FileManageService fileManageService,
+                          CertificateCsrDecoder csrDecoder) {
+        this.automationHubProfileService = automationHubProfileService;
+        this.sanTypeRuleRepository = sanTypeRuleRepository;
+        this.fileManageService = fileManageService;
+        this.csrDecoder = csrDecoder;
+    }
+    
+    @Override
+    public void validateSansPerRequest(RequestDto requestDto) throws CertisRequestException {
+        // Cette méthode est maintenant le point d'entrée unique.
+        // On supprime l'ancien code (constantes, if/else, anciennes méthodes).
+        this.verifySansLimitsDynamically(requestDto);
+
+        // Conservez d'autres validations si nécessaire (ex: format, Refweb)
+        // this.verifySanFormats(requestDto);
+    }
+
+    /**
+     * Valide les SANs d'une requête en fusionnant ceux de la requête et du CSR,
+     * puis en les comparant aux règles dynamiques stockées en base de données.
+     */
+    private void verifySansLimitsDynamically(RequestDto requestDto) throws CertisRequestException {
+        
+        if (requestDto.getCertificate() == null || requestDto.getCertificate().getType() == null) {
+            return;
+        }
+
+        // --- PARTIE 1 : RÉCUPÉRATION ET FUSION DE TOUS LES SANS ---
+        Set<San> finalUniqueSans = new LinkedHashSet<>();
+        if (requestDto.getCertificate().getSans() != null) {
+            finalUniqueSans.addAll(requestDto.getCertificate().getSans());
+        }
+        try {
+            String csr = this.fileManageService.extractCsr(requestDto, Boolean.TRUE);
+            if (csr != null && !csr.isEmpty()) {
+                List<San> sansFromCsr = this.csrDecoder.extractSansWithTypesFromCsr(csr);
+                if (sansFromCsr != null) {
+                    finalUniqueSans.addAll(sansFromCsr);
+                }
+            }
+        } catch (Exception e) {
+            LOGGER.error("Erreur lors de l'extraction des SANs depuis le CSR.", e);
+            throw new CertisRequestException("Le fichier CSR est invalide ou illisible.", HttpStatus.BAD_REQUEST);
+        }
+        List<San> sansInRequest = new ArrayList<>(finalUniqueSans);
+        LOGGER.info("Validation dynamique sur un total de {} SANs fusionnés.", sansInRequest.size());
+
+        // --- PARTIE 2 : TROUVER LE PROFIL TECHNIQUE CORRESPONDANT ---
+        Long typeId = requestDto.getCertificate().getType().getId();
+        Long subTypeId = (requestDto.getCertificate().getSubType() != null) ? requestDto.getCertificate().getSubType().getId() : null;
+
+        try {
+            AutomationHubProfile profile = automationHubProfileService.findProfileEntityByTypeAndSubType(typeId, subTypeId);
+            
+            // --- PARTIE 3 : CHARGER LES RÈGLES ET APPLIQUER LA VALIDATION ---
+            List<SanTypeRule> rules = sanTypeRuleRepository.findByAutomationHubProfile(profile);
+            
+            if (rules.isEmpty()) {
+                if (!sansInRequest.isEmpty()) {
+                    throw new CertisRequestException("error.san.not_allowed_for_profile", new Object[]{profile.getProfileName()}, HttpStatus.BAD_REQUEST);
+                }
+                return;
+            }
+
+            Map<SanType, Long> sanCountsByType = sansInRequest.stream()
+                    .filter(san -> san.getType() != null)
+                    .collect(Collectors.groupingBy(San::getType, Collectors.counting()));
+
+            for (SanType requestedSanType : sanCountsByType.keySet()) {
+                if (rules.stream().noneMatch(rule -> rule.getType().equals(requestedSanType))) {
+                    throw new CertisRequestException("error.san.type.unauthorized", new Object[]{requestedSanType.name(), profile.getProfileName()}, HttpStatus.BAD_REQUEST);
+                }
+            }
+
+            for (SanTypeRule rule : rules) {
+                long countInRequest = sanCountsByType.getOrDefault(rule.getType(), 0L);
+                if (countInRequest > rule.getMaxValue()) {
+                    throw new CertisRequestException("error.san.max.violation", new Object[]{rule.getType().name(), rule.getMaxValue()}, HttpStatus.BAD_REQUEST);
+                }
+                if (countInRequest < rule.getMinValue()) {
+                    throw new CertisRequestException("error.san.min.violation", new Object[]{rule.getType().name(), rule.getMinValue()}, HttpStatus.BAD_REQUEST);
+                }
+            }
+        } catch (FailedToRetrieveProfileException e) {
+            LOGGER.error("Impossible de mapper le type de certificat ({}/{}) à un profil technique.", typeId, subTypeId, e);
+            throw new CertisRequestException("Le profil de certificat sélectionné n'est pas valide ou n'a pas de règles de SANs configurées.", HttpStatus.BAD_REQUEST);
+        }
+    }
+}
+Tâche 2 : Créer l'API GET pour le Front-end
+Fichier 2 : SanRuleResponseDto.java (Nouveau)
+Rôle : Un objet simple pour transporter les données des règles vers le front-end.
+code
+Java
+package com.bnpparibas.certis.dto; // Ou un autre package DTO
+
+import com.bnpparibas.certis.certificate.request.enums.SanType;
+
+public class SanRuleResponseDto {
+    private SanType type;
+    private Integer min;
+    private Integer max;
+
+    // Getters et Setters
+    public SanType getType() { return type; }
+    public void setType(SanType type) { this.type = type; }
+    public Integer getMin() { return min; }
+    public void setMin(Integer min) { this.min = min; }
+    public Integer getMax() { return max; }
+    public void setMax(Integer max) { this.max = max; }
+}
+Fichier 3 : AutomationHubProfileServiceImpl.java (Méthodes ajoutées)
+Rôle : Ajouter les méthodes nécessaires pour que le controller puisse récupérer les règles.
+code
+Java
+// Dans AutomationHubProfileServiceImpl.java
+
+// ... (imports)
+import com.bnpparibas.certis.dto.SanRuleResponseDto;
+import java.util.stream.Collectors;
+import java.util.Collections;
+
+@Service
+public class AutomationHubProfileServiceImpl implements AutomationHubProfileService {
+    // ... (dépendances et méthodes de synchronisation existantes)
+
+    // --- NOUVELLES MÉTHODES POUR L'ENDPOINT ---
+
+    @Override
+    public List<SanRuleResponseDto> getSanRulesByCertificateType(Long typeId, Long subTypeId) {
+        try {
+            AutomationHubProfile profile = this.findProfileEntityByTypeAndSubType(typeId, subTypeId);
+            List<SanTypeRule> ruleEntities = sanTypeRuleRepository.findByAutomationHubProfile(profile);
+            return ruleEntities.stream()
+                    .map(this::convertToSanRuleDto)
+                    .collect(Collectors.toList());
+        } catch (FailedToRetrieveProfileException e) {
+            LOGGER.warn("Aucun profil technique trouvé pour le typeId {} / subTypeId {}. Retour d'une liste de règles vide.", typeId, subTypeId);
+            return Collections.emptyList();
+        }
+    }
+
+    @Override
+    public AutomationHubProfile findProfileEntityByTypeAndSubType(Long typeId, Long subTypeId) throws FailedToRetrieveProfileException {
+        return certisTypeToAutomationHubProfileDao.findProfileByTypeAndSubType(typeId, subTypeId)
+            .orElseThrow(() -> new FailedToRetrieveProfileException(String.valueOf(typeId), String.valueOf(subTypeId)));
+    }
+
+    private SanRuleResponseDto convertToSanRuleDto(SanTypeRule entity) {
+        SanRuleResponseDto dto = new SanRuleResponseDto();
+        dto.setType(entity.getType());
+        dto.setMin(entity.getMinValue());
+        dto.setMax(entity.getMaxValue());
+        return dto;
+    }
+}
+Fichier 4 : RequestController.java (Endpoint ajouté)
+Rôle : Exposer la nouvelle fonctionnalité au monde extérieur (le front-end).
+code
+Java
+package com.bnpparibas.certis.api.controller; // Ou le package de votre controller
+
+import com.bnpparibas.certis.automationhub.service.AutomationHubProfileService;
+import com.bnpparibas.certis.dto.SanRuleResponseDto;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/request") // Votre préfixe existant
+public class RequestController {
+
+    // ... (dépendances existantes)
+    private final AutomationHubProfileService automationHubProfileService;
+
+    // Mettez à jour votre constructeur pour injecter le service
+    public RequestController(AutomationHubProfileService automationHubProfileService, /* ... */) {
+        this.automationHubProfileService = automationHubProfileService;
+        // ...
+    }
+
+    // --- NOUVEL ENDPOINT ---
+    @GetMapping("/certificatetypes/{typeId}/san-rules")
+    public ResponseEntity<List<SanRuleResponseDto>> getSanRulesForCertificateType(
+            @PathVariable Long typeId,
+            @RequestParam(required = false) Long subTypeId) {
+        
+        List<SanRuleResponseDto> rules = automationHubProfileService.getSanRulesByCertificateType(typeId, subTypeId);
+        return ResponseEntity.ok(rules);
+    }
+    
+    // ... (vos autres endpoints existants)
+}
+Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
+/////////////////////// ajout subtype ////////////////////////////
+// Dans RequestController.java
+
+@RestController
+@RequestMapping(value = "/request")
+public class RequestController {
+
+    // ... (dépendances et constructeur)
+
+    /**
+     * Endpoint GET pour récupérer les règles de SANs en se basant sur les IDs du type et (optionnellement) du sous-type de certificat.
+     *
+     * Appel possible SANS sous-type : /api/v1/request/certificate-types/3/san-rules
+     * Appel possible AVEC sous-type  : /api/v1/request/certificate-types/3/san-rules?subTypeId=5
+     *
+     * @param typeId L'ID du CertificateType sélectionné par l'utilisateur.
+     * @param subTypeId L'ID du CertificateSubType (optionnel).
+     * @return Une liste de règles de SANs.
+     */
+    @GetMapping("/certificate-types/{typeId}/san-rules")
+    public ResponseEntity<List<SanRuleResponseDto>> getSanRulesForCertificateType(
+            @PathVariable Long typeId,
+            @RequestParam(required = false) Long subTypeId) { // required = false gère déjà le cas où le paramètre est absent
+        
+        // On délègue la logique au service. Le service recevra subTypeId = null si le front ne l'envoie pas.
+        List<SanRuleResponseDto> rules = automationHubProfileService.getSanRulesByCertificateType(typeId, subTypeId);
+        
+        return ResponseEntity.ok(rules);
+    }
+}
