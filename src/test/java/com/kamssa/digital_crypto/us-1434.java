@@ -813,3 +813,166 @@ public class RequestController {
 }
 ///////////////////////////
 Insomnia va automatiquement construire l'URL complète pour vous : http://localhost:8080/request/certificatetypes/3/san-rules?subTypeId=5.
+/////////////////// nouvelle regle //////////////////////////
+Résumé de la nouvelle logique :
+Le CN est roi : Un des SANs de type CN (Common Name) doit obligatoirement être identique à la valeur du champ Common Name du certificat.
+Pré-remplissage : Ce SAN "miroir" du CN est considéré comme implicite. Il doit être déduit du nombre total de SANs que l'utilisateur peut saisir.
+Interface grisée : Le front-end doit afficher ce SAN "miroir" comme étant pré-rempli et non-modifiable.
+Cela impacte deux domaines : la validation backend (pour forcer la règle) et l'API pour le front-end (pour lui donner les informations nécessaires pour griser le champ).
+Voici la solution complète.
+Solution - Partie 1 : Modification de la Validation Backend (SanServiceImpl)
+Nous devons renforcer notre méthode verifySansLimitsDynamically pour qu'elle vérifie cette nouvelle règle.
+Fichier à modifier : SanServiceImpl.java
+Action : Ajouter une vérification explicite que l'un des SANs de type CN correspond bien au commonName de la requête.
+code
+Java
+/**
+     * Version MISE À JOUR de la méthode de validation.
+     * Elle inclut maintenant la vérification que le Common Name est bien présent dans les SANs.
+     */
+    private void verifySansLimitsDynamically(RequestDto requestDto) throws CertisRequestException {
+        
+        // --- ÉTAPE 1 : VÉRIFICATIONS PRÉLIMINAIRES ---
+        if (requestDto.getCertificate() == null || requestDto.getCertificate().getType() == null) {
+            return;
+        }
+        
+        // On récupère le Common Name, qui est maintenant essentiel pour la validation.
+        String commonName = requestDto.getCertificate().getCommonName();
+        if (commonName == null || commonName.trim().isEmpty()) {
+            throw new CertisRequestException("Le champ Common Name (CN) est obligatoire pour valider les SANs.", HttpStatus.BAD_REQUEST);
+        }
+
+        // --- ÉTAPE 2 : FUSION DE TOUS LES SANS (inchangé) ---
+        // (Le code pour fusionner les SANs de la requête et du CSR reste ici)
+        List<San> sansInRequest = new ArrayList<>(/* ... fusion des SANs ... */);
+
+        // --- ÉTAPE 3 : TROUVER LE PROFIL TECHNIQUE (inchangé) ---
+        // (Le code pour trouver le 'profile' via le service reste ici)
+        AutomationHubProfile profile = //...
+        
+        // --- ÉTAPE 4 : NOUVELLE VALIDATION SPÉCIFIQUE AU CN ---
+        
+        // On vérifie que la liste des SANs contient bien un SAN de type CN
+        // dont la valeur est égale au Common Name du certificat.
+        boolean cnAsSanIsPresent = sansInRequest.stream()
+                .anyMatch(san -> san.getType() == SanType.CN && commonName.equalsIgnoreCase(san.getValue()));
+        
+        if (!cnAsSanIsPresent) {
+            LOGGER.error("Validation échouée : La liste des SANs doit contenir une entrée de type CN correspondant au Common Name '{}'.", commonName);
+            throw new CertisRequestException("error.san.cn_missing", new Object[]{commonName}, HttpStatus.BAD_REQUEST);
+        }
+
+        // --- ÉTAPE 5 : VALIDATION DES LIMITES MIN/MAX (inchangé) ---
+        // Le reste de la logique de validation des comptes min/max reste exactement la même.
+        // Elle s'assurera que le nombre total de CNs (incluant celui qui matche le Common Name)
+        // respecte bien les limites min/max définies dans les règles.
+        
+        List<SanTypeRule> rules = sanTypeRuleRepository.findByAutomationHubProfile(profile);
+        // ... (Le reste du code de validation avec les boucles for est identique)
+    }
+Solution - Partie 2 : Modification de l'API pour le Front-End
+L'ancien DTO SanRuleResponseDto n'est plus suffisant. Il ne dit pas au front-end qu'une des places est "réservée". Nous allons donc créer une structure de réponse plus riche.
+Fichier 1 : PredefinedSanDto.java (Nouveau DTO)
+Ce DTO représente un SAN qui doit être pré-rempli et non-éditable.
+code
+Java
+package com.bnpparibas.certis.dto;
+
+import com.bnpparibas.certis.certificate.request.enums.SanType;
+
+public class PredefinedSanDto {
+    private SanType type;
+    private String value; // Une valeur spéciale comme "{COMMON_NAME}"
+    private boolean editable = false; // Toujours false
+
+    // Getters et Setters
+}
+Fichier 2 : ProfileRulesResponseDto.java (Nouveau DTO de réponse)
+Ce DTO sera le nouvel objet de réponse de notre endpoint. Il contient à la fois les règles et les SANs prédéfinis.
+code
+Java
+package com.bnpparibas.certis.dto;
+
+import java.util.List;
+
+public class ProfileRulesResponseDto {
+    private List<SanRuleResponseDto> rules; // Les règles min/max
+    private List<PredefinedSanDto> predefinedSans; // Les SANs pré-remplis
+
+    // Getters et Setters
+}
+Fichier 3 : AutomationHubProfileServiceImpl.java (Méthode de récupération modifiée)
+On modifie la méthode getSanRulesByCertificateType pour qu'elle construise ce nouvel objet de réponse.
+code
+Java
+// Dans AutomationHubProfileServiceImpl.java
+
+    /**
+     * NOUVELLE VERSION de la méthode pour le controller.
+     * Elle retourne maintenant un objet complexe contenant les règles ET les SANs prédéfinis.
+     */
+    public ProfileRulesResponseDto getSanRulesByCertificateType(Long typeId, Long subTypeId) {
+        ProfileRulesResponseDto response = new ProfileRulesResponseDto();
+        response.setRules(new ArrayList<>());
+        response.setPredefinedSans(new ArrayList<>());
+
+        try {
+            AutomationHubProfile profile = this.findProfileEntityByTypeAndSubType(typeId, subTypeId);
+            List<SanTypeRule> ruleEntities = sanTypeRuleRepository.findByAutomationHubProfile(profile);
+
+            // 1. On convertit les règles en DTOs (comme avant)
+            List<SanRuleResponseDto> ruleDtos = ruleEntities.stream()
+                    .map(this::convertToSanRuleDto)
+                    .collect(Collectors.toList());
+            response.setRules(ruleDtos);
+
+            // 2. NOUVELLE LOGIQUE : On cherche si un SAN de type CN est obligatoire.
+            ruleEntities.stream()
+                .filter(rule -> rule.getType() == SanType.CN && rule.getMinValue() >= 1)
+                .findFirst()
+                .ifPresent(cnRule -> {
+                    // Si on trouve une règle qui exige au moins un CN...
+                    PredefinedSanDto predefinedCn = new PredefinedSanDto();
+                    predefinedCn.setType(SanType.CN);
+                    // On utilise un placeholder que le front-end comprendra.
+                    predefinedCn.setValue("{COMMON_NAME}");
+                    
+                    response.getPredefinedSans().add(predefinedCn);
+                });
+
+            return response;
+
+        } catch (FailedToRetrieveProfileException e) {
+            LOGGER.warn("Aucun profil technique trouvé pour le typeId {} / subTypeId {}.", typeId, subTypeId);
+            return response; // Retourne un objet vide
+        }
+    }
+Fichier 4 : RequestController.java (Endpoint mis à jour)
+On change simplement le type de retour de l'endpoint.
+code
+Java
+// Dans RequestController.java
+
+    /**
+     * Endpoint mis à jour pour retourner la nouvelle structure de réponse.
+     */
+    @GetMapping("/certificatetypes/{typeId}/san-rules")
+    public ResponseEntity<ProfileRulesResponseDto> getSanRulesForCertificateType(
+            @PathVariable Long typeId,
+            @RequestParam(required = false) Long subTypeId) {
+        
+        ProfileRulesResponseDto response = automationHubProfileService.getSanRulesByCertificateType(typeId, subTypeId);
+        
+        return ResponseEntity.ok(response);
+    }
+Comment le Front-End va utiliser ça
+Le front-end appelle l'API et reçoit la réponse ProfileRulesResponseDto.
+Il affiche les règles (min/max) à l'utilisateur comme avant.
+Il regarde la liste predefinedSans. S'il y trouve un objet, il sait qu'il doit :
+Créer une ligne dans la liste des SANs.
+Mettre son type à CN.
+Observer le champ Common Name du formulaire. Dès que l'utilisateur tape quelque chose, il copie la valeur dans ce SAN prédéfini.
+"Griser" cette ligne pour que l'utilisateur ne puisse pas la modifier ou la supprimer.
+Le nombre de SANs que l'utilisateur peut ajouter est maintenant (max pour ce type) - (nombre de SANs prédéfinis pour ce type).
+Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
