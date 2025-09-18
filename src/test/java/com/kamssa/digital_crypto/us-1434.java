@@ -975,4 +975,202 @@ Mettre son type à CN.
 Observer le champ Common Name du formulaire. Dès que l'utilisateur tape quelque chose, il copie la valeur dans ce SAN prédéfini.
 "Griser" cette ligne pour que l'utilisateur ne puisse pas la modifier ou la supprimer.
 Le nombre de SANs que l'utilisateur peut ajouter est maintenant (max pour ce type) - (nombre de SANs prédéfinis pour ce type).
-Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
+///////////////////////////////////////// version corriger ////////////////////////
+
+Model
+Vous avez absolument raison ! C'est une excellente remarque. Ma proposition précédente était incomplète sur ce point.
+Déduire simplement le nombre de SANs prédéfinis du max est la bonne approche pour le front-end, mais le backend doit aussi fournir le max ajusté pour que le front n'ait aucun calcul complexe à faire.
+La logique est la suivante :
+Si un SAN de type CN est prédéfini (parce que min >= 1), alors la règle pour le type CN que nous envoyons au front-end doit avoir son max diminué de 1.
+Voici la version corrigée et bien meilleure de la méthode dans AutomationHubProfileServiceImpl.
+Code Corrigé de AutomationHubProfileServiceImpl.java (avec max ajusté)
+code
+Java
+// Dans AutomationHubProfileServiceImpl.java
+
+    /**
+     * VERSION FINALE ET CORRIGÉE
+     * Retourne les règles de SANs, en AJUSTANT les limites pour les SANs qui sont prédéfinis.
+     */
+    public ProfileRulesResponseDto getSanRulesByCertificateType(Long typeId, Long subTypeId) {
+        ProfileRulesResponseDto response = new ProfileRulesResponseDto();
+        
+        try {
+            AutomationHubProfile profile = this.findProfileEntityByTypeAndSubType(typeId, subTypeId);
+            List<SanTypeRule> ruleEntities = sanTypeRuleRepository.findByAutomationHubProfile(profile);
+
+            // --- NOUVELLE LOGIQUE D'AJUSTEMENT ---
+            
+            // 1. On détermine d'abord s'il y a un CN prédéfini.
+            boolean isCnPredefined = ruleEntities.stream()
+                .anyMatch(rule -> rule.getType() == SanType.CN && rule.getMinValue() >= 1);
+
+            // 2. On prépare la liste des SANs prédéfinis (comme avant).
+            List<PredefinedSanDto> predefinedSans = new ArrayList<>();
+            if (isCnPredefined) {
+                PredefinedSanDto predefinedCn = new PredefinedSanDto();
+                predefinedCn.setType(SanType.CN);
+                predefinedCn.setValue("{COMMON_NAME}");
+                predefinedSans.add(predefinedCn);
+            }
+            
+            // 3. On convertit les règles en DTOs, en appliquant l'ajustement.
+            List<SanRuleResponseDto> adjustedRules = ruleEntities.stream()
+                .map(ruleEntity -> {
+                    SanRuleResponseDto dto = new SanRuleResponseDto();
+                    dto.setType(entity.getType());
+                    
+                    int min = entity.getMinValue();
+                    int max = entity.getMaxValue();
+
+                    // --- C'EST LA CORRECTION CRUCIALE ---
+                    // Si le type de la règle est CN ET qu'un CN est prédéfini...
+                    if (isCnPredefined && entity.getType() == SanType.CN) {
+                        // ... alors l'utilisateur doit fournir 1 CN de moins au minimum,
+                        // et il peut en fournir 1 de moins au maximum.
+                        min = Math.max(0, min - 1); // Le min ne peut pas être négatif
+                        max = Math.max(0, max - 1); // Le max ne peut pas être négatif
+                    }
+                    
+                    dto.setMin(min);
+                    dto.setMax(max);
+                    
+                    return dto;
+                })
+                .collect(Collectors.toList());
+
+            // On remplit l'objet de réponse final
+            response.setRules(adjustedRules);
+            response.setPredefinedSans(predefinedSans);
+            
+            return response;
+
+        } catch (FailedToRetrieveProfileException e) {
+            // En cas d'erreur, on retourne un objet vide.
+            response.setRules(Collections.emptyList());
+            response.setPredefinedSans(Collections.emptyList());
+            return response;
+        }
+    }
+Comment le Front-End va utiliser cette nouvelle réponse
+Le code du front-end devient maintenant extrêmement simple. Il n'a plus de calcul à faire.
+Scénario :
+Règle en base : Pour CN, min=1, max=2.
+Réponse de l'API :
+code
+JSON
+{
+  "rules": [
+    { "type": "CN", "min": 0, "max": 1 },
+    { "type": "DNSNAME", "min": 0, "max": 5 }
+  ],
+  "predefinedSans": [
+    { "type": "CN", "value": "{COMMON_NAME}", "editable": false }
+  ]
+}
+Le front-end fait ceci :
+Il voit predefinedSans et affiche une ligne grisée pour le CN, liée au champ "Common Name".
+Il regarde rules.
+Pour le CN, il voit min: 0, max: 1. Il sait donc que l'utilisateur peut ajouter entre 0 et 1 autre CN de son choix.
+Pour le DNSNAME, il voit min: 0, max: 5. Il sait que l'utilisateur peut ajouter entre 0 et 5 DNSNAME.
+Le front-end n'a plus à se poser la question "est-ce que je dois déduire quelque chose ?". Toute la logique métier est centralisée dans le backend, ce qui est beaucoup plus robuste.
+Vous aviez parfaitement raison de soulever ce point. Cette version est bien plus propre et plus facile à utiliser pour l'équipe front-end.
+////////////////////////////// cas ou tous les cas ///////////////////////////////
+Oui, vous avez tout à fait raison. Il faut gérer tous les cas de figure pour que la logique soit parfaitement robuste. Votre exemple min=0, max=1 est très pertinent.
+Analysons tous les cas possibles pour la règle du CN et définissons le comportement attendu.
+Analyse des Cas de Figure
+Soit (min, max) la règle pour le type CN stockée dans votre base de données.
+Cas 1 : min = 0 (Le CN n'est pas obligatoire en tant que SAN)
+Règle en BDD : min=0, max=0
+Comportement attendu : Aucun SAN de type CN n'est autorisé. Il n'y a pas de SAN prédéfini.
+Réponse API : predefinedSans est vide. La règle pour CN est min: 0, max: 0.
+Règle en BDD : min=0, max=1 (ou plus)
+Comportement attendu : L'utilisateur peut ajouter des SANs de type CN, mais aucun n'est obligatoire ou prédéfini. La règle "le CN doit être dans les SANs" ne s'applique pas.
+Réponse API : predefinedSans est vide. La règle pour CN reste min: 0, max: 1.
+Conclusion pour min = 0 : Si le min est zéro, la règle du "CN miroir" ne s'applique pas. Il n'y a pas de SAN prédéfini et les règles min/max ne sont pas modifiées.
+Cas 2 : min >= 1 (Le CN est obligatoire en tant que SAN)
+C'est ici que la logique d'ajustement s'applique.
+Règle en BDD : min=1, max=1
+Comportement attendu : Exactement un SAN de type CN est requis, et il doit être le Common Name. L'utilisateur ne peut en ajouter aucun autre.
+Réponse API :
+predefinedSans: contient le CN miroir.
+rules: la règle pour CN devient min: 0, max: 0. (1-1=0, 1-1=0)
+Règle en BDD : min=1, max=2
+Comportement attendu : Au moins un SAN de type CN est requis. L'un d'eux est obligatoirement le Common Name. L'utilisateur peut en ajouter un seul autre de son choix.
+Réponse API :
+predefinedSans: contient le CN miroir.
+rules: la règle pour CN devient min: 0, max: 1. (1-1=0, 2-1=1)
+Règle en BDD : min=2, max=5
+Comportement attendu : Au moins deux SANs de type CN sont requis. L'un est le Common Name. L'utilisateur doit en ajouter au moins un autre, et peut en ajouter jusqu'à quatre autres.
+Réponse API :
+predefinedSans: contient le CN miroir.
+rules: la règle pour CN devient min: 1, max: 4. (2-1=1, 5-1=4)
+Le Code Final qui Gère Tous les Cas
+Le code que je vous ai fourni dans la réponse précédente gère déjà tous ces cas de figure correctement. Analysons-le à nouveau avec cette grille de lecture.
+Fichier : AutomationHubProfileServiceImpl.java
+code
+Java
+public ProfileRulesResponseDto getSanRulesByCertificateType(Long typeId, Long subTypeId) {
+        ProfileRulesResponseDto response = new ProfileRulesResponseDto();
+        
+        try {
+            AutomationHubProfile profile = this.findProfileEntityByTypeAndSubType(typeId, subTypeId);
+            List<SanTypeRule> ruleEntities = sanTypeRuleRepository.findByAutomationHubProfile(profile);
+
+            // --- Étape 1 : On détermine si un CN est prédéfini ---
+            // Cette condition ne sera vraie que si une règle pour CN existe ET que son min >= 1.
+            // C'est exactement la logique que nous avons définie.
+            boolean isCnPredefined = ruleEntities.stream()
+                .anyMatch(rule -> rule.getType() == SanType.CN && rule.getMinValue() >= 1);
+
+            // --- Étape 2 : On construit la liste des SANs prédéfinis ---
+            List<PredefinedSanDto> predefinedSans = new ArrayList<>();
+            if (isCnPredefined) {
+                PredefinedSanDto predefinedCn = new PredefinedSanDto();
+                predefinedCn.setType(SanType.CN);
+                predefinedCn.setValue("{COMMON_NAME}");
+                predefinedSans.add(predefinedCn);
+            }
+            
+            // --- Étape 3 : On construit les règles ajustées pour le front-end ---
+            List<SanRuleResponseDto> adjustedRules = ruleEntities.stream()
+                .map(entity -> {
+                    SanRuleResponseDto dto = new SanRuleResponseDto();
+                    dto.setType(entity.getType());
+                    
+                    int min = entity.getMinValue();
+                    int max = entity.getMaxValue();
+
+                    // L'ajustement ne se produit que si le CN est prédéfini ET que la règle actuelle concerne le CN.
+                    // Si min=0 pour le CN, `isCnPredefined` sera false et ce bloc ne sera jamais exécuté.
+                    if (isCnPredefined && entity.getType() == SanType.CN) {
+                        // On décrémente min et max de 1.
+                        // Math.max(0, ...) garantit que le résultat ne sera jamais négatif.
+                        min = Math.max(0, min - 1); 
+                        max = Math.max(0, max - 1); 
+                    }
+                    
+                    dto.setMin(min);
+                    dto.setMax(max);
+                    
+                    return dto;
+                })
+                .collect(Collectors.toList());
+
+            // --- Étape 4 : On assemble la réponse finale ---
+            response.setRules(adjustedRules);
+            response.setPredefinedSans(predefinedSans);
+            
+            return response;
+
+        } catch (FailedToRetrieveProfileException e) {
+            // Gestion d'erreur
+            response.setRules(Collections.emptyList());
+            response.setPredefinedSans(Collections.emptyList());
+            return response;
+        }
+    }
+Conclusion :
+Le code que nous avons écrit est déjà correct et gère bien tous les cas de figure. La clé est la variable booléenne isCnPredefined. 
+Elle n'est true que si min >= 1 pour le CN, ce qui déclenche la logique de "réservation" et d'ajustement. Si min = 0, isCnPredefined 
+sera false et les règles sont retournées telles quelles, ce qui est le comportement attendu.
