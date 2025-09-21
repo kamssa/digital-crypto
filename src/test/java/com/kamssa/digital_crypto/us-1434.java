@@ -1925,3 +1925,65 @@ Le backend reçoit la requête, calcule les règles, et voit qu'il doit y avoir 
 Le front-end reçoit cette instruction et met en place la liaison dynamique entre le champ Common Name et le champ du SAN prédéfini.
 En résumé : {COMMON_NAME} est un signal, un placeholder envoyé par le backend au frontend. Il sert à indiquer au code Angular : "La valeur de ce champ n'est pas fixe, elle doit être une copie en temps réel de la valeur du champ Common Name du formulaire."
 Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
+/////////////////// les service ////////////////////////////
+Étape 1 : Ajouter la nouvelle URL dans Global.ts
+Ouvrez ce fichier et ajoutez la nouvelle constante statique. Je vais la nommer WS_SAN_RULES_BY_CERT_TYPE pour rester cohérent avec votre convention de nommage.
+Fichier à modifier : src/app/shared/Global.ts
+code
+TypeScript
+// ... (imports existants)
+import { environment } from '../../environments/environment';
+
+export class Global {
+  
+  // ... (toutes vos constantes existantes comme WS_AFFECT_REQUEST, etc.)
+
+
+  // --- NOUVELLE CONSTANTE À AJOUTER ---
+  // (Vous pouvez la placer avec les autres URLs liées aux requêtes)
+  public static WS_SAN_RULES_BY_CERT_TYPE =
+    // Votre système de mock n'est probablement pas nécessaire ici car c'est une requête GET simple
+    // mais je l'inclus par cohérence.
+    environment.mock ? `${Global.MOCK_URL}/sanRules.json` :
+    `${Global.BASE_URL}/request/certificatetypes/:typeId/san-rules`;
+
+}
+Explication :
+WS_SAN_RULES_BY_CERT_TYPE : Un nom clair pour notre nouvelle URL.
+:typeId : On utilise un placeholder :typeId dans l'URL. Le service se chargera de le remplacer par la vraie valeur.
+Étape 2 : Utiliser la nouvelle constante dans RequestService.ts
+Maintenant, on met à jour la méthode getSanRulesForCertificateType pour qu'elle utilise cette nouvelle constante. C'est beaucoup plus propre et maintenable.
+Fichier à modifier : src/app/services/request.service.ts
+code
+TypeScript
+// ... (imports existants)
+import { Global } from '../shared/Global'; // Assurez-vous que l'import est correct
+
+// ...
+export class RequestService {
+    
+    // ... (constructeur et méthodes existantes)
+
+    /**
+     * Version MISE À JOUR qui utilise les constantes globales.
+     */
+    getSanRulesForCertificateType(typeId: number, subTypeId?: number): Observable<ProfileRulesResponseDto> {
+        
+        // On construit l'URL en remplaçant le placeholder :typeId par la vraie valeur.
+        const url = Global.WS_SAN_RULES_BY_CERT_TYPE.replace(':typeId', typeId.toString());
+
+        const params: { [param: string]: string } = {};
+        if (subTypeId) {
+            params['subTypeId'] = subTypeId.toString();
+        }
+
+        // L'appel à l'apiService reste identique.
+        return this.apiService.get<ProfileRulesResponseDto>(url, params);
+    }
+}
+Explication de la modification :
+On importe la classe Global.
+On utilise Global.WS_SAN_RULES_BY_CERT_TYPE comme modèle d'URL.
+On utilise la méthode standard de JavaScript replace(':typeId', typeId.toString()) pour insérer la valeur dynamique au bon endroit.
+C'est tout ! Votre code est maintenant parfaitement intégré à vos conventions de projet. La prochaine étape reste la modification du composant RequestDetailSectionComponent pour appeler cette nouvelle méthode de service.
+Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
