@@ -1174,3 +1174,155 @@ Conclusion :
 Le code que nous avons écrit est déjà correct et gère bien tous les cas de figure. La clé est la variable booléenne isCnPredefined. 
 Elle n'est true que si min >= 1 pour le CN, ce qui déclenche la logique de "réservation" et d'ajustement. Si min = 0, isCnPredefined 
 sera false et les règles sont retournées telles quelles, ce qui est le comportement attendu.
+//////////////////pris en compte des nouvelles regle///////////////////////////////
+Absolument. Voici une récapitulation complète de la solution finale, intégrant toutes vos clarifications.
+Cette solution est conçue pour être la plus claire et la plus robuste possible, en centralisant la logique métier dans le backend pour simplifier le travail du front-end.
+Fichier 1 : ProfileRulesResponseDto.java (Nouveau DTO de réponse)
+Ce DTO est l'objet que notre API retournera. Il est composé de deux listes : une pour les règles min/max et une pour les SANs qui doivent être pré-remplis.
+Emplacement : Dans un package DTO, ex: com.bnpparibas.certis.dto
+code
+Java
+package com.bnpparibas.certis.dto;
+
+import java.util.List;
+
+public class ProfileRulesResponseDto {
+
+    private List<SanRuleResponseDto> rules;
+    private List<PredefinedSanDto> predefinedSans;
+
+    // Getters et Setters
+    public List<SanRuleResponseDto> getRules() { return rules; }
+    public void setRules(List<SanRuleResponseDto> rules) { this.rules = rules; }
+    public List<PredefinedSanDto> getPredefinedSans() { return predefinedSans; }
+    public void setPredefinedSans(List<PredefinedSanDto> predefinedSans) { this.predefinedSans = predefinedSans; }
+}
+Fichier 2 : PredefinedSanDto.java (Nouveau DTO)
+Ce DTO décrit un SAN pré-rempli.
+Emplacement : Au même endroit que ProfileRulesResponseDto.
+code
+Java
+package com.bnpparibas.certis.dto;
+
+import com.bnpparibas.certis.certificate.request.enums.SanType;
+
+public class PredefinedSanDto {
+
+    private SanType type;
+    private String value; // Contient un placeholder comme "{COMMON_NAME}"
+    private boolean editable = false; // Toujours false pour indiquer au front de le griser
+
+    // Getters et Setters
+    public SanType getType() { return type; }
+    public void setType(SanType type) { this.type = type; }
+    public String getValue() { return value; }
+    public void setValue(String value) { this.value = value; }
+    public boolean isEditable() { return editable; }
+    public void setEditable(boolean editable) { this.editable = editable; }
+}
+Fichier 3 : AutomationHubProfileServiceImpl.java (La Logique Principale)
+Voici la méthode complète et finale qui implémente toutes vos règles.
+Action : Remplacez votre méthode getSanRulesByCertificateType par celle-ci.
+code
+Java
+// Dans AutomationHubProfileServiceImpl.java
+
+    /**
+     * Méthode finale qui récupère les règles de SANs pour un type/sous-type donné,
+     * en appliquant la logique métier spécifique au Common Name (CN).
+     *
+     * LA RÈGLE MÉTIER IMPLÉMENTÉE :
+     * Si la règle pour le type de SAN "CN" a un `min` de 1, alors :
+     *   1. Un SAN de type CN est considéré comme "prédéfini" et sa valeur sera le Common Name du certificat.
+     *   2. Les limites min/max pour le type CN retournées à l'API sont décrémentées de 1.
+     * Dans tous les autres cas (min=0 pour CN, ou pour les autres types de SAN), les règles sont retournées telles quelles.
+     */
+    public ProfileRulesResponseDto getSanRulesByCertificateType(Long typeId, Long subTypeId) {
+        ProfileRulesResponseDto response = new ProfileRulesResponseDto();
+        
+        try {
+            // ÉTAPE 1 : Récupérer le profil technique et ses règles depuis la base de données.
+            AutomationHubProfile profile = this.findProfileEntityByTypeAndSubType(typeId, subTypeId);
+            List<SanTypeRule> ruleEntities = sanTypeRuleRepository.findByAutomationHubProfile(profile);
+
+            // --- Logique d'ajustement des règles ---
+            
+            // ÉTAPE 2 : Déterminer si un SAN de type CN doit être prédéfini.
+            // On cherche la règle spécifique au type CN dans la liste.
+            Optional<SanTypeRule> cnRuleOptional = ruleEntities.stream()
+                .filter(rule -> rule.getType() == SanType.CN)
+                .findFirst();
+
+            boolean isCnPredefined = false;
+            // La condition est très stricte : uniquement si la règle pour CN existe ET que son min est 1.
+            if (cnRuleOptional.isPresent() && cnRuleOptional.get().getMinValue() == 1) {
+                isCnPredefined = true;
+            }
+
+            // ÉTAPE 3 : Préparer la liste des SANs prédéfinis pour le front-end.
+            List<PredefinedSanDto> predefinedSans = new ArrayList<>();
+            if (isCnPredefined) {
+                PredefinedSanDto predefinedCn = new PredefinedSanDto();
+                predefinedCn.setType(SanType.CN);
+                // On envoie un "placeholder" que le front-end saura interpréter.
+                predefinedCn.setValue("{COMMON_NAME}");
+                predefinedCn.setEditable(false); // Explicitement non éditable
+                predefinedSans.add(predefinedCn);
+            }
+            
+            // ÉTAPE 4 : Préparer la liste des règles (min/max) ajustées pour le front-end.
+            List<SanRuleResponseDto> adjustedRules = ruleEntities.stream()
+                .map(entity -> {
+                    SanRuleResponseDto dto = new SanRuleResponseDto();
+                    dto.setType(entity.getType());
+                    
+                    int min = entity.getMinValue();
+                    int max = entity.getMaxValue();
+
+                    // On applique l'ajustement SEULEMENT si le CN est prédéfini ET que la règle actuelle est celle du CN.
+                    if (isCnPredefined && entity.getType() == SanType.CN) {
+                        // On décrémente car une place est déjà "réservée" par le SAN prédéfini.
+                        // Math.max(0, ...) est une sécurité pour que les valeurs ne deviennent pas négatives.
+                        min = Math.max(0, min - 1); 
+                        max = Math.max(0, max - 1); 
+                    }
+                    
+                    dto.setMin(min);
+                    dto.setMax(max);
+                    
+                    return dto;
+                })
+                .collect(Collectors.toList());
+
+            // ÉTAPE 5 : Assembler l'objet de réponse final.
+            response.setRules(adjustedRules);
+            response.setPredefinedSans(predefinedSans);
+            
+            return response;
+
+        } catch (FailedToRetrieveProfileException e) {
+            // Si le profil n'est pas trouvé, on retourne un objet vide, ce qui est simple à gérer pour le front.
+            LOGGER.warn("Aucun profil technique trouvé pour le typeId {} / subTypeId {}. Retour d'une réponse vide.", typeId, subTypeId);
+            response.setRules(Collections.emptyList());
+            response.setPredefinedSans(Collections.emptyList());
+            return response;
+        }
+    }
+N'oubliez pas le Controller
+Le controller doit être mis à jour pour retourner le nouveau type d'objet ProfileRulesResponseDto.
+Fichier : RequestController.java
+code
+Java
+// Dans RequestController.java
+
+    @GetMapping("/certificatetypes/{typeId}/san-rules")
+    public ResponseEntity<ProfileRulesResponseDto> getSanRulesForCertificateType( // <-- Type de retour changé
+            @PathVariable Long typeId,
+            @RequestParam(required = false) Long subTypeId) {
+        
+        ProfileRulesResponseDto response = automationHubProfileService.getSanRulesByCertificateType(typeId, subTypeId);
+        
+        return ResponseEntity.ok(response);
+    }
+Avec ces fichiers, votre solution est complète, robuste et implémente exactement la logique métier que vous avez définie.
+Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
