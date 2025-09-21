@@ -1898,3 +1898,30 @@ public getSanCountMessage(sanType: SanType): string {
 Conclusion pour cette partie : L'affichage est également générique. Le template HTML va simplement boucler sur toutes les règles reçues de l'API (*ngFor="let rule of sanRules") et appeler getSanCountMessage(rule.type) pour chacune, ce qui affichera un statut pour chaque type de SAN autorisé.
 Résumé Final :
 Vous pouvez être certain que le système respectera bien les règles min et max pour tous les types de SANs définis dans votre base de données. La seule chose "spéciale" qui arrive au DNSNAME est qu'il peut être pré-rempli et que ses limites sont ajustées en conséquence. Pour tous les autres types, les règles de la base de données sont appliquées telles quelles.
+/////////////////// ////////////////////
+
+Model
+Excellente question. C'est un détail de nommage qui peut prêter à confusion.
+Dans le code Angular que nous avons écrit, il y a une méthode :
+private listenForCommonNameChanges(): void
+Et à l'intérieur de fetchAndApplySanRules, il y a cette ligne :
+const initialValue = predefined.value === '{COMMON_NAME}' ? this.requestDetailSectionForm.get('certificateName')?.value || '' : predefined.value;
+À quoi sert {COMMON_NAME} ?
+"{COMMON_NAME}" n'est pas une variable ou une fonction. C'est une simple chaîne de caractères "magique", un placeholder.
+C'est un contrat que nous avons défini entre le backend et le frontend.
+Le Backend dit :
+"Je vais t'envoyer une liste de SANs prédéfinis. Si l'un d'eux a la valeur {COMMON_NAME}, cela ne veut pas dire que tu dois afficher {COMMON_NAME} à l'utilisateur. Cela signifie que la valeur de ce SAN doit être liée dynamiquement à la valeur du champ Common Name du formulaire."
+Le Frontend comprend ce contrat et agit en conséquence :
+Dans fetchAndApplySanRules, quand il reçoit un SAN prédéfini, il vérifie : predefined.value === '{COMMON_NAME}'.
+Si c'est vrai, il ne met pas {COMMON_NAME} dans le champ. À la place, il va chercher la valeur actuelle du champ Common Name (certificateName) dans le formulaire et l'utilise comme valeur initiale.
+Ensuite, la méthode listenForCommonNameChanges s'assure que si l'utilisateur modifie le champ Common Name plus tard, la valeur du SAN prédéfini est mise à jour en temps réel.
+Pourquoi utiliser un placeholder ?
+On pourrait se demander pourquoi le backend ne retourne pas directement la valeur du Common Name.
+La raison est simple : le backend ne connaît pas le Common Name au moment où le front-end demande les règles.
+Revoici le flux utilisateur :
+L'utilisateur choisit un "Type de Certificat".
+À cet instant, le front-end appelle GET .../san-rules. Le formulaire est encore vide, il n'y a pas encore de Common Name de saisi.
+Le backend reçoit la requête, calcule les règles, et voit qu'il doit y avoir un SAN prédéfini. Comme il ne connaît pas encore la valeur finale, il renvoie le placeholder {COMMON_NAME} pour dire au front : "Attention, la valeur de ce SAN dépendra d'un autre champ".
+Le front-end reçoit cette instruction et met en place la liaison dynamique entre le champ Common Name et le champ du SAN prédéfini.
+En résumé : {COMMON_NAME} est un signal, un placeholder envoyé par le backend au frontend. Il sert à indiquer au code Angular : "La valeur de ce champ n'est pas fixe, elle doit être une copie en temps réel de la valeur du champ Common Name du formulaire."
+Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
