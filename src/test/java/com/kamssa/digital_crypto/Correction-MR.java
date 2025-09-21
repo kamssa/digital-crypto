@@ -524,3 +524,123 @@ CREATE TABLE SAN_TYPE_RULE (
     CONSTRAINT UQ_PROFILE_ID_AND_SAN_TYPE_RULE
         UNIQUE (PROFILE_ID, TYPE)
 );
+/////////////// autre suggestion ////////////////
+Proposition de Code Refactorisé
+Voici comment tu pourrais réécrire ton AutomationHubProfileServiceImpl.java pour intégrer cette nouvelle logique de manière claire et maintenable.
+code
+Java
+// Dans la classe AutomationHubProfileServiceImpl
+
+@Override
+public ProfileRulesResponseDto sanRulesByCertificateType(Long typeId, Long subTypeId) {
+    ProfileRulesResponseDto response = new ProfileRulesResponseDto();
+    try {
+        // 1. Récupérer le profil et les règles brutes de la base de données
+        AutomationHubProfile profile = this.findProfileByTypeAndSubType(typeId, subTypeId);
+        List<SanTypeRule> ruleEntities = sanTypeRuleDao.findByAutomationHubProfile(profile);
+
+        // 2. Appliquer la nouvelle logique métier complexe pour traiter ces règles
+        ProcessedRules processedRules = processSanRules(ruleEntities);
+
+        // 3. Remplir la réponse finale avec les résultats traités
+        response.setRules(processedRules.getAdjustedRules());
+        response.setPredefinedSans(processedRules.getPredefinedSans());
+
+    } catch (FailedToRetrieveProfileException e) {
+        LOGGER.warn("Profil non trouvé pour typeId={} et subTypeId={}. Retour de règles vides.", typeId, subTypeId);
+        response.setRules(Collections.emptyList());
+        response.setPredefinedSans(Collections.emptyList());
+    }
+    return response;
+}
+
+/**
+ * Méthode centrale qui applique la logique métier pour transformer les règles brutes
+ * en règles ajustées pour l'utilisateur et en SANs prédéfinis.
+ */
+private ProcessedRules processSanRules(List<SanTypeRule> ruleEntities) {
+    List<SanRuleResponseDto> adjustedRules = new ArrayList<>();
+    List<PredefinedSanDto> predefinedSans = new ArrayList<>();
+
+    for (SanTypeRule rule : ruleEntities) {
+        boolean ruleHandled = false;
+
+        // La logique spéciale ne s'applique qu'au type DNSNAME
+        if (rule.getType() == SanTypeEnum.DNSNAME) {
+            
+            // RÈGLE 2: min=1, max=1 -> CN obligatoire et unique
+            if (rule.getMin() == 1 && rule.getMax() == 1) {
+                predefinedSans.add(createPredefinedCommonNameSan());
+                // Cette règle est entièrement gérée par le SAN prédéfini, on n'ajoute rien aux règles modifiables.
+                ruleHandled = true;
+            }
+            // RÈGLES 3 & 4: Cas où le max est 250 (valeur spéciale indiquant que le CN est inclus)
+            else if (rule.getMax() == 250 && (rule.getMin() == 0 || rule.getMin() == 1)) {
+                predefinedSans.add(createPredefinedCommonNameSan());
+
+                // On crée une règle ajustée pour ce que l'utilisateur peut ajouter EN PLUS du CN.
+                SanRuleResponseDto adjustedDto = convertToSanRuleDto(rule);
+                
+                // Le nouveau min est l'ancien min moins 1 (le CN), avec un plancher à 0.
+                adjustedDto.setMin(Math.max(0, rule.getMin() - 1));
+                // Le nouveau max est l'ancien max moins 1.
+                adjustedDto.setMax(rule.getMax() - 1);
+                
+                adjustedRules.add(adjustedDto);
+                ruleHandled = true;
+            }
+        }
+        
+        // RÈGLE 1 et tous les autres cas (règles pour les autres types de SANs, ou DNSNAME sans logique spéciale)
+        if (!ruleHandled) {
+            adjustedRules.add(convertToSanRuleDto(rule));
+        }
+    }
+
+    return new ProcessedRules(adjustedRules, predefinedSans);
+}
+
+/**
+ * Petite classe interne pour stocker les résultats du traitement.
+ * (Si tu utilises Java 14+, tu peux utiliser un "record" à la place).
+ */
+private static class ProcessedRules {
+    private final List<SanRuleResponseDto> adjustedRules;
+    private final List<PredefinedSanDto> predefinedSans;
+
+    public ProcessedRules(List<SanRuleResponseDto> adjustedRules, List<PredefinedSanDto> predefinedSans) {
+        this.adjustedRules = adjustedRules;
+        this.predefinedSans = predefinedSans;
+    }
+
+    public List<SanRuleResponseDto> getAdjustedRules() { return adjustedRules; }
+    public List<PredefinedSanDto> getPredefinedSans() { return predefinedSans; }
+}
+
+/**
+ * Méthode utilitaire pour créer le DTO du SAN prédéfini pour le Common Name.
+ */
+private PredefinedSanDto createPredefinedCommonNameSan() {
+    PredefinedSanDto predefinedCn = new PredefinedSanDto();
+    predefinedCn.setType(SanTypeEnum.DNSNAME);
+    predefinedCn.setValue("COMMON_NAME"); // Le frontend interprétera cette valeur spéciale
+    predefinedCn.setEditable(false);
+    return predefinedCn;
+}
+
+// Ta méthode de conversion privée que tu as déjà. Je la garde ici pour la complétude.
+private SanRuleResponseDto convertToSanRuleDto(SanTypeRule entity) {
+    SanRuleResponseDto dto = new SanRuleResponseDto();
+    dto.setType(entity.getType());
+    dto.setMin(entity.getMin());
+    dto.setMax(entity.getMax());
+    return dto;
+}
+Pourquoi cette approche est meilleure :
+Lisibilité : La méthode principale sanRulesByCertificateType est très simple à lire. Son rôle est clair : charger les données, appeler un processeur, et construire la réponse.
+Séparation des responsabilités : Toute la logique métier complexe est isolée dans la méthode processSanRules. Si demain les règles changent encore, tu sais exactement où aller, sans impacter le reste du code.
+Maintenabilité : Le code est plus facile à comprendre et à modifier. Les commentaires expliquent chaque cas métier.
+Testabilité : Il serait beaucoup plus simple d'écrire un test unitaire pour la méthode processSanRules seule, en lui passant différentes listes de règles pour vérifier qu'elle se comporte comme attendu.
+N'oublie pas que la validation côté backend (verifySansLimitsDynamically) devra aussi être mise à jour pour refléter cette logique, en particulier pour prendre en compte que le CN est attendu dans la liste des SANs pour certains profils.
+Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
+
