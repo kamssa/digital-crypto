@@ -1326,3 +1326,458 @@ Java
     }
 Avec ces fichiers, votre solution est complète, robuste et implémente exactement la logique métier que vous avez définie.
 Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
+
+/////////////////// front ///////////////////////
+Étape 1 : Créer les modèles de données (Interfaces TypeScript)
+C'est une bonne pratique de créer des interfaces qui correspondent aux DTOs de votre backend. Créez un nouveau fichier, par exemple san-rules.model.ts, ou ajoutez-les à un fichier de modèles existant.
+code
+TypeScript
+// san-rules.model.ts
+
+// On peut utiliser un type string literal pour SanType pour plus de sécurité
+export type SanType = 'CN' | 'DNSNAME' | 'IPADDRESS' | 'RFC822NAME' | 'URI' | 'OTHERNAME_GUID' | 'OTHERNAME_UPN';
+
+export interface SanRuleResponseDto {
+  type: SanType;
+  min: number;
+  max: number;
+}
+
+export interface PredefinedSanDto {
+  type: SanType;
+  value: string; // Contient le placeholder "{COMMON_NAME}"
+  editable: boolean; // Sera toujours false
+}
+
+export interface ProfileRulesResponseDto {
+  rules: SanRuleResponseDto[];
+  predefinedSans: PredefinedSanDto[];
+}
+Étape 2 : Mettre à jour le Service Angular
+Dans votre service qui gère les appels à l'API (probablement RequestService ou similaire), ajoutez une nouvelle méthode pour appeler notre endpoint.
+Fichier : request.service.ts (ou le nom de votre service)
+code
+TypeScript
+import { HttpClient, HttpParams } from '@angular/common/http';
+import { Injectable } from '@angular/core';
+import { Observable } from 'rxjs';
+import { ProfileRulesResponseDto } from './san-rules.model'; // Importez votre nouveau modèle
+
+@Injectable({
+  providedIn: 'root'
+})
+export class RequestService {
+
+  constructor(private http: HttpClient) { }
+
+  // ... (vos autres méthodes de service existantes)
+
+  /**
+   * NOUVELLE MÉTHODE
+   * Récupère les règles de SANs pour un type/sous-type de certificat donné.
+   * @param typeId L'ID du CertificateType.
+   * @param subTypeId L'ID optionnel du CertificateSubType.
+   */
+  getSanRulesForCertificateType(typeId: number, subTypeId?: number): Observable<ProfileRulesResponseDto> {
+    const baseUrl = `/api/v1/request/certificatetypes/${typeId}/san-rules`; // Adaptez si le préfixe est différent
+    
+    let params = new HttpParams();
+    if (subTypeId) {
+      params = params.set('subTypeId', subTypeId.toString());
+    }
+
+    return this.http.get<ProfileRulesResponseDto>(baseUrl, { params });
+  }
+}
+Étape 3 : Modifier le Composant RequestDetailSectionComponent
+C'est ici que se trouve le cœur de la logique.
+Fichier : request-detail-section.component.ts
+code
+TypeScript
+// ... (imports existants)
+import { FormArray, FormGroup, FormBuilder, Validators } from '@angular/forms';
+import { RequestService } from '...'; // Importez votre service
+import { ProfileRulesResponseDto, SanRuleResponseDto, PredefinedSanDto, SanType } from '...'; // Importez vos modèles
+
+@Component({
+  // ...
+})
+export class RequestDetailSectionComponent implements OnInit, OnDestroy {
+  
+  // ... (toutes vos propriétés existantes)
+
+  // --- NOUVELLES PROPRIÉTÉS ---
+  sanRules: SanRuleResponseDto[] = [];
+  predefinedSans: PredefinedSanDto[] = [];
+  
+  // Assurez-vous d'injecter votre service dans le constructeur
+  constructor(private fb: FormBuilder, private requestService: RequestService, /* ... autres injections */) {
+    // ...
+  }
+
+  ngOnInit() {
+    // ... (votre code ngOnInit existant)
+
+    // On s'abonne aux changements du type de certificat pour déclencher notre logique
+    this.listenForCertificateTypeChanges();
+    this.listenForCommonNameChanges();
+  }
+  
+  /**
+   * NOUVELLE MÉTHODE : Écoute les changements sur le champ du type de certificat.
+   */
+  private listenForCertificateTypeChanges(): void {
+    const certificateTypeControl = this.requestDetailSectionForm.get('certificateType');
+    
+    if (certificateTypeControl) {
+      certificateTypeControl.valueChanges
+        .pipe(takeUntil(this.onDestroy$)) // Assurez-vous d'avoir un mécanisme pour vous désabonner
+        .subscribe(selectedType => {
+          if (selectedType && selectedType.id) {
+            const subTypeId = this.requestDetailSectionForm.get('certificateSubType')?.value?.id;
+            this.fetchAndApplySanRules(selectedType.id, subTypeId);
+          } else {
+            // Si l'utilisateur dé-sélectionne, on vide les règles et les SANs
+            this.clearSanRulesAndControls();
+          }
+        });
+    }
+  }
+
+  /**
+   * NOUVELLE MÉTHODE : Récupère les règles depuis l'API et met à jour le formulaire.
+   */
+  private fetchAndApplySanRules(typeId: number, subTypeId?: number): void {
+    this.requestService.getSanRulesForCertificateType(typeId, subTypeId)
+      .subscribe(response => {
+        // 1. On stocke les règles et les SANs prédéfinis
+        this.sanRules = response.rules || [];
+        this.predefinedSans = response.predefinedSans || [];
+        
+        // 2. On met à jour le FormArray des SANs
+        const sansFormArray = this.requestDetailSectionForm.get('sans') as FormArray;
+        sansFormArray.clear(); // On vide les anciens SANs
+
+        // 3. On ajoute les SANs prédéfinis (ex: le CN miroir)
+        this.predefinedSans.forEach(predefined => {
+          const sanGroup = this.createSanGroup(); // On utilise votre méthode existante
+          
+          let initialValue = predefined.value;
+          if (initialValue === '{COMMON_NAME}') {
+            initialValue = this.requestDetailSectionForm.get('certificateName')?.value || '';
+          }
+          
+          sanGroup.patchValue({
+            type: predefined.type,
+            value: initialValue
+          });
+
+          // On désactive le groupe pour que l'utilisateur ne puisse pas le modifier
+          sanGroup.disable();
+          
+          sansFormArray.push(sanGroup);
+        });
+
+        // 4. (Optionnel) Ajouter un SAN vide si min > 0 pour un type non prédéfini
+        // ...
+      });
+  }
+
+  /**
+   * NOUVELLE MÉTHODE : Gère la mise à jour du SAN prédéfini lorsque le Common Name change.
+   */
+  private listenForCommonNameChanges(): void {
+    const commonNameControl = this.requestDetailSectionForm.get('certificateName');
+    if (commonNameControl) {
+      commonNameControl.valueChanges
+        .pipe(takeUntil(this.onDestroy$))
+        .subscribe(cnValue => {
+          const sansFormArray = this.requestDetailSectionForm.get('sans') as FormArray;
+          // On cherche l'index du SAN prédéfini (celui qui est désactivé)
+          const predefinedSanIndex = this.predefinedSans.length > 0 ? 0 : -1; // Simplification : on suppose que c'est le premier
+
+          if (predefinedSanIndex !== -1 && this.predefinedSans[predefinedSanIndex].value === '{COMMON_NAME}') {
+            const predefinedSanControl = sansFormArray.at(predefinedSanIndex);
+            if (predefinedSanControl) {
+              predefinedSanControl.get('value')?.setValue(cnValue, { emitEvent: false });
+            }
+          }
+        });
+    }
+  }
+  
+  /**
+   * NOUVELLE MÉTHODE : Pour réinitialiser
+   */
+  private clearSanRulesAndControls(): void {
+      this.sanRules = [];
+      this.predefinedSans = [];
+      const sansFormArray = this.requestDetailSectionForm.get('sans') as FormArray;
+      sansFormArray.clear();
+      // Peut-être ajouter un SAN vide par défaut
+      // sansFormArray.push(this.createSanGroup());
+  }
+
+  // --- MÉTHODES EXISTANTES À MODIFIER ---
+
+  /**
+   * MODIFIÉ : Vérifie si l'utilisateur peut ajouter un nouveau SAN.
+   */
+  canAddSan(): boolean {
+    const sansFormArray = this.requestDetailSectionForm.get('sans') as FormArray;
+    
+    // On calcule le nombre total maximum de SANs autorisés
+    const totalMax = this.sanRules.reduce((sum, rule) => sum + rule.max, 0);
+    const maxWithPredefined = totalMax + this.predefinedSans.length;
+    
+    // On ne peut ajouter un SAN que si on n'a pas atteint la limite globale.
+    return sansFormArray.length < maxWithPredefined;
+  }
+  
+  /**
+   * MODIFIÉ : Vérifie si un SAN peut être supprimé.
+   * @param index L'index du SAN dans le FormArray.
+   */
+  canDeleteSan(index: number): boolean {
+      const sansFormArray = this.requestDetailSectionForm.get('sans') as FormArray;
+      const sanGroup = sansFormArray.at(index) as FormGroup;
+
+      // On ne peut pas supprimer un SAN prédéfini (ceux qui sont désactivés)
+      if (sanGroup.disabled) {
+          return false;
+      }
+      
+      // Calcule le nombre total minimum de SANs requis
+      const totalMin = this.sanRules.reduce((sum, rule) => sum + rule.min, 0);
+      const minWithPredefined = totalMin + this.predefinedSans.length;
+
+      // On ne peut supprimer que si le nombre actuel est supérieur au minimum requis
+      return sansFormArray.length > minWithPredefined;
+  }
+
+  // Votre méthode createSanGroup() reste probablement la même.
+}
+Résumé du Flux Côté Front-end
+Initialisation : Le composant s'initialise et commence à écouter les changements sur le champ certificateType.
+Choix de l'utilisateur : L'utilisateur sélectionne un type de certificat.
+Appel API : La méthode listenForCertificateTypeChanges détecte le changement, récupère l'ID et appelle fetchAndApplySanRules.
+Récupération des règles : fetchAndApplySanRules appelle votre service, qui fait la requête GET à l'endpoint /certificatetypes/{typeId}/san-rules.
+Mise à jour du formulaire :
+Le service retourne la réponse (ProfileRulesResponseDto).
+La méthode vide l'ancien FormArray de SANs.
+Elle ajoute les SANs prédéfinis (predefinedSans) en tant que champs désactivés.
+La méthode listenForCommonNameChanges s'assure que la valeur de ce SAN désactivé est toujours synchronisée avec le champ "Common Name".
+Validation dynamique : Les méthodes canAddSan et canDeleteSan utilisent maintenant les sanRules et predefinedSans reçus de l'API pour décider si les boutons "+" et "-" doivent être actifs, au lieu d'utiliser des valeurs codées en dur.
+Cette approche s'intègre proprement dans votre architecture existante et rend votre formulaire de SANs entièrement dynamique et piloté par le backend.
+Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
+///////////////////////////////////////// front /////////////////////////////////////////
+Résumé du Code Final pour Angular
+Étape 1 : Fichier de Modèles (san-rules.model.ts)
+Créez ce fichier pour définir la structure des données que vous recevrez de l'API. C'est la base pour un code propre et typé.
+Emplacement suggéré : src/app/shared/beans/san-rules.model.ts
+code
+TypeScript
+export type SanType = 'CN' | 'DNSNAME' | 'IPADDRESS' | 'RFC822NAME' | 'URI' | 'OTHERNAME_GUID' | 'OTHERNAME_UPN';
+
+export interface SanRuleResponseDto {
+  type: SanType;
+  min: number;
+  max: number;
+}
+
+export interface PredefinedSanDto {
+  type: SanType;
+  value: string;
+  editable: boolean;
+}
+
+export interface ProfileRulesResponseDto {
+  rules: SanRuleResponseDto[];
+  predefinedSans: PredefinedSanDto[];
+}
+Étape 2 : Fichier de Service (request.service.ts)
+Ajoutez la nouvelle méthode à votre service existant pour communiquer avec le backend.
+Fichier à modifier : src/app/services/request.service.ts
+code
+TypeScript
+// ... (imports existants)
+import { Observable } from 'rxjs';
+import { ProfileRulesResponseDto } from '../shared/beans/san-rules.model';
+
+// ...
+export class RequestService {
+  
+  // ... (constructeur et méthodes existantes)
+
+  // --- NOUVELLE MÉTHODE À AJOUTER ---
+  getSanRulesForCertificateType(typeId: number, subTypeId?: number): Observable<ProfileRulesResponseDto> {
+    const baseUrl = `/api/v1/request/certificatetypes/${typeId}/san-rules`;
+
+    const params: { [param: string]: string } = {};
+    if (subTypeId) {
+      params['subTypeId'] = subTypeId.toString();
+    }
+
+    // On utilise votre 'apiService' existant pour faire l'appel
+    return this.apiService.get<ProfileRulesResponseDto>(baseUrl, params);
+  }
+}
+Étape 3 : Fichier du Composant (request-detail-section.component.ts)
+C'est ici que se trouve la majorité des changements. On va rendre la gestion des SANs dynamique.
+Fichier à modifier : src/app/content/form/request-detail-section/request-detail-section.component.ts
+code
+TypeScript
+// --- Imports à ajouter ou vérifier ---
+import { Component, OnInit, OnDestroy } from '@angular/core';
+import { FormArray, FormGroup, Validators } from '@angular/forms';
+import { Subject } from 'rxjs';
+import { takeUntil, distinctUntilChanged } from 'rxjs/operators';
+import { RequestService } from '...'; // Adaptez le chemin
+import { ProfileRulesResponseDto, SanRuleResponseDto, PredefinedSanDto, SanType } from '...'; // Adaptez le chemin
+
+// ...
+@Component({
+  selector: 'app-request-detail-section',
+  // ...
+})
+export class RequestDetailSectionComponent implements OnInit, OnDestroy {
+  
+  // ... (toutes vos propriétés existantes : requestDetailSectionForm, etc.)
+
+  // --- NOUVELLES PROPRIÉTÉS ---
+  private onDestroy$ = new Subject<void>();
+  public sanRules: SanRuleResponseDto[] = []; // public pour être accessible depuis le template HTML
+  
+  // --- Mettre à jour le constructeur ---
+  constructor(private requestService: RequestService, /* ... autres injections existantes */) {
+    // ...
+  }
+  
+  // --- Mettre à jour ngOnInit ---
+  ngOnInit(): void {
+    // ... (votre code ngOnInit existant)
+
+    this.listenForCertificateTypeChanges();
+    this.listenForCommonNameChanges();
+  }
+
+  // --- Ajouter ngOnDestroy ---
+  ngOnDestroy(): void {
+    this.onDestroy$.next();
+    this.onDestroy$.complete();
+  }
+
+  // --- Getter pour les SANs (vous l'avez déjà) ---
+  get sans(): FormArray {
+    return this.requestDetailSectionForm.get('sans') as FormArray;
+  }
+
+  // --- NOUVELLES MÉTHODES PRIVÉES ---
+
+  private listenForCertificateTypeChanges(): void {
+    const certificateTypeControl = this.requestDetailSectionForm.get('certificateType');
+    if (certificateTypeControl) {
+      certificateTypeControl.valueChanges
+        .pipe(
+          takeUntil(this.onDestroy$),
+          distinctUntilChanged((prev, curr) => prev?.id === curr?.id) // Évite les appels inutiles
+        )
+        .subscribe(selectedType => {
+          const subTypeControl = this.requestDetailSectionForm.get('certificateSubType');
+          const subTypeId = subTypeControl?.value?.id;
+          
+          if (selectedType && selectedType.id) {
+            this.fetchAndApplySanRules(selectedType.id, subTypeId);
+          } else {
+            this.clearSanRulesAndControls();
+          }
+        });
+    }
+  }
+
+  private fetchAndApplySanRules(typeId: number, subTypeId?: number): void {
+    this.requestService.getSanRulesForCertificateType(typeId, subTypeId)
+      .pipe(takeUntil(this.onDestroy$))
+      .subscribe(response => {
+        this.sanRules = response.rules || [];
+        const predefinedSans = response.predefinedSans || [];
+        
+        this.sans.clear();
+
+        predefinedSans.forEach(predefined => {
+          const sanGroup = this.createSanGroup(); // Votre méthode existante
+          
+          const initialValue = predefined.value === '{COMMON_NAME}'
+            ? this.requestDetailSectionForm.get('certificateName')?.value || ''
+            : predefined.value;
+          
+          sanGroup.patchValue({ type: predefined.type, value: initialValue });
+          sanGroup.disable(); // Grise le champ
+          this.sans.push(sanGroup);
+        });
+      });
+  }
+  
+  private listenForCommonNameChanges(): void {
+    const commonNameControl = this.requestDetailSectionForm.get('certificateName');
+    if (commonNameControl) {
+      commonNameControl.valueChanges
+        .pipe(takeUntil(this.onDestroy$))
+        .subscribe(cnValue => {
+          // On cherche s'il y a un SAN prédéfini et désactivé
+          const predefinedSanControl = this.sans.controls.find(control => control.disabled);
+          if (predefinedSanControl) {
+            predefinedSanControl.get('value')?.setValue(cnValue, { emitEvent: false });
+          }
+        });
+    }
+  }
+  
+  private clearSanRulesAndControls(): void {
+    this.sanRules = [];
+    this.sans.clear();
+    // On peut ajouter un champ SAN vide si c'est le comportement par défaut
+    // this.addSan(); 
+  }
+
+  // --- MÉTHODES PUBLIQUES POUR LE TEMPLATE HTML ---
+
+  // Votre méthode addSan() existe déjà et reste la même
+  // addSan(): void { this.sans.push(this.createSanGroup()); }
+
+  // Votre méthode removeSan(index: number) existe déjà et reste la même
+  // removeSan(index: number): void { this.sans.removeAt(index); }
+  
+  /**
+   * NOUVELLE MÉTHODE (ou MODIFIÉE) pour le template, pour activer/désactiver le bouton "Ajouter un SAN".
+   */
+  canAddSan(): boolean {
+    if (this.sanRules.length === 0) {
+      return false; // Pas de règles, pas d'ajout
+    }
+    const maxUserSans = this.sanRules.reduce((sum, rule) => sum + rule.max, 0);
+    const currentUserSans = this.sans.controls.filter(control => control.enabled).length;
+    
+    return currentUserSans < maxUserSans;
+  }
+}
+Étape 4 : Adapter le Template HTML (request-detail-section.component.html)
+Vous devrez faire de petites modifications dans votre template pour utiliser la nouvelle logique.
+Le bouton "Ajouter un SAN" :
+Liez sa propriété [disabled] à la nouvelle méthode canAddSan().
+code
+Html
+<button (click)="addSan()" [disabled]="!canAddSan()">Ajouter un SAN</button>
+Affichage des champs SANs :
+Votre *ngFor qui boucle sur sans.controls est déjà correct.
+À l'intérieur de la boucle, vous devrez peut-être ajuster la validation. Par exemple, si vous voulez afficher un message d'erreur "min/max", vous pouvez utiliser la variable sanRules.
+Le bouton "Supprimer" pour chaque SAN :
+Il est important de ne pas pouvoir supprimer un SAN prédéfini.
+Un SAN prédéfini est disabled. Vous pouvez utiliser cette propriété.
+code
+Html
+<!-- À l'intérieur du *ngFor="let sanGroup of sans.controls; let i = index" -->
+<button (click)="removeSan(i)" *ngIf="sanGroup.enabled">Supprimer</button>
+L'attribut *ngIf="sanGroup.enabled" n'affichera le bouton de suppression que pour les SANs que l'utilisateur a ajoutés lui-même.
+Ce résumé vous donne tous les éléments nécessaires pour intégrer la fonctionnalité dans votre code Angular existant de manière propre et robuste.
+Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
