@@ -2099,3 +2099,228 @@ Deuxième itération (IPADDRESS) : Elle affiche IPADDRESS: suivi du résultat de
 Et ainsi de suite...
 Interaction : Quand l'utilisateur ajoute ou supprime un SAN, le currentCount à l'intérieur de getSanCountMessage est recalculé automatiquement par Angular, et le message à l'écran se met à jour instantanément.
 Vous avez maintenant un retour visuel clair, dynamique et en temps réel pour l'utilisateur, qui lui indique exactement ce qu'il peut et doit faire.
+///////////////////////// resolution final du ticket 1434 //////////////////
+Fichier 1 : SanTypeRule.java (Nouvelle Entité)
+Rôle : Représente une règle de SAN dans la base de données.
+code
+Java
+package com.bnpparibas.certis.automationhub.model;
+import com.bnpparibas.certis.certificate.request.enums.SanType;
+import javax.persistence.*;
+import java.io.Serializable;
+
+@Entity
+@Table(name = "SAN_TYPE_RULE")
+public class SanTypeRule implements Serializable {
+    @Id
+    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "seq_san_type_rule_id_gen")
+    @SequenceGenerator(name = "seq_san_type_rule_id_gen", sequenceName = "SEQ_SAN_TYPE_RULE_ID", allocationSize = 1)
+    private Long id;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "PROFILE_ID", nullable = false)
+    private AutomationHubProfile automationHubProfile;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "SAN_TYPE", nullable = false)
+    private SanType type;
+
+    @Column(name = "MIN_VALUE", nullable = false)
+    private Integer minValue;
+
+    @Column(name = "MAX_VALUE", nullable = false)
+    private Integer maxValue;
+
+    // Getters et Setters...
+}
+Fichier 2 : SanTypeRuleRepository.java (Nouveau Repository)
+Rôle : Interface pour manipuler l'entité SanTypeRule.
+code
+Java
+package com.bnpparibas.certis.automationhub.dao;
+import com.bnpparibas.certis.automationhub.model.AutomationHubProfile;
+import com.bnpparibas.certis.automationhub.model.SanTypeRule;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+import java.util.List;
+
+@Repository
+public interface SanTypeRuleRepository extends JpaRepository<SanTypeRule, Long> {
+    void deleteByAutomationHubProfile(AutomationHubProfile profile);
+    List<SanTypeRule> findByAutomationHubProfile(AutomationHubProfile profile);
+}
+Fichier 3 : AutomationHubClient.java (Nouvelle Classe)
+Rôle : Centralise les appels à l'API externe d'Horizon.
+code
+Java
+package com.bnpparibas.certis.automationhub.client;
+// ... imports ...
+@Component
+public class AutomationHubClient {
+    private static final Logger LOGGER = LoggerFactory.getLogger(AutomationHubClient.class);
+    private final RestTemplate restTemplate;
+    @Value("${external.api.url.profiles}")
+    private String horizonApiBaseUrl;
+    
+    public AutomationHubClient(@Qualifier("automationHubRestTemplate") RestTemplate restTemplate) {
+        this.restTemplate = restTemplate;
+    }
+
+    public ExternalProfileDto fetchProfileDetailsFromHorizon(String profileName) {
+        String apiUrl = horizonApiBaseUrl + "/" + profileName;
+        LOGGER.info("Appel de l'API Horizon pour le profil '{}'...", profileName);
+        try {
+            return restTemplate.getForObject(apiUrl, ExternalProfileDto.class);
+        } catch (HttpClientErrorException.NotFound e) {
+            LOGGER.warn("Profil '{}' non trouvé sur Horizon (404).", profileName);
+            return null;
+        }
+    }
+}
+Fichier 4 : AutomationHubProfileServiceImpl.java (Modifié)
+Rôle : Orchestre la synchronisation et expose les règles au controller.
+code
+Java
+@Service
+public class AutomationHubProfileServiceImpl implements AutomationHubProfileService {
+    // ... (dépendances injectées : AutomationHubProfileDao, SanTypeRuleRepository, AutomationHubClient, etc.)
+
+    @Override
+    @Transactional
+    public void syncAllSanRulesFromHorizonApi() {
+        // ... (logique de boucle sur les profils de la BDD et appel à processSingleProfile)
+    }
+
+    private void processSingleProfile(AutomationHubProfile internalProfile) {
+        // ... (logique de récupération depuis le client, nettoyage, et sauvegarde des règles via sanTypeRuleRepository.saveAll)
+    }
+
+    @Override
+    public ProfileRulesResponseDto getSanRulesByCertificateType(Long typeId, Long subTypeId) {
+        // ... (logique pour trouver le profil et retourner les règles ajustées pour le front-end)
+    }
+    
+    @Override
+    public AutomationHubProfile findProfileEntityByTypeAndSubType(Long typeId, Long subTypeId) throws FailedToRetrieveProfileException {
+        // ... (logique pour "traduire" un type de certificat en profil technique)
+    }
+    
+    private SanRuleResponseDto convertToSanRuleDto(SanTypeRule entity) {
+        // ... (logique de conversion Entité -> DTO)
+    }
+}
+Fichier 5 : SanServiceImpl.java (Modifié)
+Rôle : Valide les demandes de certificat en utilisant les règles synchronisées.
+code
+Java
+@Service
+public class SanServiceImpl implements SanService {
+    // ... (dépendances injectées : AutomationHubProfileService, SanTypeRuleRepository, FileManageService, CsrDecoder)
+
+    @Override
+    public void validateSansPerRequest(RequestDto requestDto) throws CertisRequestException {
+        // Supprimer l'ancien code et appeler la nouvelle méthode
+        this.verifySansLimitsDynamically(requestDto);
+    }
+
+    private void verifySansLimitsDynamically(RequestDto requestDto) throws CertisRequestException {
+        // ... (logique complète de fusion des SANs, traduction du profil, et validation des règles min/max)
+    }
+}
+Fichier 6 : RequestController.java (Modifié)
+Rôle : Expose le nouvel endpoint pour le front-end.
+code
+Java
+@RestController
+@RequestMapping("/request")
+public class RequestController {
+    // ... (dépendances injectées, dont AutomationHubProfileService)
+
+    // --- NOUVEL ENDPOINT ---
+    @GetMapping("/certificatetypes/{typeId}/san-rules")
+    public ResponseEntity<ProfileRulesResponseDto> getSanRulesForCertificateType(
+            @PathVariable Long typeId,
+            @RequestParam(required = false) Long subTypeId) {
+        ProfileRulesResponseDto response = automationHubProfileService.getSanRulesByCertificateType(typeId, subTypeId);
+        return ResponseEntity.ok(response);
+    }
+}
+Partie 2 : Le Front-end (Angular)
+Objectif : Appeler la nouvelle API pour afficher dynamiquement les contraintes de SANs et guider l'utilisateur.
+Fichier 7 : san-rules.model.ts (Nouveau)
+Rôle : Définit les types de données pour la communication avec le backend.
+code
+TypeScript
+export type SanType = 'CN' | 'DNSNAME' | 'IPADDRESS' | 'RFC822NAME' | 'URI' | ...;
+
+export interface SanRuleResponseDto { type: SanType; min: number; max: number; }
+export interface PredefinedSanDto { type: SanType; value: string; editable: boolean; }
+export interface ProfileRulesResponseDto { rules: SanRuleResponseDto[]; predefinedSans: PredefinedSanDto[]; }
+Fichier 8 : request.service.ts (Modifié)
+Rôle : Ajoute la méthode pour appeler le nouvel endpoint.
+code
+TypeScript
+@Injectable({ providedIn: 'root' })
+export class RequestService {
+    // ... (dépendances et méthodes existantes)
+
+    // --- NOUVELLE MÉTHODE ---
+    getSanRulesForCertificateType(typeId: number, subTypeId?: number): Observable<ProfileRulesResponseDto> {
+        const url = `/api/v1/request/certificatetypes/${typeId}/san-rules`; // Adaptez l'URL
+        const params = subTypeId ? { subTypeId: subTypeId.toString() } : {};
+        return this.apiService.get<ProfileRulesResponseDto>(url, params);
+    }
+}
+Fichier 9 : request-detail-section.component.ts (Modifié)
+Rôle : Le composant qui contient toute la logique d'affichage et d'interaction.
+code
+TypeScript
+@Component({ /* ... */ })
+export class RequestDetailSectionComponent implements OnInit, OnDestroy {
+  
+  // --- NOUVELLES PROPRIÉTÉS ---
+  private onDestroy$ = new Subject<void>();
+  public sanRules: SanRuleResponseDto[] = [];
+  
+  // --- ngOnInit MODIFIÉ ---
+  ngOnInit(): void {
+    // ...
+    this.listenForCertificateTypeChanges();
+    this.listenForCommonNameChanges();
+  }
+
+  // --- NOUVELLES MÉTHODES ---
+  private listenForCertificateTypeChanges(): void { /* ... */ }
+  private fetchAndApplySanRules(typeId: number, subTypeId?: number): void { /* ... */ }
+  private listenForCommonNameChanges(): void { /* ... */ }
+  private clearSanRulesAndControls(): void { /* ... */ }
+
+  // --- MÉTHODES PUBLIQUES POUR LE TEMPLATE ---
+  public getSanCountMessage(sanType: SanType): string { /* ... */ }
+  public canAddSan(): boolean { /* ... */ }
+}
+Fichier 10 : request-detail-section.component.html (Modifié)
+Rôle : Affiche les messages de contraintes et contrôle les boutons.
+code
+Html
+<!-- Section des SANs -->
+<div formArrayName="sans">
+    
+    <!-- Affiche la légende des règles -->
+    <div class="san-rules-summary" *ngIf="sanRules.length > 0">
+        <h4>Contraintes des SANs :</h4>
+        <ul>
+            <li *ngFor="let rule of sanRules">
+                <strong>{{ rule.type }}:</strong> {{ getSanCountMessage(rule.type) }}
+            </li>
+        </ul>
+    </div>
+
+    <!-- Affiche les champs de saisie (votre boucle existante) -->
+    <div *ngFor="let sanGroup of sans.controls; let i = index" [formGroupName]="i">
+        <!-- Les champs prédéfinis seront ici et désactivés -->
+    </div>
+
+    <!-- Contrôle le bouton "Ajouter" -->
+    <button (click)="addSan()" [disabled]="!canAddSan()">Ajouter un SAN</button>
+</div>
