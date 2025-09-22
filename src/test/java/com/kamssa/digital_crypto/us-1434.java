@@ -1987,3 +1987,115 @@ On utilise Global.WS_SAN_RULES_BY_CERT_TYPE comme modèle d'URL.
 On utilise la méthode standard de JavaScript replace(':typeId', typeId.toString()) pour insérer la valeur dynamique au bon endroit.
 C'est tout ! Votre code est maintenant parfaitement intégré à vos conventions de projet. La prochaine étape reste la modification du composant RequestDetailSectionComponent pour appeler cette nouvelle méthode de service.
 Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
+////////////////////////
+////////////////////////////// message pour indiquer le nombre de san //////////////////////////////////////////
+Étape 1 : Le Code TypeScript (la méthode qui prépare le message)
+Nous avons déjà écrit cette méthode. Elle est générique et fonctionnera pour tous les types de SANs. Elle est la clé de tout l'affichage.
+Fichier : request-detail-section.component.ts
+code
+TypeScript
+// Assurez-vous que cette méthode est bien présente dans votre composant
+
+  /**
+   * Construit un message d'information sur l'état des SANs pour un type donné.
+   * Cette méthode sera appelée depuis le template HTML.
+   * @param sanType Le type de SAN pour lequel on veut le message (ex: 'DNSNAME', 'IPADDRESS').
+   * @returns Une chaîne de caractères à afficher à l'utilisateur.
+   */
+  public getSanCountMessage(sanType: SanType): string {
+    // 1. On trouve la règle correspondante dans les données reçues de l'API.
+    const rule = this.sanRules.find(r => r.type === sanType);
+
+    // S'il n'y a pas de règle, on n'affiche rien.
+    if (!rule) {
+      return '';
+    }
+
+    // 2. On compte combien de SANs de ce type l'utilisateur a déjà ajoutés.
+    // On ne compte que les champs modifiables (ceux qui ne sont pas prédéfinis).
+    const currentCount = this.sans.controls
+      .filter(control => control.enabled && control.get('type')?.value === sanType)
+      .length;
+
+    const min = rule.min;
+    const max = rule.max;
+
+    // 3. On construit le message en fonction des valeurs de min et max.
+    if (min > 0) { // Si au moins un est requis
+      if (min === max) {
+        return `${currentCount} / ${max} requis`; // Ex: "0 / 1 requis"
+      }
+      return `${currentCount} / ${max} saisis (minimum ${min})`; // Ex: "1 / 5 saisis (minimum 2)"
+    } else if (max > 0) { // Si c'est purement optionnel
+      return `Optionnel (${currentCount} / ${max} saisis)`; // Ex: "Optionnel (2 / 10 saisis)"
+    } else { // min === 0 && max === 0
+      return 'Non autorisé pour ce profil';
+    }
+  }
+Étape 2 : Le Code HTML (l'affichage du message)
+Maintenant, nous allons utiliser cette méthode dans le template pour afficher une "légende" dynamique des contraintes.
+L'endroit idéal est juste avant la liste des champs de saisie des SANs.
+Fichier : request-detail-section.component.html
+code
+Html
+<!-- ... (début de votre formulaire) ... -->
+
+<!-- Section des SANs (Subject Alternative Names) -->
+<div formArrayName="sans">
+    
+    <!-- ========================================================== -->
+    <!-- === NOUVELLE SECTION : AFFICHAGE DES RÈGLES DYNAMIQUES === -->
+    <!-- ========================================================== -->
+    
+    <!-- On n'affiche cette section que si des règles ont été chargées depuis l'API -->
+    <div class="san-rules-summary" *ngIf="sanRules.length > 0">
+        
+        <p class="summary-title">Contraintes pour les SANs :</p>
+        
+        <ul class="summary-list">
+            <!-- 
+              On boucle sur la variable 'sanRules' du composant.
+              Pour chaque règle (chaque type de SAN autorisé), on crée une ligne.
+            -->
+            <li *ngFor="let rule of sanRules">
+                
+                <!-- On affiche le nom du type de SAN (ex: DNSNAME) -->
+                <span class="san-type-label">{{ rule.type }}:</span>
+                
+                <!-- On appelle notre méthode pour obtenir le message dynamique -->
+                <span class="san-count-message">{{ getSanCountMessage(rule.type) }}</span>
+
+            </li>
+        </ul>
+    </div>
+    
+    <!-- ========================================================== -->
+    <!-- === FIN DE LA NOUVELLE SECTION                         === -->
+    <!-- ========================================================== -->
+
+    <!-- Votre boucle existante pour afficher les champs de saisie des SANs -->
+    <div *ngFor="let sanGroup of sans.controls; let i = index" [formGroupName]="i">
+        <!-- 
+            Ici se trouvent vos champs <select> pour le type et <input> pour la valeur.
+            Les champs prédéfinis seront déjà dans la liste et grisés (car `sanGroup.disabled` est true).
+        -->
+    </div>
+
+    <!-- Votre bouton "Ajouter", maintenant contrôlé par la logique dynamique -->
+    <button (click)="addSan()" [disabled]="!canAddSan()">
+        Ajouter un SAN
+    </button>
+</div>
+
+<!-- ... (fin de votre formulaire) ... -->
+Explication du Résultat
+Au chargement : L'utilisateur choisit un "Type de Certificat".
+Appel API : La méthode fetchAndApplySanRules est appelée en arrière-plan. Elle récupère les règles et peuple la variable this.sanRules du composant.
+Rendu HTML :
+Le *ngIf="sanRules.length > 0" devient true. La section de résumé s'affiche.
+La boucle *ngFor="let rule of sanRules" s'exécute. Si l'API a retourné des règles pour DNSNAME, IPADDRESS et URI, la boucle va tourner 3 fois.
+Première itération (DNSNAME) : Elle affiche DNSNAME: suivi du résultat de getSanCountMessage('DNSNAME').
+Deuxième itération (IPADDRESS) : Elle affiche IPADDRESS: suivi du résultat de getSanCountMessage('IPADDRESS').
+Et ainsi de suite...
+Interaction : Quand l'utilisateur ajoute ou supprime un SAN, le currentCount à l'intérieur de getSanCountMessage est recalculé automatiquement par Angular, et le message à l'écran se met à jour instantanément.
+Vous avez maintenant un retour visuel clair, dynamique et en temps réel pour l'utilisateur, qui lui indique exactement ce qu'il peut et doit faire.
