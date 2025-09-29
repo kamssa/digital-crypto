@@ -162,3 +162,78 @@ public class SanServiceImpl implements SanService {
         sanDao.deleteById(sanId);
     }
 }
+Plan d'action pour SanServiceImpl.java
+Nous allons nous concentrer sur la modification de la création des objets San.
+Le problème : L'ancien code crée des objets San et ne définit que leur url.
+La solution : Partout où un new San() est créé, nous devons maintenant définir les trois champs : url, value, et type.
+La méthode la plus impactée est evaluateSanSAN. Regardons-la de plus près.
+Code actuel (autour de la ligne 277 dans ton screenshot) :
+code
+Java
+if (!objSAN.stream().anyMatch(x -> x.getUrl().equalsIgnoreCase(urlDomainWWW))) {
+    San sanDomainWWW = new San();
+    sanDomainWWW.setUrl(urlDomainWWW); // <-- Problème ici
+    objSAN.add(sanDomainWWW);
+}
+Ce code va échouer lors du sanDao.save() car les nouveaux champs obligatoires (value et type) ne sont pas renseignés.
+Étape 1 : Modification de evaluateSanSAN
+Nous devons mettre à jour cette logique pour créer des objets San valides.
+Voici la version corrigée de la méthode. J'ai ajouté les champs manquants. Pour le type, comme ce sont des noms de domaine, on va utiliser SanTypeEnum.DNSNAME.
+code
+Java
+private RequestDto evaluateSanSAN(RequestDto requestDto) {
+
+    List<San> objSAN = requestDto.getCertificate().getSans();
+    if (objSAN == null) { // Bonne pratique : éviter les NullPointerException
+        objSAN = new ArrayList<>();
+    }
+
+    String cn = requestDto.getCertificate().getCommonName();
+    String domainWWW = "";
+    if (cn.startsWith("www.")) {
+        domainWWW = cn.replaceFirst("www.", "");
+    } else {
+        domainWWW = "www." + cn;
+    }
+
+    final String urlDomain = domainWWW; // Variable finale pour utilisation dans le lambda
+    
+    // Vérifier si le SAN sans "www" existe déjà
+    if (objSAN.stream().noneMatch(x -> x.getUrl().equalsIgnoreCase(cn))) {
+        San sanWithoutWWW = new San();
+        sanWithoutWWW.setUrl(cn);
+        sanWithoutWWW.setValue(cn); // NOUVEAU
+        sanWithoutWWW.setType(SanTypeEnum.DNSNAME); // NOUVEAU
+        objSAN.add(sanWithoutWWW);
+    }
+    
+    // Vérifier si le SAN avec "www" existe déjà
+    if (objSAN.stream().noneMatch(x -> x.getUrl().equalsIgnoreCase(urlDomain))) {
+        San sanWithWWW = new San();
+        sanWithWWW.setUrl(urlDomain);
+        sanWithWWW.setValue(urlDomain); // NOUVEAU
+        sanWithWWW.setType(SanTypeEnum.DNSNAME); // NOUVEAU
+        objSAN.add(sanWithWWW);
+    }
+
+    requestDto.getCertificate().setSans(objSAN);
+
+    return requestDto;
+}
+Note : j'ai légèrement refactorisé la logique pour la rendre plus claire en séparant la vérification du domaine avec et sans "www". Le résultat fonctionnel est le même que ton code original mais en plus lisible et correct.
+Action : Remplace l'intégralité de ta méthode evaluateSanSAN par ce nouveau bloc de code.
+Étape 2 : Vérification du reste du fichier
+J'ai examiné les autres méthodes. La plupart des méthodes de validation (comme validateSansOnRefweb, checkSanUrLOnRefweb) manipulent des listes de chaînes de caractères (List<String>) obtenues via .map(San::getUrl).
+code
+Java
+List<String> urls = requestDto.getCertificate().getSans()
+    .stream()
+    .map(san -> san.getUrl()) // ou .map(San::getUrl)
+    .collect(Collectors.toList());
+Ceci est correct et n'a pas besoin de changer ! Puisque la règle est que url et value ont la même valeur, continuer à valider sur getUrl() est parfaitement valide. Cela évite de devoir modifier des dizaines de lignes de code.
+Résumé des actions à faire :
+Vérifie que ton entité San.java est à jour (avec les champs value, type, url).
+Vérifie que ton SanDto.java est prêt (avec id, type, sanValue).
+Remplace la méthode evaluateSanSAN dans SanServiceImpl.java par le code que je t'ai fourni ci-dessus.
+Assure-toi que la migration de la base de données a été exécutée.
+Après ces changements, le cœur de la logique métier sera corrigé. Il est possible qu'il y ait d'autres endroits où des new San() sont créés. Si tu rencontres des erreurs au démarrage ou à l'exécution, cherche simplement les autres new San() et ajoute les lignes .setValue(...) et .setType(...) comme nous l'avons fait ici. Mais d'après ton code, evaluateSanSAN semble être le principal endroit.
