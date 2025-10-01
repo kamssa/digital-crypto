@@ -237,3 +237,160 @@ Vérifie que ton SanDto.java est prêt (avec id, type, sanValue).
 Remplace la méthode evaluateSanSAN dans SanServiceImpl.java par le code que je t'ai fourni ci-dessus.
 Assure-toi que la migration de la base de données a été exécutée.
 Après ces changements, le cœur de la logique métier sera corrigé. Il est possible qu'il y ait d'autres endroits où des new San() sont créés. Si tu rencontres des erreurs au démarrage ou à l'exécution, cherche simplement les autres new San() et ajoute les lignes .setValue(...) et .setType(...) comme nous l'avons fait ici. Mais d'après ton code, evaluateSanSAN semble être le principal endroit.
+////////////////////// 1282 ////////////////////
+package com.bnpparibas.certis.automationhub.builder;
+
+import com.bnpparibas.certis.automationhub.dto.AutomationHubRequestDto; // Assurez-vous d'avoir cet import
+import java.util.HashMap;
+import java.util.Map;
+
+public class EnrollPayloadBuilderFactory {
+
+    // EXPLICATION 1 : LE "TRADUCTEUR" (MAP)
+    // Nous créons une Map statique qui associe chaque ID 'long' à son équivalent 'String'.
+    // Elle est 'final' car elle ne changera jamais après son initialisation.
+    // Elle est 'private static' car elle n'est utile qu'à l'intérieur de cette classe.
+    private static final Map<Long, String> TYPE_MAP = new HashMap<>();
+
+    // Ce bloc 'static' est exécuté une seule fois, au chargement de la classe.
+    // Il remplit notre map de traduction.
+    // NOTE : VOUS DEVEZ METTRE VOS VRAIES VALEURS 'long' ICI !
+    static {
+        TYPE_MAP.put(1L, "SSL_EXTERNAL");
+        TYPE_MAP.put(2L, "SSL");
+        TYPE_MAP.put(3L, "SSL_SERVER");
+        TYPE_MAP.put(4L, "NAC");
+        TYPE_MAP.put(5L, "MULTI_OU");
+        TYPE_MAP.put(6L, "ENCIPHER");
+        TYPE_MAP.put(7L, "USER_AUTH");
+        TYPE_MAP.put(8L, "USER");
+        TYPE_MAP.put(9L, "USER_ENCRYPT_BIOMETRY");
+        TYPE_MAP.put(10L, "USER_ENCRYPT_YUBIKEY");
+        // Ajoutez ici d'autres correspondances si nécessaire.
+    }
+
+    // EXPLICATION 2 : LA MÉTHODE MODIFIÉE
+    // La signature est bien changée pour ne plus prendre que le DTO.
+    // Elle est maintenant totalement indépendante du 'ProfileDto'.
+    public static EnrollPayloadBuilder createPayloadBuilder(AutomationHubRequestDto automationHubRequestDto) {
+        
+        // On récupère le type 'long' de la requête.
+        long requestTypeLong = automationHubRequestDto.getType();
+
+        // EXPLICATION 3 : LA TRADUCTION
+        // On utilise notre map pour trouver la chaîne de caractères correspondante.
+        // `getOrDefault` est une méthode sûre : si le 'long' n'est pas trouvé dans la map,
+        // elle retournera une valeur par défaut ("DEFAULT") au lieu de 'null',
+        // ce qui évite les erreurs et gère le cas 'default' du switch.
+        String typeAsString = TYPE_MAP.getOrDefault(requestTypeLong, "DEFAULT");
+
+        // EXPLICATION 4 : LE SWITCH EST CONSERVÉ MAIS ADAPTÉ
+        // La structure du switch est quasiment inchangée, ce qui était votre souhait !
+        // La seule modification est à l'intérieur des 'case' : on appelle les
+        // nouveaux constructeurs des Builders qui ne prennent plus le 'profileName'.
+        switch (typeAsString) {
+            case "SSL_EXTERNAL":
+                return new EnrollExternalSslPayloadBuilder(automationHubRequestDto);
+            case "SSL":
+                return new EnrollSslPayloadBuilder(automationHubRequestDto);
+            case "SSL_SERVER":
+                return new EnrollSslServerPayloadBuilder(automationHubRequestDto);
+            case "NAC":
+                return new EnrollNacPayloadBuilder(automationHubRequestDto);
+            case "MULTI_OU":
+                return new EnrollSslMultiOuPayloadBuilder(automationHubRequestDto);
+            case "ENCIPHER":
+                return new EnrollSslEncipherAndSignPayloadBuilder(automationHubRequestDto);
+            case "USER_AUTH":
+                return new EnrollUserAuthPayloadBuilder(automationHubRequestDto);
+            case "USER":
+                return new EnrollUserPayloadBuilder(automationHubRequestDto);
+            case "USER_ENCRYPT_BIOMETRY":
+                return new EnrollUserEncryptionBiometryPayloadBuilder(automationHubRequestDto);
+            case "USER_ENCRYPT_YUBIKEY":
+                return new EnrollUserEncryptionYubikeyPayloadBuilder(automationHubRequestDto);
+            default: // Ce cas est atteint si 'typeAsString' est "DEFAULT"
+                return new EnrollDefaultPayloadBuilder(automationHubRequestDto);
+        }
+    }
+}
+/////////////////////////////////
+package com.bnpparibas.certis.automationhub.builder;
+
+import com.bnpparibas.certis.automationhub.dto.AutomationHubRequestDto;
+import java.util.HashMap;
+import java.util.Map;
+
+public class EnrollPayloadBuilderFactory {
+
+    // EXPLICATION : Voici le "traducteur" final, rempli avec les données exactes
+    // de votre table AUTOMATIONHUB_PROFILE.
+    private static final Map<Long, String> TYPE_MAP = new HashMap<>();
+
+    static {
+        // Mapping basé sur votre capture d'écran (colonne ID -> colonne PROFILE_CERTIS_CODE)
+        TYPE_MAP.put(1L, "SSL");
+        TYPE_MAP.put(2L, "SSL_SERVER");
+        TYPE_MAP.put(3L, "SSL");
+        TYPE_MAP.put(4L, "MULTI_OU");
+        TYPE_MAP.put(5L, "DEFAULT"); // Cas spécial, géré par notre logique
+        TYPE_MAP.put(6L, "NAC");
+        TYPE_MAP.put(7L, "NAC");
+        TYPE_MAP.put(8L, "ENCIPHER");
+        TYPE_MAP.put(9L, "ENCIPHER");
+        TYPE_MAP.put(10L, "USER_AUTH");
+        TYPE_MAP.put(11L, "USER");
+        TYPE_MAP.put(12L, "USER_ENCRYPT_BIOMETRY");
+        TYPE_MAP.put(13L, "USER_AUTH");
+        TYPE_MAP.put(14L, "USER");
+        TYPE_MAP.put(15L, "USER_ENCRYPT_YUBIKEY");
+        // Note : L'ID 16 n'est pas dans votre table, on passe directement au 21
+        TYPE_MAP.put(21L, "SSL_EXTERNAL");
+    }
+
+    public static EnrollPayloadBuilder createPayloadBuilder(AutomationHubRequestDto automationHubRequestDto) {
+        
+        long requestTypeLong = automationHubRequestDto.getType();
+
+        // On utilise la map pour trouver la chaîne de caractères correspondante.
+        // Si le 'long' n'est pas dans la map, on retourne "UNKNOWN" pour aller dans le cas 'default'.
+        String typeAsString = TYPE_MAP.getOrDefault(requestTypeLong, "UNKNOWN");
+
+        // Le switch est maintenant parfaitement aligné avec les données de la base.
+        switch (typeAsString) {
+            case "SSL_EXTERNAL":
+                return new EnrollExternalSslPayloadBuilder(automationHubRequestDto);
+            
+            case "SSL":
+                return new EnrollSslPayloadBuilder(automationHubRequestDto);
+            
+            case "SSL_SERVER":
+                return new EnrollSslServerPayloadBuilder(automationHubRequestDto);
+            
+            case "NAC":
+                return new EnrollNacPayloadBuilder(automationHubRequestDto);
+            
+            case "MULTI_OU":
+                return new EnrollSslMultiOuPayloadBuilder(automationHubRequestDto);
+            
+            case "ENCIPHER":
+                return new EnrollSslEncipherAndSignPayloadBuilder(automationHubRequestDto);
+            
+            case "USER_AUTH":
+                return new EnrollUserAuthPayloadBuilder(automationHubRequestDto);
+            
+            case "USER":
+                return new EnrollUserPayloadBuilder(automationHubRequestDto);
+            
+            case "USER_ENCRYPT_BIOMETRY":
+                return new EnrollUserEncryptionBiometryPayloadBuilder(automationHubRequestDto);
+            
+            case "USER_ENCRYPT_YUBIKEY":
+                return new EnrollUserEncryptionYubikeyPayloadBuilder(automationHubRequestDto);
+            
+            case "DEFAULT": // Ce cas gère explicitement l'ID 5L
+            default: // Ce cas gère les ID inconnus (ex: 16L, 17L, etc.)
+                return new EnrollDefaultPayloadBuilder(automationHubRequestDto);
+        }
+    }
+}
