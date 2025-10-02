@@ -276,3 +276,118 @@ Html
     {{ 'requestDetailsSection.errors.sanFormat.' + getSanTypeName(sanGroup.get('type').value) | translate }}
   </small>
 </small>
+/////////////////////////////////
+Étape 1 : Améliorer CertificateCsrDecoder.getSansList
+C'est la seule modification majeure. Nous allons la transformer pour qu'elle retourne une List<San> complète au lieu d'une List<String>.
+Fichier à modifier : CertificateCsrDecoder.java
+Remplacez votre méthode getSansList actuelle par cette version "intelligente" :
+code
+Java
+// N'oubliez pas les imports en haut de votre fichier
+import com.bnpparibas.certis.certificate.request.model.San;
+import com.bnpparibas.certis.certificate.request.model.SanTypeEnum;
+import org.bouncycastle.asn1.pkcs.Attribute;
+// ... (tous les autres imports Bouncy Castle que nous avons vus)
+
+/**
+ * MÉTHODE AMÉLIORÉE : Extrait TOUS les types de SANs d'un CSR.
+ * Elle retourne maintenant une liste d'entités San complètes (valeur + type).
+ */
+public List<San> getSansList(String decodedCSR) throws IOException, FailedToParseCsrException {
+    if (decodedCSR == null || StringUtils.isEmpty(decodedCSR)) {
+        return Collections.emptyList();
+    }
+    PKCS10CertificationRequest csr = csrPemToPKCS10(decodedCSR);
+    assert csr != null;
+
+    try {
+        Attribute[] attrs = csr.getAttributes(PKCSObjectIdentifiers.pkcs_9_at_extensionRequest);
+        if (attrs.length == 0) {
+            return Collections.emptyList();
+        }
+
+        Extension extn = Extensions.getInstance(attrs[0].getAttributeValues().getObjectAt(0)).getExtension(Extension.subjectAlternativeName);
+        if (extn == null) {
+            return Collections.emptyList();
+        }
+        
+        List<San> sanList = new ArrayList<>();
+        GeneralNames generalNames = GeneralNames.getInstance(extn.getParsedValue());
+
+        for (GeneralName name : generalNames.getNames()) {
+            San sanEntity = new San();
+            // Le switch complet pour gérer tous les types
+            switch (name.getTagNo()) {
+                case GeneralName.dNSName:
+                    sanEntity.setType(SanTypeEnum.DNSNAME);
+                    sanEntity.setSanValue(name.getName().toString());
+                    sanList.add(sanEntity);
+                    break;
+                case GeneralName.iPAddress:
+                    sanEntity.setType(SanTypeEnum.IPADDRESS);
+                    sanEntity.setSanValue(name.getName().toString());
+                    sanList.add(sanEntity);
+                    break;
+                // ... AJOUTEZ TOUS LES AUTRES CAS ICI (RFC822NAME, URI, otherName...)
+            }
+        }
+        return sanList;
+    } catch (Exception e) {
+        throw new FailedToParseCsrException(e.getMessage(), e.getCause());
+    }
+}
+Étape 2 : Adapter UtilityService.integrateCsrSans (Modification Mineure)
+Maintenant que csrDecoder.getSansList() retourne une List<San>, nous devons juste adapter le type de la variable et supprimer la boucle de conversion qui est devenue inutile.
+Fichier à modifier : UtilityService.java
+Voici la version finale et simplifiée de votre méthode integrateCsrSans :
+code
+Java
+// Imports nécessaires
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
+
+public void integrateCsrSans(RequestDto requestDto) {
+    String decodedCsr = new String(Base64.getDecoder().decode(requestDto.getCsr()), StandardCharsets.UTF_8);
+
+    try {
+        if (requestDto.getCertificate() == null) {
+            requestDto.setCertificate(new Certificate());
+        }
+
+        CertificateCsrDecoder csrDecoder = new CertificateCsrDecoder();
+
+        // ===================================================================
+        // ===                    DÉBUT DE LA MODIFICATION                 ===
+        // ===================================================================
+        
+        // 1. On appelle notre méthode améliorée. Elle retourne maintenant directement List<San>.
+        List<San> sansFromCsr = csrDecoder.getSansList(decodedCsr);
+
+        // 2. LA BOUCLE .map(...) A DISPARU ! Le code est beaucoup plus simple.
+        //    La logique de "deduceSanTypeFromString" n'est plus nécessaire.
+
+        // 3. On récupère les SANs déjà présents (saisie manuelle).
+        List<San> sansFromDto = requestDto.getCertificate().getSans();
+        if (sansFromDto == null) {
+            sansFromDto = new ArrayList<>();
+        }
+
+        // 4. On fusionne les deux listes d'entités et on déduplique.
+        Set<San> allUniqueSans = new LinkedHashSet<>(sansFromDto);
+        allUniqueSans.addAll(sansFromCsr);
+
+        // 5. On met à jour le DTO avec le résultat final.
+        requestDto.getCertificate().setSans(new ArrayList<>(allUniqueSans));
+        
+        // ===================================================================
+        // ===                     FIN DE LA MODIFICATION                  ===
+        // ===================================================================
+        
+        LOGGER.info("Intégration des SANs du CSR terminée. Nombre total de SANs : {}", allUniqueSans.size());
+
+    } catch (Exception e) {
+        LOGGER.error("Erreur critique lors de l'intégration des SANs à partir du CSR : ", e);
+    }
+}
