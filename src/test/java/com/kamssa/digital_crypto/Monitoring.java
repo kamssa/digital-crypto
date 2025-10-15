@@ -738,3 +738,17 @@ RFC822NAME	Adresse e-mail standard	nom.prenom@example.com
 OTHERNAME_UPN	Identifiant de connexion Active Directory	utilisateur@domaine.interne.corp
 OTHERNAME_GUID	Identifiant unique universel (UUID)	xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 Vous pouvez utiliser ces chaînes de caractères directement comme valeurs dans vos DTOs, vos corps de requêtes JSON, ou vos tests pour simuler les différentes données que votre système pourrait recevoir.
+////////////////////////////
+email.1 = utilisateur.test@example.com
+
+# 2. OTHERNAME_UPN (User Principal Name)
+# Syntaxe: OID;TYPE:VALEUR
+# OID pour UPN : 1.3.6.1.4.1.311.20.2.3
+otherName.1 = 1.3.6.1.4.1.311.20.2.3;UTF8String:utilisateur@domaine.interne.corp
+
+# 3. OTHERNAME_GUID (Globally Unique Identifier, ici comme objectGUID)
+# Syntaxe: OID;FORMAT:HEX,VALUE:VALEUR_HEX_SANS_TIRETS
+# OID pour objectGUID: 1.3.6.1.4.1.311.25.1
+# La valeur est le GUID SANS LES TIRETS
+# Par exemple, pour le GUID "123e4567-e89b-12d3-a456-426614174000"
+otherName.2 = 1.3.6.1.4.1.311.25.1;FORMAT:HEX,VALUE:123e4567e89b12d3a456426614174000
