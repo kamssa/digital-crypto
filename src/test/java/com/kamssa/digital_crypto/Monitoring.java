@@ -569,3 +569,6 @@ COMMENT ON COLUMN HEALTH_CHECK_RESULTS.CHECKED_AT IS 'Date et heure exactes auxq
 -- La requête va filtrer et trier sur ces colonnes. L'index est donc crucial.
 CREATE INDEX IDX_HEALTH_CHECK_LATEST 
 ON HEALTH_CHECK_RESULTS (CHECK_NAME, HOSTNAME, CHECKED_AT DESC);
+////////////////////
+# Configuration de notre scheduler (optionnel, la valeur par défaut est 300000)
+monitoring.check.frequency-ms=300000
