@@ -761,3 +761,112 @@ URI.1 = http://bnpTiti.com/app
 email.1 = utilisateur.test@example.com
 otherName.1 = 1.3.6.1.4.1.311.20.2.3;UTF8String:utilisateur@domaine.interne.corp
 otherName.2 = 1.3.6.1.4.1.311.25.1;ASN1:OCTET_STRING:123e4567e89b12d3a456426614174000
+//////////////////// suite du ticket ////////////////////////
+Explication Détaillée
+import java.net.InetAddress; : C'est la classe principale du JDK Java pour tout ce qui concerne les adresses IP et les noms d'hôtes.
+InetAddress.getLocalHost() : C'est un appel statique qui demande à Java de trouver l'adresse de la machine locale (localhost). Java va essayer de déterminer cela en se basant sur la configuration réseau du système d'exploitation.
+.getHostName() : Une fois que Java a trouvé l'adresse de la machine locale, cette méthode demande son nom. Par exemple, si votre serveur s'appelle SRV-APP-PROD-01, c'est cette chaîne de caractères qui sera retournée.
+try { ... } catch (UnknownHostException e) { ... } : C'est la partie la plus importante pour la robustesse. L'appel à InetAddress.getLocalHost() peut échouer. Par exemple, dans un conteneur Docker mal configuré ou sur une machine sans réseau correctement initialisé, Java pourrait ne pas être capable de trouver le nom d'hôte.
+Si cela arrive, une UnknownHostException est levée.
+Au lieu de laisser l'application planter, nous l'interceptons (catch).
+Dans le bloc catch, nous faisons deux choses :
+On écrit une erreur dans les logs (log.error(...)) pour que les administrateurs système soient au courant du problème de configuration.
+On retourne une valeur par défaut, "unknown-host", pour que le reste de l'application puisse continuer à fonctionner normalement.
+Contexte d'Utilisation dans HealthCheckRunner
+Cette méthode est appelée une seule fois, dans le constructeur de la classe HealthCheckRunner. On stocke le résultat dans une variable final pour ne pas avoir à refaire cet appel (qui peut être un peu coûteux) toutes les 5 minutes.
+Voici à quoi ressemble l'intégration finale :
+code
+Java
+@Service
+public class HealthCheckRunner {
+
+    private static final Logger log = LoggerFactory.getLogger(HealthCheckRunner.class);
+
+    private final List<HealthCheck> allChecks;
+    private final HealthCheckResultRepository resultRepository;
+    private final String hostname; // Le nom du serveur sera stocké ici
+
+    public HealthCheckRunner(List<HealthCheck> allChecks, HealthCheckResultRepository resultRepository) {
+        this.allChecks = allChecks;
+        this.resultRepository = resultRepository;
+        this.hostname = resolveHostname(); // Appel de la méthode au démarrage !
+        log.info("HealthCheckRunner initialisé sur le serveur : {}", this.hostname);
+    }
+    
+    // ... reste de la classe (performAllChecks, etc.)
+
+    private String resolveHostname() {
+        try {
+            return InetAddress.getLocalHost().getHostName();
+        } catch (UnknownHostException e) {
+            log.error("Impossible de déterminer le nom du serveur. Utilisation de 'unknown-host'.", e);
+            return "unknown-host";
+        }
+    }
+}
+///////////////////////////////////////////////////////////
+Excellente question, c'est le cœur du problème ! Pour "atteindre" un serveur distant, votre application se comporte exactement comme un navigateur web ou tout autre client réseau.
+Pour faire simple, imaginez que votre application Java veut poser une question à un service distant (par exemple, "Es-tu en bonne santé ?"). Pour cela, elle a besoin de 4 informations essentielles, tout comme pour envoyer une lettre par la poste :
+Le Protocole : Quelle "langue" ou quel "canal" utiliser ? (ex: HTTP, HTTPS, LDAP, JDBC pour les bases de données...).
+L'Adresse du Serveur (Hostname) : Où se trouve le bâtiment ? (ex: cmdb.mon-entreprise.com ou une adresse IP comme 10.20.30.40).
+Le Port : À quelle "porte" du bâtiment faut-il frapper ? Chaque service sur un serveur écoute sur une porte numérotée. (ex: 80 pour HTTP, 443 pour HTTPS, 389 pour LDAP).
+Le Chemin (Endpoint) : Une fois dans le bâtiment, à quel "bureau" s'adresser pour poser la question ? (ex: /api/health, /status).
+Ces informations sont généralement combinées pour former une URL (Uniform Resource Locator).
+Le Cas le plus Courant : L'Appel API REST avec RestTemplate
+Pour la majorité des services modernes (comme le CMDB, l'API Snow, etc.), la communication se fait via des API REST sur HTTPS. En Java, l'outil standard pour cela est RestTemplate.
+Voici comment le code CmdbHealthCheck "atteint" le serveur distant, étape par étape :
+code
+Java
+// Dans CmdbHealthCheck.java
+
+// ...
+
+public HealthStatus check() {
+    try {
+        // 1. L'ADRESSE COMPLÈTE
+        // L'URL combine le protocole (https://), l'hostname (cmdb.mon-entreprise.com)
+        // et le chemin (/api/health). Le port 443 est implicite pour HTTPS.
+        String cmdbHealthUrl = "https://cmdb.mon-entreprise.com/api/health";
+
+        // 2. L'OUTIL POUR ENVOYER LA REQUÊTE
+        // RestTemplate est notre "agent" qui va physiquement envoyer la requête sur le réseau.
+        // (Rappel : dans le code final, cet objet est injecté et configuré par Spring).
+        RestTemplate restTemplate = new RestTemplate();
+
+        // 3. L'ACTION : ENVOYER LA REQUÊTE ET ATTENDRE LA RÉPONSE
+        // C'est ici que la magie opère. La ligne suivante :
+        // - Ouvre une connexion réseau vers cmdb.mon-entreprise.com sur le port 443.
+        // - Envoie une requête HTTP GET pour le chemin /api/health.
+        // - Attend la réponse du serveur distant.
+        // - Si la réponse arrive, elle est stockée dans la variable 'response'.
+        ResponseEntity<String> response = restTemplate.getForEntity(cmdbHealthUrl, String.class);
+
+        // 4. ANALYSER LA RÉPONSE
+        // Si nous sommes arrivés ici, cela signifie que nous avons réussi à "atteindre" le serveur
+        // et qu'il nous a répondu.
+        if (response.getStatusCode().is2xxSuccessful()) {
+            return HealthStatus.ok("Connexion réussie.");
+        } else {
+            return HealthStatus.ko("Le serveur a répondu avec une erreur : " + response.getStatusCode());
+        }
+
+    } catch (Exception e) {
+        // 5. GÉRER L'ÉCHEC
+        // Si le serveur ne peut pas être atteint (il est éteint, problème de pare-feu, mauvais hostname...),
+        // RestTemplate lèvera une exception.
+        // C'est notre signal que le serveur est "injoignable".
+        return HealthStatus.ko("Impossible d'atteindre le serveur : " + e.getMessage());
+    }
+}
+Comment ça marche pour les autres services ?
+Le principe reste le même, mais l'outil et le protocole changent.
+Type de Service	Protocole	Exemple d'Adresse	Outil Java / Spring	Comment ça marche ?
+API REST (CMDB, Snow...)	HTTP/HTTPS	https://cmdb.service.com/api/status	RestTemplate	Envoie une requête HTTP et analyse la réponse HTTP.
+Annuaire LDAP (ldap_refsg)	LDAP/LDAPS	ldap://ldap.mon-entreprise.com:389	LdapTemplate (de Spring LDAP)	Ouvre une connexion TCP sur le port 389 et envoie des commandes LDAP (ex: une tentative de connexion ou "bind").
+Base de Données (Oracle, etc.)	JDBC (via SQL*Net)	jdbc:oracle:thin:@db.server.com:1521:SID	DataSource / JdbcTemplate	Utilise un driver JDBC pour établir une connexion à la base et exécuter une requête SQL très simple (ex: SELECT 1 FROM DUAL).
+Vault (hvault)	HTTP/HTTPS	https://vault.service.com:8200/v1/sys/health	RestTemplate	Comme une API REST, Vault expose des endpoints HTTP pour vérifier son état.
+En résumé, pour atteindre un serveur distant, vous devez :
+Connaître son adresse (protocole, hostname, port, chemin).
+Utiliser la bibliothèque Java appropriée (RestTemplate pour HTTP, JdbcTemplate pour les DB, etc.).
+Appeler une méthode de cette bibliothèque qui va se charger d'établir la connexion réseau et d'envoyer la requête.
+Interpréter la réponse ou gérer l'exception si la connexion échoue.
