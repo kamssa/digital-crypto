@@ -695,3 +695,46 @@ Standardisation : Que le check se fasse via REST, LDAP ou une connexion à une b
 Richesse de l'Information : Une simple String ("OK"/"KO") ou un boolean ne suffirait pas. HealthStatus nous permet de transporter à la fois un statut simple ET des détails utiles pour le débogage en cas de problème.
 Découplage : Le HealthCheckRunner n'a absolument aucune connaissance de RestTemplate ou de la logique interne de CmdbHealthCheck. Il ne connaît que l'interface HealthCheck et l'objet de retour HealthStatus. C'est ce qui rend le système si facile à étendre.
 En résumé, HealthStatus est le format de communication standardisé entre chaque "vérificateur" et le "chef d'orchestre".
+/////////////////////////////////////
+Bien sûr, voici des exemples concrets pour chaque type de Subject Alternative Name (SAN) que vous avez demandé. Ces exemples sont parfaits pour des tests unitaires, des tests d'intégration ou pour alimenter des formulaires dans votre application.
+1. RFC822NAME (Adresse E-mail)
+C'est le type de SAN standard pour représenter une adresse e-mail. Le format est simplement utilisateur@domaine.
+Exemples pour vos tests :
+Standard :
+utilisateur.test@example.com
+Avec un sous-domaine :
+support@it.entreprise.fr
+Avec un alias (le signe + est valide) :
+jean.dupont+projetA@gmail.com
+Simple, sans point dans le nom :
+admin@mondomaine.io
+2. OTHERNAME_UPN (User Principal Name)
+L'UPN (User Principal Name) est un nom d'utilisateur au format d'une adresse e-mail. Il est principalement utilisé dans les environnements Microsoft Active Directory pour l'authentification. Il ne correspond pas forcément à une boîte mail réelle.
+Techniquement, c'est un type otherName avec un identifiant d'objet (OID) spécifique : 1.3.6.1.4.1.311.20.2.3. La valeur est le nom UPN lui-même.
+Exemples pour vos tests :
+Classique d'entreprise (domaine interne) :
+jdoe@internal.mycompany.corp
+Avec un domaine Active Directory simple :
+asmith@AD.LOCAL
+Format plus complexe :
+prenom.nom@emea.corp.societe.com
+Utilisateur de service (service account) :
+srv_app_certis@ad.bnpparibas.net
+3. OTHERNAME_GUID (Globally Unique Identifier)
+Le GUID (Globally Unique Identifier), aussi connu sous le nom d'UUID (Universally Unique Identifier), est un identifiant unique de 128 bits. Dans le contexte de la certification, il est souvent utilisé pour lier un certificat à un objet spécifique dans un annuaire, comme l'attribut objectGUID d'un utilisateur ou d'un ordinateur dans Active Directory.
+Le format standard est une chaîne de 32 caractères hexadécimaux, généralement groupés au format 8-4-4-4-12.
+Exemples pour vos tests :
+Exemple 1 (standard, en minuscules) :
+123e4567-e89b-12d3-a456-426614174000
+Exemple 2 (généré aléatoirement) :
+f81d4fae-7dec-11d0-a765-00a0c91e6bf6
+Exemple 3 (avec des majuscules, ce qui est aussi valide) :
+A9B8C7D6-E5F4-A3B2-C1D0-E9F8A7B6C5D4
+Exemple 4 (sans les tirets, certains systèmes le fournissent ainsi) :
+a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4
+Tableau Récapitulatif
+Type de SAN	Description	Format d'Exemple
+RFC822NAME	Adresse e-mail standard	nom.prenom@example.com
+OTHERNAME_UPN	Identifiant de connexion Active Directory	utilisateur@domaine.interne.corp
+OTHERNAME_GUID	Identifiant unique universel (UUID)	xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+Vous pouvez utiliser ces chaînes de caractères directement comme valeurs dans vos DTOs, vos corps de requêtes JSON, ou vos tests pour simuler les différentes données que votre système pourrait recevoir.
