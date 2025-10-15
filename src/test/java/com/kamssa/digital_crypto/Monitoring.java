@@ -572,3 +572,70 @@ ON HEALTH_CHECK_RESULTS (CHECK_NAME, HOSTNAME, CHECKED_AT DESC);
 ////////////////////
 # Configuration de notre scheduler (optionnel, la valeur par défaut est 300000)
 monitoring.check.frequency-ms=300000
+//////////////////////////
+Étape 3 : Mettre à jour CmdbHealthCheck pour utiliser RestTemplate
+Maintenant, nous pouvons injecter notre RestTemplate configuré et l'URL dans notre classe de check.
+Voici le code complet et commenté :
+code
+Java
+// Emplacement : com/bnpparibas/certis/api/healthcheck/service/impl/CmdbHealthCheck.java
+package com.bnpparibas.certis.api.healthcheck.service.impl;
+
+import com.bnpparibas.certis.api.healthcheck.service.HealthCheck;
+import com.bnpparibas.certis.api.healthcheck.service.HealthStatus;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.ResponseEntity;
+import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestTemplate;
+
+@Component
+public class CmdbHealthCheck implements HealthCheck {
+
+    private final RestTemplate restTemplate;
+    private final String cmdbHealthUrl;
+
+    /**
+     * Le constructeur injecte les dépendances fournies par Spring :
+     * @param restTemplate Le bean RestTemplate que nous avons configuré à l'étape 1.
+     * @param cmdbHealthUrl L'URL que nous avons configurée à l'étape 2.
+     */
+    public CmdbHealthCheck(RestTemplate restTemplate, 
+                           @Value("${healthcheck.cmdb.url}") String cmdbHealthUrl) {
+        this.restTemplate = restTemplate;
+        this.cmdbHealthUrl = cmdbHealthUrl;
+    }
+
+    @Override
+    public String getName() {
+        return "cmdb";
+    }
+
+    @Override
+    public HealthStatus check() {
+        try {
+            // Utiliser getForEntity() est préférable à getForObject() pour un health check,
+            // car cela nous donne accès au code de statut HTTP de la réponse.
+            ResponseEntity<String> response = restTemplate.getForEntity(cmdbHealthUrl, String.class);
+
+            // On vérifie si le statut est un succès (2xx)
+            if (response.getStatusCode().is2xxSuccessful()) {
+                return HealthStatus.ok("Service CMDB accessible et répond avec le statut " + response.getStatusCode());
+            } else {
+                // Si le service répond avec un code d'erreur (4xx, 5xx)
+                return HealthStatus.ko("Service CMDB a répondu avec un statut d'erreur : " + response.getStatusCode());
+            }
+        } catch (Exception e) {
+            // Cette partie capture toutes les autres erreurs :
+            // - Problèmes réseau (ex: service injoignable, timeout)
+            // - Erreurs de DNS, de certificat SSL, etc.
+            // RestTemplate lève des exceptions de type RestClientException dans ces cas.
+            return HealthStatus.ko("Impossible de contacter le service CMDB. Erreur : " + e.getMessage());
+        }
+    }
+}
+Résumé des Bonnes Pratiques Appliquées
+Injection de Dépendances : On n'instancie pas RestTemplate nous-mêmes, on le laisse être géré par Spring.
+Configuration Centralisée : Les timeouts sont définis une seule fois dans la classe RestTemplateConfig. Si vous avez 10 checks qui utilisent RestTemplate, ils bénéficieront tous de cette configuration.
+Configuration Externalisée : L'URL est dans application.properties, ce qui vous permet d'avoir des URL différentes pour vos environnements de DEV, QUAL et PROD sans changer le code.
+Gestion Robuste des Erreurs : Le bloc try-catch gère à la fois les réponses HTTP non-2xx et les erreurs de communication pures (réseau, timeout, etc.), garantissant que votre worker ne plantera jamais à cause d'un service distant défaillant.
+Utilisation de getForEntity : Permet une vérification fine du code de statut HTTP, ce qui est plus précis pour un health check.
