@@ -639,3 +639,59 @@ Configuration Centralisée : Les timeouts sont définis une seule fois dans la c
 Configuration Externalisée : L'URL est dans application.properties, ce qui vous permet d'avoir des URL différentes pour vos environnements de DEV, QUAL et PROD sans changer le code.
 Gestion Robuste des Erreurs : Le bloc try-catch gère à la fois les réponses HTTP non-2xx et les erreurs de communication pures (réseau, timeout, etc.), garantissant que votre worker ne plantera jamais à cause d'un service distant défaillant.
 Utilisation de getForEntity : Permet une vérification fine du code de statut HTTP, ce qui est plus précis pour un health check.
+//////////////////////////
+Excellente question, c'est un point central de l'architecture !
+HealthStatus est une classe de transport de données (un DTO - Data Transfer Object).
+Son unique rôle est de transporter le résultat d'un seul check de manière structurée et standardisée. Il sert de "messager" entre la classe qui exécute la vérification (ex: CmdbHealthCheck) et la classe qui orchestre toutes les vérifications (le HealthCheckRunner).
+Visualisons son parcours, c'est le plus simple pour comprendre :
+Le Voyage d'un Objet HealthStatus
+Imaginez que le HealthCheckRunner demande à CmdbHealthCheck de faire son travail.
+Étape 1 : Création (dans le HealthCheck spécifique)
+La classe CmdbHealthCheck exécute sa logique (l'appel RestTemplate).
+Si l'appel réussit : La classe crée un objet HealthStatus qui représente le succès.
+code
+Java
+// Dans CmdbHealthCheck.java
+return HealthStatus.ok("Service CMDB accessible."); 
+// Crée un new HealthStatus("OK", "Service CMDB accessible.");
+Si l'appel échoue : La classe crée un objet HealthStatus qui représente l'échec, en y incluant la raison.
+code
+Java
+// Dans CmdbHealthCheck.java
+return HealthStatus.ko("Impossible de contacter le service. Erreur : " + e.getMessage());
+// Crée un new HealthStatus("KO", "Impossible de contacter le service...");
+À ce niveau, HealthStatus sert de bulletin de notes pour le check qui vient de s'exécuter.
+Étape 2 : Réception (par le HealthCheckRunner)
+Le HealthCheckRunner, qui a appelé la méthode check(), reçoit ce "bulletin de notes". Il ne sait pas comment le check a été fait, mais il reçoit un résultat standardisé.
+code
+Java
+// Dans HealthCheckRunner.java
+for (HealthCheck check : allChecks) {
+    // 1. Le Runner reçoit l'objet HealthStatus
+    HealthStatus status = check.check(); 
+
+    // ... la suite du code
+}
+Étape 3 : Utilisation (par le HealthCheckRunner pour préparer la sauvegarde)
+Le HealthCheckRunner "ouvre" l'objet HealthStatus pour en lire les informations. Il utilise ces informations pour remplir l'objet HealthCheckResult qui, lui, sera sauvegardé en base de données.
+code
+Java
+// Dans HealthCheckRunner.java (suite)
+
+// 2. Le Runner crée l'entité qui sera sauvegardée
+HealthCheckResult result = new HealthCheckResult();
+
+// 3. Il utilise les informations de HealthStatus pour remplir l'entité
+result.setCheckName(check.getName());
+result.setStatus(status.getStatus());     // <- Utilise le statut de HealthStatus
+result.setDetails(status.getDetails());   // <- Utilise les détails de HealthStatus
+result.setHostname(this.hostname);
+result.setCheckedAt(LocalDateTime.now());
+            
+resultRepository.save(result);
+Pourquoi est-ce une bonne architecture ?
+Utiliser cette classe HealthStatus intermédiaire nous apporte 3 avantages majeurs :
+Standardisation : Que le check se fasse via REST, LDAP ou une connexion à une base de données, le HealthCheckRunner reçoit toujours le même type d'objet en retour. Il n'a pas besoin de s'adapter.
+Richesse de l'Information : Une simple String ("OK"/"KO") ou un boolean ne suffirait pas. HealthStatus nous permet de transporter à la fois un statut simple ET des détails utiles pour le débogage en cas de problème.
+Découplage : Le HealthCheckRunner n'a absolument aucune connaissance de RestTemplate ou de la logique interne de CmdbHealthCheck. Il ne connaît que l'interface HealthCheck et l'objet de retour HealthStatus. C'est ce qui rend le système si facile à étendre.
+En résumé, HealthStatus est le format de communication standardisé entre chaque "vérificateur" et le "chef d'orchestre".
