@@ -754,3 +754,10 @@ otherName.1 = 1.3.6.1.4.1.311.20.2.3;UTF8String:utilisateur@domaine.interne.corp
 otherName.2 = 1.3.6.1.4.1.311.25.1;FORMAT:HEX,VALUE:123e4567e89b12d3a456426614174000
 1.3.6.1.4.1.311.25.1;ASN1:OCTET_STRING:123e4567e89b12d3a456426614174000
 echo "otherName.2 = 1.3.6.1.4.1.311.25.1;HEX:123e4567e89b12d3a456426614174000"
+//////////////////////
+DNS.1 = bnpTiti.staging.intra
+IP.1 = 2.2.2.2
+URI.1 = http://bnpTiti.com/app
+email.1 = utilisateur.test@example.com
+otherName.1 = 1.3.6.1.4.1.311.20.2.3;UTF8String:utilisateur@domaine.interne.corp
+otherName.2 = 1.3.6.1.4.1.311.25.1;ASN1:OCTET_STRING:123e4567e89b12d3a456426614174000
