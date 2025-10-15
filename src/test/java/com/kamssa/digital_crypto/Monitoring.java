@@ -1172,3 +1172,40 @@ spring.datasource.password=...
 healthcheck.cmdb.url=http://url.de.votre.cmdb/api/health
 Et voilà ! Vous avez un système de monitoring complet, robuste, performant et facile à étendre, qui répond à toutes les exigences du ticket Jira.
 Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
+/////////////////////////// quelques explications//////////////////////////////
+
+Model
+C'est une excellente question, et elle met le doigt sur un point crucial de l'architecture. Vous avez parfaitement raison de vous interroger sur ce point.
+La confusion vient de la distinction entre QUI fait le test et QUOI est testé.
+Laissez-moi clarifier avec une analogie simple.
+Imaginez que vous avez deux employés, Alice et Bob, dans deux bureaux différents (Paris et Lyon). Leur travail est de téléphoner à un service client centralisé (le service distant) toutes les 5 minutes pour vérifier qu'il répond.
+Après chaque appel, ils notent le résultat dans un carnet commun :
+10:05 - Alice (Paris) - Le service a répondu - OK
+10:05 - Bob (Lyon) - Le service n'a pas répondu - KO
+Dans cette analogie :
+Alice est votre application Java qui tourne sur le serveur A.
+Bob est votre application Java qui tourne sur le serveur B.
+Le service client est le service distant (ex: le CMDB).
+Le carnet commun est votre base de données HEALTH_CHECK_RESULTS.
+À quoi sert InetAddress.getLocalHost().getHostName() ?
+Cette méthode sert à répondre à la question : "Qui suis-je ?".
+Quand le code s'exécute sur le serveur d'Alice, getLocalHost().getHostName() retourne Paris. C'est le nom de la machine qui effectue le test.
+Quand le code s'exécute sur le serveur de Bob, getLocalHost().getHostName() retourne Lyon.
+Pourquoi est-ce si important ?
+Le ticket Jira précise :
+"La task ne devra pas etre sous shedlock et devra s'executer sur chaque serveur. Dans la base pour chaque check il faudra tester le hostname ayant effectué le check."
+Le but est de pouvoir diagnostiquer des problèmes qui ne sont visibles que depuis un seul serveur. Reprenons l'exemple :
+À 10h05, le service client est inaccessible uniquement pour Bob (peut-être un problème de réseau spécifique à son bureau de Lyon).
+Grâce à getLocalHost().getHostName(), votre base de données va contenir des informations très précises :
+CHECK_NAME	STATUS	HOSTNAME	CHECKED_AT
+cmdb	OK	serveur-alice-paris	10:05:01
+cmdb	KO	serveur-bob-lyon	10:05:02
+Quand vous consultez l'API /health, vous voyez immédiatement :
+Le service cmdb est OK du point de vue du serveur de Paris.
+Le service cmdb est KO du point de vue du serveur de Lyon.
+Conclusion : Le problème ne vient probablement pas du service cmdb lui-même, mais de la connectivité réseau entre le serveur de Lyon et le service cmdb.
+En résumé :
+InetAddress.getLocalHost().getHostName() ne sert PAS à trouver l'adresse du service distant. Il sert à identifier le serveur local qui est en train d'exécuter le test.
+L'adresse du service distant est, elle, définie dans une URL (ex: healthcheck.cmdb.url=...) et utilisée par RestTemplate pour "atteindre" ce service.
+Vous avez raison, le nom getLocalHost peut prêter à confusion. Il faut bien le comprendre comme "donne-moi les informations sur la machine sur laquelle je suis en train de tourner en ce moment".
+Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
