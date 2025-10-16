@@ -180,3 +180,75 @@ Allez dans "Frontend". Vous devriez voir une nouvelle application détectée, co
 Naviguez dans votre application sur localhost:4200. Dynatrace commencera à collecter les données sur les actions des utilisateurs, les performances de chargement des pages et les appels XHR/Fetch.
 Le OneAgent sur votre processus Java aura automatiquement injecté le tag RUM dans le index.html servi (même par ng serve, car les requêtes passent par le même hôte). Vous pourrez voir la relation directe entre une action utilisateur dans le front-end et la transaction back-end qu'elle a déclenchée (c'est la magie de la "Distributed Tracing" de Dynatrace).
 Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
+///////////////////////////// simuler la creation d'un certificat /////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////
+Pour être clair, Dynatrace ne va pas exécuter la logique de création du certificat lui-même. Votre application (Angular + Spring Boot) reste responsable de cela. Le rôle de Dynatrace est de :
+Simuler un utilisateur qui demande la création d'un certificat.
+Surveiller de bout en bout (front-end -> back-end -> Horizon) cette transaction spécifique.
+Valider que le processus s'est bien déroulé et dans des temps acceptables.
+Vous alerter si le processus échoue ou devient trop lent.
+Pour ce faire, nous allons utiliser une des fonctionnalités les plus puissantes de Dynatrace : le Monitoring Synthétique (Synthetic Monitoring).
+Voici le plan d'action détaillé :
+Étape 1 : S'assurer que le Traçage de Bout en Bout (PurePath) fonctionne
+Avant de simuler, il faut vérifier que Dynatrace "voit" déjà correctement le flux lorsque vous le faites manuellement.
+Lancez votre application avec le script start_app_with_dynatrace.sh.
+Ouvrez votre application Angular dans votre navigateur.
+Effectuez manuellement l'action de création de certificat.
+Allez dans votre interface Dynatrace.
+Cherchez le "PurePath" correspondant. Vous devriez voir une trace distribuée qui ressemble à ceci :
+Action Utilisateur (ex: Click on "Créer Certificat") dans votre application Angular.
+Appel HTTP (XHR) vers votre back-end Spring Boot (ex: POST /api/certificates).
+Service Method dans votre code Java qui gère la requête.
+Appel HTTP sortant depuis votre back-end vers l'API d'Horizon.
+Si vous voyez cette chaîne complète, le traçage de base est fonctionnel. C'est la fondation.
+Étape 2 : Mettre en Évidence cette Transaction comme un Processus Métier
+Pour que Dynatrace comprenne que "la création de certificat" est une action importante, vous pouvez la marquer comme une Action Utilisateur Clé (Key User Action).
+Dans Dynatrace, allez dans la section "Frontend".
+Sélectionnez votre application Angular.
+Cliquez sur "View top user actions".
+Trouvez l'action qui correspond au clic sur le bouton de création (par exemple, "Click on button 'Créer'").
+Cliquez sur cette action, puis marquez-la comme "Key user action".
+Maintenant, Dynatrace suivra spécifiquement le taux de succès, la performance et l'activité de cette action sur vos dashboards.
+Étape 3 : Créer un Moniteur Synthétique pour Simuler le Processus
+C'est ici que nous allons automatiser et simuler le workflow. Nous allons créer un "robot" qui, à intervalles réguliers, va se comporter comme un utilisateur et tenter de créer un certificat.
+Accéder au Monitoring Synthétique :
+Dans le menu de gauche de Dynatrace, allez dans Synthetic.
+Créer un nouveau moniteur :
+Cliquez sur le bouton Create a synthetic monitor.
+Choisissez Browser monitor (moniteur de navigateur). C'est le plus adapté car il simule un vrai utilisateur interagissant avec votre interface Angular.
+Configurer le "Clickpath" (le parcours utilisateur) :
+Donnez un nom à votre moniteur, par exemple : Workflow de Création de Certificat.
+Entrez l'URL de votre application.
+Cliquez sur Record clickpath (Enregistrer le parcours).
+Enregistrer la simulation :
+Une fenêtre de navigateur spéciale va s'ouvrir. Dynatrace va enregistrer toutes vos actions.
+Action 1 : S'authentifier (si nécessaire). Entrez un nom d'utilisateur et un mot de passe de test.
+Action 2 : Naviguer. Allez sur la page où se trouve le formulaire de création de certificat.
+Action 3 : Remplir le formulaire. Saisissez les informations nécessaires pour le certificat (nom, domaine, etc.).
+Action 4 : Cliquer sur le bouton "Créer".
+Action 5 : Valider le succès (TRÈS IMPORTANT). C'est l'étape qui détermine si le test a réussi ou échoué. Après avoir cliqué sur "Créer", une notification de succès doit apparaître (ex: "Certificat créé avec succès !").
+Dans l'enregistreur Dynatrace, ajoutez un événement de validation.
+Sélectionnez "Validate".
+Demandez-lui de vérifier la présence du texte "Certificat créé avec succès !" sur la page. Vous pouvez aussi valider la présence d'un élément HTML spécifique (ex: un div avec la classe alert-success).
+Sauvegarder et Configurer :
+Une fois l'enregistrement terminé, sauvegardez le clickpath.
+Fréquence : Choisissez à quelle fréquence le test doit s'exécuter (ex: toutes les 15 minutes, toutes les heures...).
+Locations : Choisissez depuis quels endroits du monde vous voulez que la simulation soit lancée (les "locations" sont des serveurs Dynatrace qui hébergent les robots).
+Alertes : Configurez les alertes. Par exemple, "alertez-moi si le test échoue 3 fois de suite".
+Ce que vous obtenez avec cette configuration
+Une fois le moniteur synthétique actif, vous aurez :
+Monitoring Proactif : Dynatrace teste en continu votre processus de création de certificat, même quand aucun utilisateur réel n'est sur le site. Si Horizon est en panne, ou si une nouvelle version de votre back-end a cassé l'API, vous serez le premier à le savoir.
+Mesure de la Performance de Bout en Bout : Pour chaque exécution du test, vous aurez des métriques précises sur la durée de chaque étape (chargement de la page, remplissage du formulaire, réponse de l'API, etc.).
+Disponibilité du Service : Vous aurez un dashboard montrant le pourcentage de disponibilité de votre fonctionnalité "création de certificat" (ex: 99.9% de succès sur les dernières 24h).
+Analyse d'Erreur Automatisée : Si un test échoue, Dynatrace ne vous donnera pas seulement une alerte. Il vous fournira :
+Une capture d'écran de la page au moment de l'erreur.
+Le PurePath complet, vous montrant exactement où le problème est survenu (dans le front-end, le back-end, ou lors de l'appel à Horizon).
+Les logs et les exceptions Java correspondants.
+En résumé, pour que Dynatrace simule et surveille ce processus :
+Vérifiez que le traçage de base est correct en le faisant manuellement.
+Créez un Moniteur Synthétique de type "Browser Monitor".
+Enregistrez le parcours utilisateur complet : connexion, remplissage du formulaire, clic sur le bouton.
+Ajoutez une étape de validation pour vérifier l'apparition d'un message de succès.
+Planifiez l'exécution du moniteur et configurez les alertes.
+Vous aurez ainsi transformé une surveillance technique en une surveillance de processus métier critique.
+Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
