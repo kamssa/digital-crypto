@@ -252,3 +252,45 @@ Ajoutez une étape de validation pour vérifier l'apparition d'un message de suc
 Planifiez l'exécution du moniteur et configurez les alertes.
 Vous aurez ainsi transformé une surveillance technique en une surveillance de processus métier critique.
 Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
+//////////////////////////// le OneAgent /////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+Pensez au OneAgent comme à un agent secret de renseignement ou un médecin expert que vous installez une seule fois sur vos serveurs (physiques, virtuels, ou dans vos conteneurs). Une fois installé, il fait tout le travail de surveillance pour vous, de manière entièrement automatique.
+En termes simples, le OneAgent est le composant de collecte de données de la plateforme Dynatrace. C'est le "bras armé" de Dynatrace sur le terrain, celui qui voit, écoute et rapporte tout ce qui se passe dans votre système.
+Voici ses caractéristiques clés qui le rendent si puissant et différent des autres agents de monitoring :
+1. "One" - Un Seul Agent pour Tout
+C'est la raison de son nom. Avant Dynatrace, pour surveiller une application complexe, il fallait installer plusieurs agents spécialisés :
+Un agent pour surveiller le CPU et la RAM du serveur.
+Un agent pour surveiller le serveur web (Apache, Nginx).
+Un agent pour instrumenter le code Java (APM).
+Un agent pour lire les fichiers de logs.
+Un script à ajouter manuellement pour le monitoring utilisateur (RUM).
+Le OneAgent remplace tout cela. Un seul processus léger s'occupe de surveiller toutes les couches de votre système, de l'infrastructure jusqu'au code applicatif.
+2. "Automatique" - Déploiement et Instrumentation Sans Effort
+C'est sa plus grande force. Une fois que vous lancez l'installeur du OneAgent :
+Découverte automatique : Il scanne le serveur et identifie automatiquement tous les processus en cours d'exécution : votre application Spring Boot (JVM), votre base de données, votre serveur web, etc.
+Instrumentation automatique : Il "s'injecte" dynamiquement dans ces processus sans que vous ayez à modifier une seule ligne de votre code. Pour votre Spring Boot, il s'attache à la JVM. Pour votre front-end Angular, il injecte le tag JavaScript RUM automatiquement dans le HTML servi par votre back-end. C'est ce qu'on appelle l'instrumentation "zero-touch".
+Mise à jour automatique : Il se met à jour tout seul, vous n'avez pas à le gérer.
+3. "Intelligent" - Contexte et Topologie (Smartscape®)
+Le OneAgent ne se contente pas de remonter des métriques isolées (comme "le CPU est à 80%"). Il comprend les relations et les dépendances entre tous les composants.
+Il sait que votre application Angular (exécutée dans le navigateur d'un utilisateur) parle à votre service Spring Boot.
+Il sait que ce service Spring Boot dépend d'une base de données PostgreSQL.
+Il sait que tout cela tourne sur un serveur Linux hébergé sur AWS.
+Toutes ces informations sont envoyées à Dynatrace pour construire une carte dynamique et en temps réel de votre système, appelée Smartscape®. C'est ce contexte qui permet à l'IA de Dynatrace (Davis®) de trouver la cause racine des problèmes, et non juste les symptômes.
+4. "Full Stack" - Visibilité Complète
+Le OneAgent collecte des données sur l'ensemble de la pile technologique :
+Couche	Ce que le OneAgent collecte
+Utilisateur Final	Expérience utilisateur réelle (RUM) : temps de chargement, erreurs JavaScript, actions cliquées.
+Application	Traces distribuées (PurePath®) : le parcours complet d'une requête, du clic au code.
+Services	Performance des microservices, dépendances, temps de réponse, taux d'erreur.
+Processus	Santé des processus comme les JVM, Node.js, PHP, .NET, etc.
+Conteneurs	Performance des conteneurs Docker, Kubernetes (ressources, redémarrages...).
+Infrastructure	Métriques classiques : CPU, mémoire, disque, réseau du serveur hôte.
+Logs	Capture et analyse centralisée des fichiers de logs de vos applications.
+En Résumé
+Le OneAgent n'est pas juste un collecteur de métriques. C'est le système nerveux de votre environnement applicatif qui :
+S'installe une seule fois par hôte.
+Découvre et instrumente automatiquement toutes vos technologies sans modification de code.
+Comprend les relations entre tous les composants.
+Remonte une vue complète et contextuelle de la performance à l'IA de Dynatrace.
+C'est grâce à lui que vous pouvez passer d'une simple surveillance à une observabilité intelligente et automatisée.
+Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
