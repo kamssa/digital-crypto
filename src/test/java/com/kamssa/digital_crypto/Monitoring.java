@@ -1209,3 +1209,41 @@ InetAddress.getLocalHost().getHostName() ne sert PAS à trouver l'adresse du ser
 L'adresse du service distant est, elle, définie dans une URL (ex: healthcheck.cmdb.url=...) et utilisée par RestTemplate pour "atteindre" ce service.
 Vous avez raison, le nom getLocalHost peut prêter à confusion. Il faut bien le comprendre comme "donne-moi les informations sur la machine sur laquelle je suis en train de tourner en ce moment".
 Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
+//////////////////////////////////////
+@Entity
+@Setter
+@Getter
+@ToString
+@Table(name = "health_check_results") // Assurez-vous que le nom de la table est correct
+public class HealthCheckResult {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "healthCheckResult_id_generator")
+    @SequenceGenerator(name = "healthCheckResult_id_generator", sequenceName = "SEQ_HEALTHCHECK_RESULT_ID", allocationSize = 1)
+    @Column(name = "ID") // Explicite pour la colonne ID
+    private Long id;
+
+    @Column(name = "CHECK_NAME", nullable = false) // Annotation pour checkName
+    private String checkName;
+
+    @Column(name = "STATUS", nullable = false) // Annotation pour status
+    private String status;
+
+    @Lob // Pour les champs de type CLOB
+    @Column(name = "DETAILS") // Annotation pour details
+    private String details;
+
+    @Column(name = "HOSTNAME", nullable = false) // Annotation pour hostname
+    private String hostname;
+
+    @Column(name = "CHECKED_AT", nullable = false) // Annotation pour checkedAt
+    private LocalDateTime checkedAt;
+}
+//////////////////////
+code
+SQL
+CREATE SEQUENCE SEQ_HEALTHCHECK_RESULT_ID
+START WITH 1
+INCREMENT BY 1
+NOCACHE
+NOCYCLE;
