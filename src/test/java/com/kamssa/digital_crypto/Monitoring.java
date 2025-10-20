@@ -1645,3 +1645,84 @@ public class LdapRefsgHealthCheck implements HealthCheck {
         }
     }
 }
+///////////////////////////////////////////////////////////////////////////////////
+Fichier : VaultHealthCheck.java (Version Corrigée et Sécurisée)
+code
+Java
+package com.bnpparibas.certis.automationhub.healthcheck.service.check;
+
+import com.bnpparibas.certis.api.healthcheck.service.HealthCheck;
+import com.bnpparibas.certis.api.healthcheck.service.HealthStatus;
+import org.apache.http.ssl.SSLContexts;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.web.client.RestTemplateBuilder;
+import org.springframework.http.client.ClientHttpRequestFactory;
+import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
+import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestTemplate;
+
+import javax.net.ssl.SSLContext;
+import java.io.FileInputStream;
+import java.io.InputStream;
+import java.security.KeyStore;
+
+@Component
+public class VaultHealthCheck implements HealthCheck {
+
+    private final RestTemplate restTemplate;
+    private final String vaultHealthUrl;
+
+    public VaultHealthCheck(
+            RestTemplateBuilder restTemplateBuilder,
+            @Value("${vault.url}") String vaultUrl,
+            @Value("${vault.truststore.path}") String truststorePath,
+            @Value("${vault.truststore.passphrase}") String truststorePassphrase) {
+        
+        this.vaultHealthUrl = vaultUrl + "/v1/sys/health";
+        this.restTemplate = createSecureRestTemplate(restTemplateBuilder, truststorePath, truststorePassphrase);
+    }
+
+    @Override
+    public String getName() {
+        return "hvault";
+    }
+
+    @Override
+    public HealthStatus check() {
+        try {
+            restTemplate.getForEntity(vaultHealthUrl, String.class);
+            return HealthStatus.ok("Vault instance is reachable and responding.");
+        } catch (Exception e) {
+            return HealthStatus.ko("Failed to connect to Vault instance: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Méthode utilitaire pour construire un RestTemplate qui fait confiance à un truststore JKS spécifique.
+     */
+    private RestTemplate createSecureRestTemplate(RestTemplateBuilder builder, String truststorePath, String truststorePassphrase) {
+        try {
+            KeyStore truststore = KeyStore.getInstance("JKS");
+            try (InputStream in = new FileInputStream(truststorePath)) {
+                truststore.load(in, truststorePassphrase.toCharArray());
+            }
+
+            SSLContext sslContext = SSLContexts.custom()
+                    .loadTrustMaterial(truststore, null) // Le deuxième argument est une TrustStrategy, null utilise la stratégie par défaut.
+                    .build();
+
+            ClientHttpRequestFactory requestFactory = new HttpComponentsClientHttpRequestFactory(
+                    org.apache.http.impl.client.HttpClients.custom()
+                            .setSSLSocketFactory(new org.apache.http.conn.ssl.SSLConnectionSocketFactory(sslContext))
+                            .build()
+            );
+
+            return builder.requestFactory(() -> requestFactory).build();
+            
+        } catch (Exception e) {
+            // Si la configuration TLS échoue, on lève une exception pour faire échouer le démarrage
+            // car le health check sera inutilisable.
+            throw new IllegalStateException("Failed to create secure RestTemplate for Vault health check", e);
+        }
+    }
+}
