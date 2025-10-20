@@ -1442,3 +1442,79 @@ public class ServiceSnowHealthCheck implements HealthCheck {
         }
     }
 }
+/////////////////////////////////
+La Solution : Le Code pour DatabaseHealthCheck.java
+Il est plus logique de renommer le fichier CmdbHealthCheck.java en DatabaseHealthCheck.java ou ReferentialDbHealthCheck.java pour mieux refléter ce qu'il fait. Voici le code complet.
+Fichier : DatabaseHealthCheck.java (Remplace votre CmdbHealthCheck.java)
+code
+Java
+package com.bnpparibas.certis.automationhub.healthcheck.service.check; // Adaptez le package si besoin
+
+import com.bnpparibas.certis.referential.refi.initialization.DynamicDataSource;
+import com.bnpparibas.certis.api.healthcheck.service.HealthCheck;
+import com.bnpparibas.certis.api.healthcheck.service.HealthStatus;
+import org.springframework.stereotype.Component;
+
+import java.sql.Connection;
+
+/**
+ * Vérifie l'état de santé de la connexion à la base de données PostgreSQL du référentiel (CMDB).
+ * Cette implémentation réutilise le 'DynamicDataSource' existant, qui gère la récupération
+ * des identifiants depuis Vault et l'établissement de la connexion.
+ */
+@Component
+public class DatabaseHealthCheck implements HealthCheck {
+
+    private final DynamicDataSource dynamicDataSource;
+
+    /**
+     * Constructeur pour l'injection de dépendances.
+     * @param dynamicDataSource Le gestionnaire de connexion à la base de données.
+     */
+    public DatabaseHealthCheck(DynamicDataSource dynamicDataSource) {
+        this.dynamicDataSource = dynamicDataSource;
+    }
+
+    @Override
+    public String getName() {
+        // Le ticket mentionne "cmdb", donc on garde ce nom pour la cohérence.
+        // D'autres noms possibles seraient "referential-db" ou "postgresql-db".
+        return "cmdb";
+    }
+
+    @Override
+    public HealthStatus check() {
+        Connection connection = null;
+        try {
+            // 1. Tenter d'obtenir une connexion depuis le DataSource.
+            // Cette étape valide déjà la connexion à Vault et à la DB.
+            connection = dynamicDataSource.getConnection();
+
+            // 2. Vérifier que la connexion est réellement valide avec un timeout court.
+            // Le "1" correspond à un timeout de 1 seconde.
+            boolean isValid = connection.isValid(1);
+
+            if (isValid) {
+                return HealthStatus.ok("Successfully connected to the referential (CMDB) database.");
+            } else {
+                return HealthStatus.ko("Connection to the referential (CMDB) database was established but is not valid.");
+            }
+
+        } catch (Exception e) {
+            // Toute exception ici (SQLException, erreur de Vault, etc.) indique un échec.
+            return HealthStatus.ko("Failed to connect to the referential (CMDB) database: " + e.getMessage());
+
+        } finally {
+            // 3. TRÈS IMPORTANT : Toujours fermer la connexion !
+            // Si on ne le fait pas, on va rapidement épuiser le pool de connexions
+            // et faire planter l'application.
+            if (connection != null) {
+                try {
+                    connection.close();
+                } catch (Exception e) {
+                    // Ignorer les erreurs à la fermeture ou les logger si nécessaire.
+                }
+            }
+        }
+    }
+}
