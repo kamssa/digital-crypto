@@ -1822,3 +1822,41 @@ code
 Properties
 org.springframework.boot.autoconfigure.EnableAutoConfiguration=\
 com.bnpparibas.certis.referential.refi.config.ReferentialAutoConfiguration
+//////////////////////////////////////////////////////////////////////////
+@Override
+public HealthStatus check() {
+    Connection connection = null;
+    try {
+        System.out.println("[DEBUG] DatabaseHealthCheck: Attempting to get a connection...");
+        connection = dynamicDataSource.getConnection();
+        System.out.println("[DEBUG] DatabaseHealthCheck: Connection obtained successfully.");
+
+        boolean isValid = connection.isValid(1);
+        System.out.println("[DEBUG] DatabaseHealthCheck: Connection validity check result: " + isValid);
+
+        if (isValid) {
+            return HealthStatus.ok("Successfully connected to the referential (CMDB) database.");
+        } else {
+            return HealthStatus.ko("Connection to the referential (CMDB) database was established but is not valid.");
+        }
+
+    } catch (Exception e) {
+        // -- PARTIE MODIFIÉE --
+        // On imprime la stack trace complète pour avoir tous les détails de l'erreur.
+        System.err.println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+        System.err.println("!!! ERROR during DatabaseHealthCheck execution:");
+        e.printStackTrace(); // <-- LIGNE LA PLUS IMPORTANTE
+        System.err.println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+        
+        return HealthStatus.ko("Failed to connect to the referential (CMDB) database: " + e.getMessage());
+
+    } finally {
+        if (connection != null) {
+            try {
+                connection.close();
+            } catch (Exception e) {
+                // Ignore
+            }
+        }
+    }
+}
