@@ -1319,3 +1319,31 @@ public class HealthController {
 /////////////////////
 ALTER TABLE HEALTH_CHECK_RESULTS MODIFY (DETAILS CLOB);
 ////////////////////////////
+CREATE TABLE HEALTH_CHECK_RESULTS (
+    ID NUMBER(19,0) NOT NULL PRIMARY KEY,
+    CHECK_NAME VARCHAR2(100 CHAR) NOT NULL,
+    STATUS VARCHAR2(20 CHAR) NOT NULL,
+    DETAILS CLOB,
+    HOSTNAME VARCHAR2(255 CHAR) NOT NULL,
+    CHECKED_AT TIMESTAMP NOT NULL
+);
+
+
+-- 2. Création de la SÉQUENCE pour l'auto-incrémentation des IDs
+-- L'entité Java utilise @GenerationType.SEQUENCE et s'attend à trouver cette séquence.
+CREATE SEQUENCE SEQ_HEALTHCHECK_RESULT_ID
+START WITH 1
+INCREMENT BY 1
+NOCACHE
+NOCYCLE;
+
+
+-- 3. Création de l'INDEX pour optimiser les performances de l'API /health
+CREATE INDEX IDX_HEALTH_CHECK_LATEST
+ON HEALTH_CHECK_RESULTS (CHECK_NAME, HOSTNAME, CHECKED_AT DESC);
+
+
+-- 4. (Optionnel) Ajout de commentaires pour la documentation de la base de données
+COMMENT ON TABLE HEALTH_CHECK_RESULTS IS 'Stocke les résultats des vérifications de santé périodiques.';
+COMMENT ON COLUMN HEALTH_CHECK_RESULTS.ID IS 'Clé primaire alimentée par la séquence SEQ_HEALTHCHECK_RESULT_ID.';
+COMMENT ON COLUMN HEALTH_CHECK_RESULTS.DETAILS IS 'Message détaillé (type CLOB pour stocker des textes longs comme des stack traces).';
