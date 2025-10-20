@@ -1316,3 +1316,6 @@ public class HealthController {
                 ));
     }
 }
+/////////////////////
+ALTER TABLE HEALTH_CHECK_RESULTS MODIFY (DETAILS CLOB);
+////////////////////////////
