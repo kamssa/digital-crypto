@@ -1384,3 +1384,61 @@ CREATE INDEX IDX_HEALTH_CHECK_LATEST
 ON HEALTH_CHECK_RESULTS (CHECK_NAME, HOSTNAME, CHECKED_AT DESC);
 
 PROMPT La table HEALTH_CHECK_RESULTS et ses objets ont été recréés avec succès.;
+////////////////////////////// snow ///////////////////////////////
+Fichier : ServiceSnowHealthCheck.java (Version Corrigée)
+code
+Java
+package com.bnpparibas.certis.automationhub.healthcheck.service.check; // Assurez-vous que le package est le bon
+
+import com.bnpparibas.certis.api.healthcheck.service.HealthCheck;
+import com.bnpparibas.certis.api.healthcheck.service.HealthStatus;
+import com.bnpparibas.certis.itsm.exception.NotFoundException;
+import com.bnpparibas.certis.itsm.service.SnowService;
+import org.springframework.stereotype.Component;
+
+/**
+ * Vérifie l'état de santé du service ServiceNow (Snow).
+ * Cette implémentation réutilise le service existant 'SnowService' pour effectuer une
+ * lecture simple afin de valider la connectivité et l'authentification.
+ */
+@Component
+public class ServiceSnowHealthCheck implements HealthCheck {
+
+    private final SnowService snowService;
+
+    /**
+     * Constructeur pour l'injection de dépendances.
+     * Spring va automatiquement fournir une instance de SnowService (implémentée par SnowApigeeServiceImpl).
+     * @param snowService le service pour communiquer avec ServiceNow.
+     */
+    public ServiceSnowHealthCheck(SnowService snowService) {
+        this.snowService = snowService;
+    }
+
+    @Override
+    public String getName() {
+        return "api snow"; // Nom demandé dans le ticket
+    }
+
+    @Override
+    public HealthStatus check() {
+        try {
+            // STRATÉGIE : Nous tentons de récupérer un incident qui n'existe pas.
+            // Si nous recevons une exception "NotFoundException", cela signifie que l'API a bien été contactée.
+            // C'est donc un SUCCÈS pour notre check de connectivité.
+            snowService.getSnowIncidentBySysId("HEALTHCHECK_ID_DOES_NOT_EXIST");
+
+            // Si aucune exception n'est levée (très improbable), c'est aussi un succès.
+            return HealthStatus.ok("Snow API is responding, but unexpectedly found a test incident.");
+
+        } catch (NotFoundException e) {
+            // CAS IDÉAL : L'API nous répond "Non trouvé". C'est la preuve que la connexion et l'authentification fonctionnent.
+            return HealthStatus.ok("Successfully connected and authenticated to Snow API (received expected 404 Not Found).");
+
+        } catch (Exception e) {
+            // CAS D'ÉCHEC : Toute autre exception (timeout, erreur 503, erreur de parsing, etc.)
+            // indique un réel problème de connectivité ou de configuration.
+            return HealthStatus.ko("Failed to communicate with Snow API: " + e.getMessage());
+        }
+    }
+}
