@@ -1814,3 +1814,11 @@ code
 Properties
 org.springframework.boot.autoconfigure.EnableAutoConfiguration=\
 com.bnpparibas.certis.vault.config.VaultAutoConfiguration
+//////////////////////////
+2. Dans le module referential-refi, créez le fichier spring.factories :
+Fichier : referential-refi/src/main/resources/META-INF/spring.factories
+Contenu :
+code
+Properties
+org.springframework.boot.autoconfigure.EnableAutoConfiguration=\
+com.bnpparibas.certis.referential.refi.config.ReferentialAutoConfiguration
