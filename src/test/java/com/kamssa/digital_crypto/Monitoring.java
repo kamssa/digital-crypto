@@ -1806,3 +1806,11 @@ public class ReferentialAutoConfiguration {
         return new DynamicDataSource(vaultService, openDataProperties);
     }
 }
+//////////////////
+2. Dans le module vault, créez le fichier spring.factories :
+Fichier : vault/src/main/resources/META-INF/spring.factories
+Contenu :
+code
+Properties
+org.springframework.boot.autoconfigure.EnableAutoConfiguration=\
+com.bnpparibas.certis.vault.config.VaultAutoConfiguration
