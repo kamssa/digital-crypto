@@ -1784,3 +1784,25 @@ public class VaultAutoConfiguration {
         return new VaultService(vaultTemplateFactory);
     }
 }
+/////////////////////////
+package com.bnpparibas.certis.referential.refi.config;
+
+import com.bnpparibas.certis.referential.refi.initialization.DynamicDataSource;
+import com.bnpparibas.certis.referential.refi.initialization.OpenDataProperties;
+import com.bnpparibas.certis.vault.VaultService; // L'import va maintenant fonctionner
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+public class ReferentialAutoConfiguration {
+
+    @Bean
+    public OpenDataProperties openDataProperties() {
+        return new OpenDataProperties();
+    }
+
+    @Bean
+    public DynamicDataSource dynamicDataSource(VaultService vaultService, OpenDataProperties openDataProperties) {
+        return new DynamicDataSource(vaultService, openDataProperties);
+    }
+}
