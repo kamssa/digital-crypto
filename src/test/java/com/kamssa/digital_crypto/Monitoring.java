@@ -1726,3 +1726,61 @@ public class VaultHealthCheck implements HealthCheck {
         }
     }
 }
+//////////////////////
+package com.bnpparibas.certis.vault.config;
+
+import com.bnpparibas.certis.vault.VaultService;
+import com.bnpparibas.certis.vault.config.VaultLoggingInterceptor;
+import com.bnpparibas.certis.vault.config.VaultTemplateFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+/**
+ * Classe d'auto-configuration pour le module Vault.
+ * Elle déclare les beans essentiels de ce module (VaultService, Factory, etc.)
+ * pour les rendre disponibles à d'autres modules qui dépendent du module 'vault'.
+ * Cette configuration est activée via le fichier META-INF/spring.factories.
+ */
+@Configuration
+public class VaultAutoConfiguration {
+
+    /**
+     * Crée le bean pour l'intercepteur de logs.
+     * Cet intercepteur est un @Component, donc Spring pourrait déjà le trouver,
+     * mais le déclarer ici rend la configuration plus explicite et robuste.
+     * @return Une instance de VaultLoggingInterceptor.
+     */
+    @Bean
+    @ConditionalOnMissingBean // Ne crée ce bean que s'il n'existe pas déjà
+    public VaultLoggingInterceptor vaultLoggingInterceptor() {
+        return new VaultLoggingInterceptor();
+    }
+
+    /**
+     * Crée le bean pour la factory de VaultTemplate.
+     * C'est la classe responsable de la création des clients RestTemplate sécurisés
+     * pour communiquer avec Vault.
+     * @param vaultLoggingInterceptor Le bean d'intercepteur, injecté par Spring.
+     * @return Une instance de VaultTemplateFactory.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public VaultTemplateFactory vaultTemplateFactory(VaultLoggingInterceptor vaultLoggingInterceptor) {
+        // Le constructeur de VaultTemplateFactory prend un VaultLoggingInterceptor en argument.
+        return new VaultTemplateFactory(vaultLoggingInterceptor);
+    }
+
+    /**
+     * Crée le bean principal du service Vault.
+     * C'est le point d'entrée que les autres modules (comme 'referential-refi') utiliseront.
+     * @param vaultTemplateFactory Le bean de la factory, injecté par Spring.
+     * @return Une instance de VaultService.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public VaultService vaultService(VaultTemplateFactory vaultTemplateFactory) {
+        // Le constructeur de VaultService prend la factory en argument.
+        return new VaultService(vaultTemplateFactory);
+    }
+}
