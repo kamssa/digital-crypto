@@ -1518,3 +1518,64 @@ public class DatabaseHealthCheck implements HealthCheck {
         }
     }
 }
+///////////////////////////
+La Solution : Le Code pour VaultHealthCheck.java
+Voici le code complet pour votre fichier VaultHealthCheck.java. Il est conçu pour être efficace et pour tester la bonne chose : la disponibilité de base du service Vault.
+Fichier : VaultHealthCheck.java
+code
+Java
+package com.bnpparibas.certis.automationhub.healthcheck.service.check; // Adaptez le package
+
+import com.bnpparibas.certis.api.healthcheck.service.HealthCheck;
+import com.bnpparibas.certis.api.healthcheck.service.HealthStatus;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestTemplate;
+
+/**
+ * Vérifie l'état de santé du service HashiCorp Vault.
+ * Ce check effectue un appel à l'endpoint de santé standard de Vault ('/v1/sys/health')
+ * pour vérifier la disponibilité de base du service.
+ */
+@Component
+public class VaultHealthCheck implements HealthCheck {
+
+    private final RestTemplate restTemplate;
+    private final String vaultHealthUrl;
+
+    /**
+     * Constructeur pour l'injection de dépendances.
+     * @param vaultUrl L'URL de base de l'instance Vault, injectée depuis les propriétés de configuration.
+     */
+    public VaultHealthCheck(@Value("${vault.url}") String vaultUrl) {
+        // Pour ce check, nous utilisons un RestTemplate simple car l'endpoint /sys/health
+        // est généralement accessible sans l'authentification mTLS complexe.
+        // Si ce n'est pas le cas, il faudrait injecter et utiliser la VaultTemplateFactory.
+        this.restTemplate = new RestTemplate();
+        // On construit l'URL complète de l'endpoint de santé.
+        this.vaultHealthUrl = vaultUrl + "/v1/sys/health";
+    }
+
+    @Override
+    public String getName() {
+        // Le ticket de Jira liste "hvault"
+        return "hvault";
+    }
+
+    @Override
+    public HealthStatus check() {
+        try {
+            // On appelle l'endpoint de santé de Vault.
+            // Il retourne un statut HTTP 200 si tout va bien, 429 si scellé mais OK, 50x en cas de problème.
+            // L'appel lui-même peut lever une exception en cas de problème réseau.
+            restTemplate.getForEntity(vaultHealthUrl, String.class);
+            
+            // Si aucune exception n'est levée, on considère que Vault est accessible.
+            return HealthStatus.ok("Vault instance is reachable and responding.");
+
+        } catch (Exception e) {
+            // Toute exception (timeout, 404, 503, etc.) indique un problème.
+            return HealthStatus.ko("Failed to connect to Vault instance: " + e.getMessage());
+        }
+    }
+}
