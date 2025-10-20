@@ -1247,3 +1247,72 @@ START WITH 1
 INCREMENT BY 1
 NOCACHE
 NOCYCLE;
+/////////////////////////////////////////////
+code
+Java
+package com.bnpparibas.certis.automationhub.healthcheck.dao;
+
+import com.bnpparibas.certis.automationhub.healthcheck.model.HealthCheckResult;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+
+// On peut ajouter l'annotation @Repository, c'est une bonne pratique
+@Repository
+public interface HealthCheckResultDao extends JpaRepository<HealthCheckResult, Long> {
+
+    // La requête corrigée : on sélectionne explicitement les colonnes de l'entité
+    @Query(value = "SELECT ID, CHECK_NAME, STATUS, DETAILS, HOSTNAME, CHECKED_AT FROM (" +
+                   "    SELECT h.*, ROW_NUMBER() OVER (PARTITION BY check_name, hostname ORDER BY checked_at DESC) as rn " +
+                   "    FROM health_check_results h" +
+                   ") sub " +
+                   "WHERE sub.rn = 1", nativeQuery = true)
+    List<HealthCheckResult> findLatestResults();
+}
+Changement clé :
+Au lieu de SELECT *, nous avons maintenant SELECT ID, CHECK_NAME, STATUS, DETAILS, HOSTNAME, CHECKED_AT.
+Cette nouvelle requête retourne uniquement les colonnes que Hibernate connaît, en ignorant la colonne rn qui ne servait qu'au filtrage. Hibernate sera maintenant capable de mapper parfaitement le résultat à votre liste de HealthCheckResult.
+Amélioration Optionnelle : Nettoyer le HealthController
+J'ai remarqué une petite incohérence dans votre HealthController. Le paramètre du constructeur s'appelle repository mais le champ de la classe s'appelle healthCheckResultDao. C'est mieux d'utiliser le même nom pour la clarté.
+Fichier : HealthController.java (Version plus propre)
+code
+Java
+package com.bnpparibas.certis.api.controller;
+
+import com.bnpparibas.certis.automationhub.healthcheck.dao.HealthCheckResultDao;
+import com.bnpparibas.certis.automationhub.healthcheck.model.HealthCheckResult;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+@RestController
+@RequestMapping("/health") // Le mapping de base pour ce contrôleur
+public class HealthController {
+
+    private final HealthCheckResultDao healthCheckResultDao;
+
+    // On utilise le même nom pour le paramètre et le champ, c'est plus clair
+    public HealthController(HealthCheckResultDao healthCheckResultDao) {
+        this.healthCheckResultDao = healthCheckResultDao;
+    }
+
+    @GetMapping
+    public Map<String, Map<String, String>> getAggregatedHealthStatus() {
+        List<HealthCheckResult> latestResults = healthCheckResultDao.findLatestResults();
+
+        return latestResults.stream()
+                .collect(Collectors.groupingBy(
+                        HealthCheckResult::getHostname,
+                        Collectors.toMap(
+                                HealthCheckResult::getCheckName,
+                                HealthCheckResult::getStatus
+                        )
+                ));
+    }
+}
