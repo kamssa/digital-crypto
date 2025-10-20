@@ -1579,3 +1579,69 @@ public class VaultHealthCheck implements HealthCheck {
         }
     }
 }
+/////////////////////////////////////
+La Solution : Le Code pour LdapRefsgHealthCheck.java
+Voici le code final et correct pour votre LdapRefsgHealthCheck.java. Il utilise LdapTemplate comme il se doit.
+Fichier : LdapRefsgHealthCheck.java (Version Corrigée)
+code
+Java
+package com.bnpparibas.certis.automationhub.healthcheck.service.check; // Adaptez le package
+
+import com.bnpparibas.certis.api.healthcheck.service.HealthCheck;
+import com.bnpparibas.certis.api.healthcheck.service.HealthStatus;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.ldap.core.LdapTemplate;
+import org.springframework.ldap.query.LdapQueryBuilder;
+import org.springframework.stereotype.Component;
+
+import javax.naming.directory.SearchControls;
+
+/**
+ * Vérifie l'état de santé de la connexion à l'annuaire LDAP "refsg".
+ * Cette implémentation réutilise le 'LdapTemplate' configuré dans l'application
+ * pour effectuer une recherche simple afin de valider la connectivité et l'authentification.
+ */
+@Component
+public class LdapRefsgHealthCheck implements HealthCheck {
+
+    private final LdapTemplate ldapTemplate;
+
+    /**
+     * Constructeur pour l'injection de dépendances.
+     * @param ldapTemplate Le template configuré pour communiquer avec l'annuaire LDAP.
+     *                     L'annotation @Qualifier peut être nécessaire s'il y a plusieurs LdapTemplate Beans.
+     */
+    public LdapRefsgHealthCheck(LdapTemplate ldapTemplate) {
+        this.ldapTemplate = ldapTemplate;
+    }
+
+    @Override
+    public String getName() {
+        return "ldap refsg"; // Nom demandé dans le ticket
+    }
+
+    @Override
+    public HealthStatus check() {
+        try {
+            // STRATÉGIE : On effectue une recherche très simple et légère.
+            // On cherche n'importe quel objet ("objectclass=*") à la racine de l'annuaire.
+            // On demande de ne retourner aucun attribut et de limiter la recherche à 1 résultat
+            // pour que la requête soit la plus rapide possible.
+            SearchControls searchControls = new SearchControls();
+            searchControls.setSearchScope(SearchControls.OBJECT_SCOPE); // Ne cherche que le "base object"
+            searchControls.setCountLimit(1);
+            searchControls.setReturningAttributes(new String[0]); // Ne retourne aucun attribut
+
+            // L'exécution de cette recherche va tenter de se connecter et de s'authentifier.
+            // La base DN est vide "" car elle est déjà configurée dans le LdapContextSource.
+            ldapTemplate.search("", "(objectclass=*)", searchControls, (javax.naming.directory.SearchResult sr) -> {});
+
+            // Si aucune exception n'est levée, la connexion a réussi.
+            return HealthStatus.ok("Successfully connected and authenticated to LDAP server.");
+
+        } catch (Exception e) {
+            // Toute exception (ex: ServiceUnavailableException, AuthenticationException) indique un échec.
+            return HealthStatus.ko("Failed to connect to LDAP server: " + e.getMessage());
+        }
+    }
+}
