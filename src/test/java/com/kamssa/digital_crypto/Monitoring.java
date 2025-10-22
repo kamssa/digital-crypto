@@ -2612,3 +2612,46 @@ public class ItmDbHealthCheck implements HealthCheck {
         }
     }
 }
+//////////////////////////// 
+ */
+@Component
+public class ApplicationDbHealthCheck implements HealthCheck {
+
+    private final DataSource dataSource;
+
+    /**
+     * Constructeur pour l'injection de dépendances.
+     * Spring va automatiquement injecter le bean DataSource principal de l'application.
+     * @param dataSource La source de données principale.
+     */
+    public ApplicationDbHealthCheck(DataSource dataSource) {
+        this.dataSource = dataSource;
+    }
+
+    @Override
+    public String getName() {
+        // Choisissez un nom clair, par exemple "application-db" ou "main-database".
+        return "application-db";
+    }
+
+    @Override
+    public HealthStatus check() {
+        // On utilise la syntaxe "try-with-resources" qui est plus moderne et plus sûre.
+        // Elle garantit que la connexion sera fermée automatiquement, même en cas d'erreur.
+        try (Connection connection = dataSource.getConnection()) {
+            
+            // On vérifie que la connexion est valide avec un timeout de 1 seconde.
+            boolean isValid = connection.isValid(1);
+
+            if (isValid) {
+                return HealthStatus.ok("Successfully connected to the main application database.");
+            } else {
+                return HealthStatus.ko("Connection to the main application database was established but is not valid.");
+            }
+
+        } catch (Exception e) {
+            // Toute exception ici (SQLException, etc.) indique un échec de connexion.
+            return HealthStatus.ko("Failed to connect to the main application database: " + e.getMessage());
+        }
+    }
+}
