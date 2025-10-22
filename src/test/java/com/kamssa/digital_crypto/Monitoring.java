@@ -2137,3 +2137,50 @@ public class DatabaseHealthCheck implements HealthCheck {
         }
     }
 }
+///////////////////////
+package com.bnpparibas.certis.api.check; // Ou votre package de checks
+
+import com.bnpparibas.certis.api.healthcheck.dto.HealthStatus;
+import com.bnpparibas.certis.referential.refi.dao.OpenDataDao; // L'import du DAO
+import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
+
+@Component
+public class DatabaseHealthCheck implements HealthCheck {
+
+    private final OpenDataDao openDataDao;
+    
+    // Un nom de groupe garanti de ne jamais exister.
+    private static final String NON_EXISTENT_GROUP_NAME = "HEALTHCHECK_GROUP_DOES_NOT_EXIST_12345";
+
+    public DatabaseHealthCheck(OpenDataDao openDataDao) {
+        this.openDataDao = openDataDao;
+    }
+
+    @Override
+    public String getName() {
+        return "cmdb";
+    }
+
+    @Override
+    public HealthStatus check() {
+        try {
+            // On appelle la méthode avec un nom de groupe qui n'existe pas.
+            String result = openDataDao.getSupportGroupMail(NON_EXISTENT_GROUP_NAME);
+
+            // Le CAS IDÉAL est que la méthode retourne null ou une chaîne vide,
+            // car cela prouve que la requête s'est exécutée sans erreur.
+            if (StringUtils.hasText(result)) {
+                // C'est inattendu, mais le service a répondu, donc c'est OK.
+                return HealthStatus.ok("Database connection is healthy, but unexpectedly found a test group.");
+            }
+
+            // Si le résultat est null ou vide, c'est la preuve que tout fonctionne.
+            return HealthStatus.ok("Database connection is healthy and a test query was executed successfully (returned expected empty result).");
+
+        } catch (Exception e) {
+            // Toute exception (SQLException, etc.) pendant l'appel indique un VRAI échec de connexion.
+            return HealthStatus.ko("Failed to execute query on the database: " + e.getMessage());
+        }
+    }
+}
