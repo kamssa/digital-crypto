@@ -2712,3 +2712,46 @@ public class RefwebDbHealthCheck implements HealthCheck {
         }
     }
 }
+/////////////////////////////////
+@GetMapping("/health")
+    public List<HealthStatusResponseDto> getHealthStatus() {
+        List<HealthStatusEntity> allStatuses = statusRepository.findAll();
+        LocalDateTime now = LocalDateTime.now();
+
+        return allStatuses.stream()
+            .map(entity -> {
+                HealthStatusResponseDto dto = new HealthStatusResponseDto();
+                dto.setCheckName(entity.getCheckName());
+                dto.setStatus(entity.getStatus());
+                dto.setDetails(entity.getDetails());
+                dto.setHostname(entity.getHostname());
+                dto.setLastCheckedAt(entity.getLastCheckedAt());
+                
+                long minutesSinceLastCheck = Duration.between(entity.getLastCheckedAt(), now).toMinutes();
+
+                if (minutesSinceLastCheck > FRESHNESS_THRESHOLD_MINUTES) {
+                    dto.setFreshness("NEEDS_UPDATE");
+                } else {
+                    dto.setFreshness("FRESH");
+                }
+
+                // --- C'EST ICI QU'ON AJOUTE LA NOUVELLE LOGIQUE ---
+                
+                // Règle 1 : Si le statut est KO, l'alerte est CRITICAL (rouge).
+                if ("KO".equals(entity.getStatus())) {
+                    dto.setAlertLevel("CRITICAL");
+                } 
+                // Règle 2 : Si le statut est OK MAIS que la fraîcheur est NEEDS_UPDATE, l'alerte est WARNING (jaune).
+                else if ("NEEDS_UPDATE".equals(dto.getFreshness())) {
+                    dto.setAlertLevel("WARNING");
+                } 
+                // Règle 3 : Dans tous les autres cas (OK et FRESH), l'alerte est OK (vert).
+                else {
+                    dto.setAlertLevel("OK");
+                }
+                
+                return dto;
+            })
+            .collect(Collectors.toList());
+    }
+}
