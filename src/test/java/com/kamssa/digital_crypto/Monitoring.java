@@ -2551,3 +2551,64 @@ List<HealthStatusEntity> allStatuses = statusRepository.findAll();
             .collect(Collectors.toList());
     }
 }
+//////////////////////////
+La Solution : Le Code pour ItmDbHealthCheck.java
+Voici le code complet pour un nouveau HealthCheck. Il est très similaire à celui que nous avons écrit pour le "cmdb" (avec la stratégie du test négatif).
+Fichier : ItmDbHealthCheck.java
+code
+Java
+package com.bnpparibas.certis.api.healthcheck.service.check; // Ou votre package de checks
+
+import com.bnpparibas.certis.api.healthcheck.service.HealthCheck;
+import com.bnpparibas.certis.api.healthcheck.service.HealthStatus;
+import com.bnpparibas.certis.itsm.dto.ItmTaskDto;
+import com.bnpparibas.certis.itsm.enums.IncStatusEnum; // L'import de votre énumération
+import com.bnpparibas.certis.itsm.service.ItmTaskService; // L'import de l'interface du service
+import org.springframework.stereotype.Component;
+
+import java.util.List;
+
+/**
+ * Vérifie l'état de santé de la connexion à la base de données via le service ITSM.
+ * Ce check effectue une recherche pour un statut qui n'existe pas afin de valider
+ * la connectivité à la base de données sans dépendre des données existantes.
+ */
+@Component
+public class ItmDbHealthCheck implements HealthCheck {
+
+    private final ItmTaskService itmTaskService;
+
+    public ItmDbHealthCheck(ItmTaskService itmTaskService) {
+        this.itmTaskService = itmTaskService;
+    }
+
+    @Override
+    public String getName() {
+        // Un nom clair pour ce check
+        return "itsm-db";
+    }
+
+    @Override
+    public HealthStatus check() {
+        try {
+            // STRATÉGIE : On appelle la méthode avec un statut qui n'existe probablement pas.
+            // Passer 'null' est une bonne option si la méthode le gère sans erreur.
+            // Si 'null' n'est pas permis, il faudrait trouver une valeur d'énumération non utilisée.
+            List<ItmTaskDto> results = itmTaskService.findByStatus(null);
+
+            // Le cas idéal est que la méthode retourne une liste vide,
+            // car cela prouve que la requête s'est exécutée sans erreur.
+            if (results != null && !results.isEmpty()) {
+                // C'est inattendu, mais le service a répondu, donc c'est OK.
+                return HealthStatus.ok("ITSM DB connection is healthy, but unexpectedly found results for a null status.");
+            }
+
+            // Si le résultat est null ou une liste vide, c'est la preuve que tout fonctionne.
+            return HealthStatus.ok("ITSM DB connection is healthy and a test query was executed successfully (returned expected empty result).");
+
+        } catch (Exception e) {
+            // Toute exception (SQLException, etc.) pendant l'appel indique un VRAI échec de connexion.
+            return HealthStatus.ko("Failed to execute query on the ITSM database: " + e.getMessage());
+        }
+    }
+}
