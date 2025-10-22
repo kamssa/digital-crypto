@@ -2468,3 +2468,25 @@ public void performAllChecks() {
     }
     log.info("Finished performing health checks.");
 }
+///////////////////////
+code
+Java
+package com.bnpparibas.certis.api.healthcheck.dto;
+
+import com.fasterxml.jackson.annotation.JsonFormat; // <-- NOUVEL IMPORT
+import lombok.Data;
+import java.time.LocalDateTime;
+
+@Data
+public class HealthStatusResponseDto {
+    private String checkName;
+    private String status;
+    private String details;
+    private String hostname;
+
+    // AJOUTEZ CETTE ANNOTATION
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss")
+    private LocalDateTime lastCheckedAt;
+    
+    private String freshness;
+}
