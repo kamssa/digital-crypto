@@ -2490,3 +2490,32 @@ public class HealthStatusResponseDto {
     
     private String freshness;
 }
+///////////////////////
+List<HealthStatusEntity> allStatuses = statusRepository.findAll();
+        LocalDateTime now = LocalDateTime.now();
+
+        return allStatuses.stream()
+            .map(entity -> {
+                HealthStatusResponseDto dto = new HealthStatusResponseDto();
+                dto.setCheckName(entity.getCheckName());
+                dto.setStatus(entity.getStatus());
+                dto.setDetails(entity.getDetails());
+                dto.setHostname(entity.getHostname());
+                dto.setLastCheckedAt(entity.getLastCheckedAt());
+                
+                // Calcul de la durée écoulée depuis le dernier check
+                long minutesSinceLastCheck = Duration.between(entity.getLastCheckedAt(), now).toMinutes();
+
+                // NOUVELLE LOGIQUE D'INTERPRÉTATION
+                if (minutesSinceLastCheck > FRESHNESS_THRESHOLD_MINUTES) {
+                    // Si le statut a plus de 5 minutes, il a besoin d'être mis à jour.
+                    dto.setFreshness("NEEDS_UPDATE"); // <-- Votre "updateTodate"
+                } else {
+                    // Si le statut a moins de 5 minutes, il est considéré comme frais.
+                    dto.setFreshness("FRESH");
+                }
+                
+                return dto;
+            })
+            .collect(Collectors.toList());
+    }
