@@ -2655,3 +2655,60 @@ public class ApplicationDbHealthCheck implements HealthCheck {
         }
     }
 }
+/////////////////////////////////////////////
+La Solution : Le Code pour RefwebDbHealthCheck.java
+Voici le code complet pour ce nouveau HealthCheck.
+Fichier : RefwebDbHealthCheck.java
+code
+Java
+package com.bnpparibas.certis.api.healthcheck.service.check; // Ou votre package de checks
+
+import com.bnpparibas.certis.api.healthcheck.service.HealthCheck;
+import com.bnpparibas.certis.api.healthcheck.service.HealthStatus;
+import com.bnpparibas.certis.referential.refweb.dao.ReferenceRefwebDao; // L'import du DAO
+import org.springframework.stereotype.Component;
+
+/**
+ * Vérifie l'état de santé de la connexion à la base de données du référentiel "refweb".
+ * Ce check effectue une recherche pour une URL qui n'existe pas afin de valider
+ * la connectivité à la base de données.
+ */
+@Component
+public class RefwebDbHealthCheck implements HealthCheck {
+
+    private final ReferenceRefwebDao referenceRefwebDao;
+
+    // Une URL garantie de ne jamais exister.
+    private static final String NON_EXISTENT_URL = "https://healthcheck.local/url-does-not-exist";
+
+    public RefwebDbHealthCheck(ReferenceRefwebDao referenceRefwebDao) {
+        this.referenceRefwebDao = referenceRefwebDao;
+    }
+
+    @Override
+    public String getName() {
+        // Un nom clair pour ce check
+        return "refweb-db";
+    }
+
+    @Override
+    public HealthStatus check() {
+        try {
+            // On appelle la méthode existante avec notre URL de test.
+            boolean exists = referenceRefwebDao.existsReferenceRefwebByUrl(NON_EXISTENT_URL);
+
+            // Le cas idéal est que la méthode retourne 'false'.
+            if (exists) {
+                // C'est inattendu, mais la requête a réussi, donc c'est un SUCCÈS.
+                return HealthStatus.ok("RefWeb DB connection is healthy, but unexpectedly found a test URL.");
+            } else {
+                // Si le résultat est 'false', c'est la preuve que tout fonctionne.
+                return HealthStatus.ok("RefWeb DB connection is healthy and a test query was executed successfully (returned expected 'false').");
+            }
+
+        } catch (Exception e) {
+            // Toute exception (SQLException, etc.) pendant l'appel indique un VRAI échec de connexion.
+            return HealthStatus.ko("Failed to execute query on the RefWeb database: " + e.getMessage());
+        }
+    }
+}
