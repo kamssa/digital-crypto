@@ -2763,3 +2763,54 @@ Version Cible : La version cible d'Oracle est-elle clairement définie et valid�
 Étude de Compatibilité : A-t-on vérifié que les applications qui utilisent "Certis" sont 100% compatibles avec la nouvelle version d'Oracle ? (Très important pour éviter les régressions).
 Plan de Projet Détaillé : Avons-nous un planning validé incluant toutes les étapes, les durées estimées et les responsables de chaque action (DBA, équipes applicatives, testeurs, etc.) ?
 Plan de Communication : Les parties prenantes (utilisateurs, management, équipes applicatives) ont-elles été informées des dates et des impacts potentiels (indisponibilité) ?
+Parfait, c'est une excellente question et c'est l'étape finale pour rendre votre système de monitoring vraiment utile en production.
+Dynatrace (comme Datadog, New Relic, etc.) est un outil de monitoring de performance applicative (APM). Pour qu'il puisse surveiller la santé de vos dépendances, nous devons lui dire d'appeler notre endpoint GET /health à intervalle régulier.
+La fonctionnalité de Dynatrace qui permet de faire cela s'appelle un HTTP Monitor.
+Un HTTP Monitor est une configuration dans Dynatrace qui dit : "Toutes les X minutes, fais une requête HTTP vers cette URL et vérifie la réponse."
+Voici comment vous (ou votre équipe d'exploitation/SRE) pouvez le configurer.
+Configurer un Moniteur HTTP dans Dynatrace
+Étape 1 : Accéder à la Création du Moniteur
+Connectez-vous à votre interface Dynatrace.
+Dans le menu de navigation, allez dans la section "Synthetic Monitoring" (Surveillance Synthétique).
+Cliquez sur le bouton "Create a synthetic monitor" (Créer un moniteur synthétique).
+Choisissez le type de moniteur "HTTP monitor".
+Étape 2 : Configurer la Requête
+Vous arriverez sur un formulaire de configuration. Voici les champs clés à remplir :
+Monitor Name : Donnez un nom clair et explicite.
+Exemple : CertisApp - Health Check Dependencies
+HTTP Request :
+URL : C'est la partie la plus importante. Vous devez mettre l'URL complète de votre endpoint /health.
+Exemple pour l'environnement de QUAL : https://certis-app.qual.mycompany.net/api/health
+Exemple pour la PROD : https://certis-app.prod.mycompany.net/api/health
+Method : GET
+Authentication : Si votre API est protégée, vous devrez configurer ici comment Dynatrace doit s'authentifier (par exemple, avec un token dans les en-têtes).
+Étape 3 : Configurer la Fréquence et les Emplacements
+Frequency : À quelle fréquence Dynatrace doit-il appeler votre endpoint ?
+Un bon point de départ est toutes les 5 minutes, ce qui correspond à la fréquence de votre HealthCheckRunner.
+Locations : Depuis où Dynatrace doit-il faire l'appel ?
+Vous pouvez choisir des "locations" publiques (cloud providers dans différentes régions) ou des "private locations" (des agents Dynatrace installés dans votre propre infrastructure). Choisissez les emplacements pertinents pour votre application.
+Étape 4 : Configurer la Validation et les Alertes (le plus important !)
+C'est ici que nous allons dire à Dynatrace comment interpréter la réponse JSON de notre API.
+Validation :
+HTTP Status Code : Assurez-vous que la validation vérifie que le code de statut est 200 OK. Si l'API retourne un 500 Internal Server Error, Dynatrace doit considérer que c'est une panne.
+Response Body Validation (Validation du corps de la réponse) : C'est ici que nous allons utiliser notre champ alertLevel.
+Créez une nouvelle règle de validation.
+Type : "JSON body"
+JSONPath Expression : Utilisez une expression JSONPath pour vérifier qu'aucun service n'a un alertLevel de CRITICAL. L'expression est : $[?(@.alertLevel == 'CRITICAL')]
+Condition : "matches"
+Value : [] (un tableau vide)
+Traduction de cette règle : "Le test est un succès si le résultat de l'expression JSONPath (qui recherche tous les services avec un alertLevel 'CRITICAL') est un tableau vide."
+Alerting :
+Configurez les règles d'alerte. Par exemple, "Si le moniteur échoue depuis 2 emplacements consécutifs, crée un problème Dynatrace et envoie une notification à l'équipe d'astreinte via Slack/PagerDuty/email."
+Vous pouvez aussi créer des alertes spécifiques si le temps de réponse de l'API dépasse un certain seuil.
+Étape 5 : Sauvegarder et Activer
+Sauvegardez votre moniteur. Dynatrace va commencer à appeler votre endpoint GET /health toutes les 5 minutes et à analyser la réponse.
+Le Résultat Final
+Avec cette configuration :
+Dynatrace appellera votre HealthController régulièrement.
+Votre HealthController lira la base de données (mise à jour par le HealthCheckRunner).
+Il calculera la fraîcheur et les niveaux d'alerte.
+Il retournera le JSON.
+Dynatrace analysera le JSON. Si un seul de vos services passe en alertLevel: "CRITICAL", la règle de validation échouera, et Dynatrace déclenchera une alerte globale, notifiant les bonnes personnes.
+Vous aurez ainsi bouclé la boucle : de la détection de la panne dans votre code Java jusqu'à l'alerte envoyée à l'équipe d'astreinte. C'est un système de monitoring de production complet.
+Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
