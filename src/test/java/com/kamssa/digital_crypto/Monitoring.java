@@ -2088,3 +2088,52 @@ public class VaultHealthCheck implements HealthCheck {
         }
     }
 }
+////////////////////////////////////////////////
+code
+Java
+package com.bnpparibas.certis.api.check; // Ou votre package de checks
+
+import com.bnpparibas.certis.api.healthcheck.dto.HealthStatus;
+import com.bnpparibas.certis.referential.refi.dao.OpenDataDao; // L'import du DAO
+import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils; // Utilitaire Spring pour vérifier les chaînes
+
+@Component
+public class DatabaseHealthCheck implements HealthCheck {
+
+    private final OpenDataDao openDataDao;
+    
+    // REMPLACEZ CETTE VALEUR PAR UN VRAI NOM DE GROUPE QUI EXISTE TOUJOURS
+    private static final String TEST_SUPPORT_GROUP_NAME = "SYSTEM_ADMIN_GROUP";
+
+    public DatabaseHealthCheck(OpenDataDao openDataDao) {
+        this.openDataDao = openDataDao;
+    }
+
+    @Override
+    public String getName() {
+        return "cmdb";
+    }
+
+    @Override
+    public HealthStatus check() {
+        try {
+            // On appelle la méthode existante avec notre groupe de test connu.
+            // La variable 'result' est maintenant un String.
+            String result = openDataDao.getSupportGroupMail(TEST_SUPPORT_GROUP_NAME);
+
+            // On vérifie le résultat. Si le groupe de test n'est pas trouvé, le DAO retourne null ou une chaîne vide.
+            // StringUtils.hasText() vérifie si la chaîne n'est pas null ET ne contient pas que des espaces.
+            if (!StringUtils.hasText(result)) {
+                return HealthStatus.ko("Database is connected, but the test support group '" + TEST_SUPPORT_GROUP_NAME + "' was not found. Data integrity issue?");
+            }
+
+            // Si on a reçu une chaîne de caractères non vide, la connexion et la requête ont réussi.
+            return HealthStatus.ok("Database connection is healthy and a test query was successful (found email: " + result + ").");
+
+        } catch (Exception e) {
+            // Toute exception (SQLException, etc.) pendant l'appel indique un échec de connexion.
+            return HealthStatus.ko("Failed to execute query on the database: " + e.getMessage());
+        }
+    }
+}
