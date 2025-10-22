@@ -1860,3 +1860,84 @@ public HealthStatus check() {
         }
     }
 }
+/////////////////////////////////////////////////////
+Ajoutez-y la déclaration de cette nouvelle méthode :
+code
+Java
+// Dans AutomationHubService.java
+public interface AutomationHubService {
+
+    // ... toutes vos méthodes existantes (enroll, revoke, etc.) ...
+
+    /**
+     * Vérifie la disponibilité du service Automation Hub (Horizon).
+     * @return true si le service est opérationnel, false sinon.
+     */
+    boolean isHealthy(); // <-- AJOUTEZ CETTE MÉTHODE
+
+}
+Étape 2 : Implémenter la Nouvelle Méthode dans AutomationHubServiceImpl
+Maintenant, ouvrez la classe d'implémentation AutomationHubServiceImpl.java et ajoutez le corps de cette nouvelle méthode. Nous allons simplement réutiliser l'appel au client qui existe déjà.
+Emplacement : automation-hub/src/main/java/com/bnpparibas/certis/automationhub/service/impl/AutomationHubServiceImpl.java
+code
+Java
+// Dans AutomationHubServiceImpl.java
+@Service
+public class AutomationHubServiceImpl implements AutomationHubService {
+
+    private final AutomationHubClient automationHubClient;
+    // ... autres dépendances ...
+
+    // ... constructeur et autres méthodes ...
+
+    @Override // <-- Implémentation de la nouvelle méthode
+    public boolean isHealthy() {
+        // On délègue simplement l'appel à la méthode isUp() du client.
+        // C'est le service qui a la responsabilité de connaître le client,
+        // pas notre HealthCheck.
+        return this.automationHubClient.isUp();
+    }
+}
+Étape 3 : Mettre à jour HorizonHealthCheck pour utiliser le Service
+Enfin, nous pouvons modifier notre HealthCheck pour qu'il dépende du service et non plus du client. C'est la touche finale qui rend l'architecture parfaite.
+Fichier : HorizonHealthCheck.java (Version Finale et Corrigée)
+code
+Java
+package com.bnpparibas.certis.api.check; // Adaptez le package si besoin
+
+import com.bnpparibas.certis.automationhub.service.AutomationHubService; // Import du SERVICE
+import com.bnpparibas.certis.api.healthcheck.dto.HealthStatus;
+import org.springframework.stereotype.Component;
+
+@Component
+public class HorizonHealthCheck implements HealthCheck {
+
+    // On dépend maintenant de l'interface du service, ce qui est plus propre.
+    private final AutomationHubService automationHubService;
+
+    public HorizonHealthCheck(AutomationHubService automationHubService) {
+        this.automationHubService = automationHubService;
+    }
+
+    @Override
+    public String getName() {
+        return "horizon";
+    }
+
+    @Override
+    public HealthStatus check() {
+        try {
+            // On appelle notre nouvelle méthode de service.
+            boolean isServiceHealthy = automationHubService.isHealthy();
+
+            if (isServiceHealthy) {
+                return HealthStatus.ok("Horizon (AutomationHub) service is up and responding.");
+            } else {
+                return HealthStatus.ko("Horizon (AutomationHub) service is not responding correctly (isHealthy() returned false).");
+            }
+
+        } catch (Exception e) {
+            return HealthStatus.ko("An unexpected error occurred while checking Horizon service: " + e.getMessage());
+        }
+    }
+}
