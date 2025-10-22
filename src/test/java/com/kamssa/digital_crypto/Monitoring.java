@@ -2428,3 +2428,43 @@ public class HealthController {
             .collect(Collectors.toList());
     }
 }
+/////////////////////
+public void performAllChecks() {
+    log.info("Performing health checks...");
+
+    for (HealthCheck check : allChecks) {
+        // Le nom du check est notre clé primaire
+        String checkName = check.getName(); 
+        
+        // On exécute le check
+        HealthStatus currentStatus = check.check();
+
+        // On cherche l'entité existante dans la base de données en utilisant la clé (String)
+        Optional<HealthStatusEntity> existingEntityOptional = statusRepository.findById(checkName);
+
+        HealthStatusEntity entityToSave;
+
+        if (existingEntityOptional.isPresent()) {
+            // Si l'entité est trouvée, on la récupère pour la mettre à jour
+            entityToSave = existingEntityOptional.get();
+            log.debug("Updating existing status for check: {}", checkName);
+        } else {
+            // Si l'entité n'est pas trouvée, on en crée une nouvelle
+            entityToSave = new HealthStatusEntity();
+            entityToSave.setCheckName(checkName); // On définit la clé primaire
+            log.debug("Creating new status for check: {}", checkName);
+        }
+
+        // On met à jour les champs avec les nouvelles valeurs
+        entityToSave.setStatus(currentStatus.getStatus());
+        entityToSave.setDetails(currentStatus.getDetails());
+        entityToSave.setHostname(hostname);
+        entityToSave.setLastCheckedAt(LocalDateTime.now());
+        
+        // On sauvegarde. Spring JPA est intelligent :
+        // - Si l'entité a été récupérée de la base (cas du if), il fera un UPDATE.
+        // - Si l'entité est nouvelle (cas du else), il fera un INSERT.
+        statusRepository.save(entityToSave);
+    }
+    log.info("Finished performing health checks.");
+}
