@@ -1941,3 +1941,150 @@ public class HorizonHealthCheck implements HealthCheck {
         }
     }
 }
+///////////////////////////////
+code
+Java
+// ... autres imports ...
+import org.apache.http.ssl.SSLContexts;
+import org.springframework.http.client.ClientHttpRequestFactory;
+import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
+import java.io.FileInputStream;
+import java.io.InputStream;
+import java.security.KeyStore;
+import javax.net.ssl.SSLContext;
+
+@Configuration
+public class VaultTemplateFactory {
+
+    @Value("${vault.url}")
+    private String vaultUrl;
+
+    @Value("${vault.truststore.path}")
+    private String vaultTruststorePath;
+
+    @Value("${vault.truststore.passphrase}")
+    private String vaultTruststorePassphrase;
+
+    // ... autres champs et constructeur ...
+
+    // --- AJOUTEZ CETTE NOUVELLE MÉTHODE PUBLIQUE ---
+    /**
+     * Construit un RestTemplate simple mais sécurisé, configuré pour faire confiance
+     * au truststore de Vault. Idéal pour les endpoints publics comme /sys/health.
+     * @return un RestTemplate configuré.
+     */
+    public RestTemplate buildHealthCheckTemplate() {
+        try {
+            KeyStore truststore = KeyStore.getInstance("JKS");
+            try (InputStream in = new FileInputStream(vaultTruststorePath)) {
+                truststore.load(in, vaultTruststorePassphrase.toCharArray());
+            }
+
+            SSLContext sslContext = SSLContexts.custom()
+                    .loadTrustMaterial(truststore, null)
+                    .build();
+
+            ClientHttpRequestFactory requestFactory = new HttpComponentsClientHttpRequestFactory(
+                    org.apache.http.impl.client.HttpClients.custom()
+                            .setSSLSocketFactory(new org.apache.http.conn.ssl.SSLConnectionSocketFactory(sslContext))
+                            .build()
+            );
+
+            // On utilise un RestTemplateBuilder simple ici
+            return new RestTemplateBuilder().requestFactory(() -> requestFactory).build();
+            
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to create secure RestTemplate for Vault health check", e);
+        }
+    }
+
+    // --- AJOUTEZ AUSSI UN GETTER POUR L'URL ---
+    public String getVaultUrl() {
+        return vaultUrl;
+    }
+
+    // ... reste de la classe (buildVaultTemplate, restOperations, etc.) ...
+}
+Étape 2 : Améliorer VaultService (dans le module vault)
+Maintenant, nous allons ajouter la méthode de health check directement dans le service.
+Fichier : VaultService.java (Modifié)
+code
+Java
+package com.bnpparibas.certis.vault;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
+
+@Service
+public class VaultService {
+    private static final Logger LOGGER = LoggerFactory.getLogger(VaultService.class);
+    private final VaultTemplateFactory vaultTemplateFactory;
+
+    public VaultService(VaultTemplateFactory vaultTemplateFactory) {
+        this.vaultTemplateFactory = vaultTemplateFactory;
+    }
+    
+    // ... méthode getSecret(...) ...
+
+    // --- AJOUTEZ CETTE NOUVELLE MÉTHODE PUBLIQUE ---
+    /**
+     * Vérifie la disponibilité de l'instance Vault en appelant son endpoint de santé.
+     * @return true si le service est accessible, false sinon.
+     */
+    public boolean isHealthy() {
+        try {
+            // On demande à la factory de nous construire le RestTemplate spécial pour le health check.
+            RestTemplate healthTemplate = this.vaultTemplateFactory.buildHealthCheckTemplate();
+            
+            // On construit l'URL de l'endpoint de santé.
+            String healthUrl = this.vaultTemplateFactory.getVaultUrl() + "/v1/sys/health";
+            
+            // On effectue l'appel.
+            healthTemplate.getForEntity(healthUrl, String.class);
+            
+            // Si aucune exception n'est levée, tout va bien.
+            return true;
+        } catch (Exception e) {
+            LOGGER.error("Vault health check failed: Unable to connect to Vault instance.", e);
+            return false;
+        }
+    }
+}
+Étape 3 : Simplifier radicalement VaultHealthCheck (dans le module api)
+C'est ici que tout notre travail porte ses fruits. Le HealthCheck devient incroyablement simple.
+Fichier : VaultHealthCheck.java (Version Finale et Simplifiée)
+code
+Java
+package com.bnpparibas.certis.api.check; // Ou votre package de checks
+
+import com.bnpparibas.certis.api.healthcheck.dto.HealthStatus;
+import com.bnpparibas.certis.vault.VaultService; // Import du SERVICE
+import org.springframework.stereotype.Component;
+
+@Component
+public class VaultHealthCheck implements HealthCheck {
+
+    private final VaultService vaultService;
+
+    public VaultHealthCheck(VaultService vaultService) {
+        this.vaultService = vaultService;
+    }
+
+    @Override
+    public String getName() {
+        return "hvault";
+    }
+
+    @Override
+    public HealthStatus check() {
+        // On appelle simplement la nouvelle méthode du service.
+        if (vaultService.isHealthy()) {
+            return HealthStatus.ok("Vault instance is reachable and responding.");
+        } else {
+            // Le message d'erreur détaillé est déjà dans les logs grâce au LOGGER.error du service.
+            return HealthStatus.ko("Failed to connect to Vault instance. Check application logs for details.");
+        }
+    }
+}
