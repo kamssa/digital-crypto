@@ -2755,3 +2755,5 @@ public class RefwebDbHealthCheck implements HealthCheck {
             .collect(Collectors.toList());
     }
 }
+////////////////////
+telnet db-server.my-company.com 5432
