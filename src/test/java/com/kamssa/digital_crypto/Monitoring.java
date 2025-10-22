@@ -2756,4 +2756,10 @@ public class RefwebDbHealthCheck implements HealthCheck {
     }
 }
 ////////////////////
+
 telnet db-server.my-company.com 5432
+1. Phase de Planification et d'Analyse
+Version Cible : La version cible d'Oracle est-elle clairement définie et validée ?
+Étude de Compatibilité : A-t-on vérifié que les applications qui utilisent "Certis" sont 100% compatibles avec la nouvelle version d'Oracle ? (Très important pour éviter les régressions).
+Plan de Projet Détaillé : Avons-nous un planning validé incluant toutes les étapes, les durées estimées et les responsables de chaque action (DBA, équipes applicatives, testeurs, etc.) ?
+Plan de Communication : Les parties prenantes (utilisateurs, management, équipes applicatives) ont-elles été informées des dates et des impacts potentiels (indisponibilité) ?
