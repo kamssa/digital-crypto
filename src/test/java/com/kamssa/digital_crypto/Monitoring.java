@@ -2184,3 +2184,247 @@ public class DatabaseHealthCheck implements HealthCheck {
         }
     }
 }
+/////////////////////// sans historique ///////////////
+code
+SQL
+-- Suppression des anciens objets pour un nettoyage complet
+BEGIN
+   EXECUTE IMMEDIATE 'DROP TABLE HEALTH_CHECK_RESULTS';
+EXCEPTION
+   WHEN OTHERS THEN
+      IF SQLCODE != -942 THEN RAISE; END IF;
+END;
+/
+BEGIN
+   EXECUTE IMMEDIATE 'DROP SEQUENCE SEQ_HEALTHCHECK_RESULT_ID';
+EXCEPTION
+   WHEN OTHERS THEN
+      IF SQLCODE != -2289 THEN RAISE; END IF;
+END;
+/
+
+-- Suppression de la nouvelle table au cas où on relance le script
+BEGIN
+   EXECUTE IMMEDIATE 'DROP TABLE CURRENT_HEALTH_STATUS';
+EXCEPTION
+   WHEN OTHERS THEN
+      IF SQLCODE != -942 THEN RAISE; END IF;
+END;
+/
+
+-- Création de la nouvelle table pour stocker l'état actuel
+CREATE TABLE CURRENT_HEALTH_STATUS (
+    -- Le nom du check est la clé primaire
+    CHECK_NAME VARCHAR2(100 CHAR) NOT NULL PRIMARY KEY,
+
+    -- Le dernier statut brut ('OK' ou 'KO')
+    STATUS VARCHAR2(50 CHAR) NOT NULL,
+
+    -- Les détails du dernier check
+    DETAILS VARCHAR2(4000 CHAR),
+
+    -- Le nom du serveur qui a effectué le dernier check
+    HOSTNAME VARCHAR2(255 CHAR) NOT NULL,
+
+    -- La date et l'heure exactes du dernier check
+    LAST_CHECKED_AT TIMESTAMP NOT NULL
+);
+
+PROMPT Table CURRENT_HEALTH_STATUS créée avec succès.;
+Étape 2 : Les Classes Java de la Couche Données
+Fichier : HealthStatusEntity.java
+Emplacement : .../api/healthcheck/model/HealthStatusEntity.java
+Description : L'entité JPA qui correspond à notre nouvelle table.
+code
+Java
+package com.bnpparibas.certis.api.healthcheck.model;
+
+import lombok.Getter;
+import lombok.Setter;
+import javax.persistence.Column;
+import javax.persistence.Entity;
+import javax.persistence.Id;
+import javax.persistence.Table;
+import java.time.LocalDateTime;
+
+@Getter
+@Setter
+@Entity
+@Table(name = "CURRENT_HEALTH_STATUS")
+public class HealthStatusEntity {
+
+    @Id
+    @Column(name = "CHECK_NAME")
+    private String checkName;
+
+    @Column(name = "STATUS", nullable = false)
+    private String status;
+
+    @Column(name = "DETAILS")
+    private String details;
+
+    @Column(name = "HOSTNAME", nullable = false)
+    private String hostname;
+
+    @Column(name = "LAST_CHECKED_AT", nullable = false)
+    private LocalDateTime lastCheckedAt;
+}
+Fichier : HealthStatusRepository.java
+Emplacement : .../api/healthcheck/repository/HealthStatusRepository.java
+Description : Le repository Spring Data pour interagir avec la table.
+code
+Java
+package com.bnpparibas.certis.api.healthcheck.repository;
+
+import com.bnpparibas.certis.api.healthcheck.model.HealthStatusEntity;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+@Repository
+public interface HealthStatusRepository extends JpaRepository<HealthStatusEntity, String> {
+    // Aucune méthode personnalisée n'est nécessaire.
+}
+Étape 3 : Le HealthCheckRunner (simplifié)
+Emplacement : .../api/healthcheck/tasks/HealthCheckRunner.java
+Description : Le worker qui exécute les checks et met à jour la base de données.
+code
+Java
+package com.bnpparibas.certis.api.healthcheck.tasks;
+
+import com.bnpparibas.certis.api.healthcheck.model.HealthStatusEntity;
+import com.bnpparibas.certis.api.healthcheck.repository.HealthStatusRepository;
+import com.bnpparibas.certis.api.healthcheck.service.HealthCheck;
+import com.bnpparibas.certis.api.healthcheck.service.HealthStatus;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
+import java.time.LocalDateTime;
+import java.util.List;
+
+@Service
+public class HealthCheckRunner {
+
+    private static final Logger log = LoggerFactory.getLogger(HealthCheckRunner.class);
+
+    private final List<HealthCheck> allChecks;
+    private final HealthStatusRepository statusRepository;
+    private final String hostname;
+
+    public HealthCheckRunner(List<HealthCheck> allChecks, HealthStatusRepository statusRepository) {
+        this.allChecks = allChecks;
+        this.statusRepository = statusRepository;
+        this.hostname = resolveHostname();
+    }
+
+    @Scheduled(fixedRateString = "${monitoring.check.frequency-ms:300000}") // 5 minutes
+    @Transactional
+    public void performAllChecks() {
+        log.info("Performing health checks...");
+
+        for (HealthCheck check : allChecks) {
+            HealthStatus currentStatus = check.check();
+
+            HealthStatusEntity entityToSave = statusRepository.findById(check.getName())
+                .orElseGet(() -> {
+                    HealthStatusEntity newEntity = new HealthStatusEntity();
+                    newEntity.setCheckName(check.getName());
+                    return newEntity;
+                });
+
+            entityToSave.setStatus(currentStatus.getStatus());
+            entityToSave.setDetails(currentStatus.getDetails());
+            entityToSave.setHostname(hostname);
+            entityToSave.setLastCheckedAt(LocalDateTime.now());
+            
+            statusRepository.save(entityToSave);
+        }
+        log.info("Finished performing health checks.");
+    }
+
+    private String resolveHostname() {
+        try {
+            return InetAddress.getLocalHost().getHostName();
+        } catch (UnknownHostException e) {
+            log.error("Could not determine hostname.", e);
+            return "unknown-host";
+        }
+    }
+}
+Étape 4 : Les Classes pour la Réponse de l'API
+Fichier : HealthStatusResponseDto.java
+Emplacement : .../api/healthcheck/dto/HealthStatusResponseDto.java
+Description : Le nouvel objet qui sera retourné par l'API en JSON.
+code
+Java
+package com.bnpparibas.certis.api.healthcheck.dto;
+
+import lombok.Data;
+import java.time.LocalDateTime;
+
+@Data
+public class HealthStatusResponseDto {
+    private String checkName;
+    private String status;
+    private String details;
+    private String hostname;
+    private LocalDateTime lastCheckedAt;
+    private String freshness; // Notre champ calculé
+}
+Fichier : HealthController.java
+Emplacement : .../api/healthcheck/controller/HealthController.java
+Description : Le contrôleur qui expose l'API GET /health et contient la logique de calcul.
+code
+Java
+package com.bnpparibas.certis.api.healthcheck.controller;
+
+import com.bnpparibas.certis.api.healthcheck.dto.HealthStatusResponseDto;
+import com.bnpparibas.certis.api.healthcheck.model.HealthStatusEntity;
+import com.bnpparibas.certis.api.healthcheck.repository.HealthStatusRepository;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.stream.Collectors;
+
+@RestController
+public class HealthController {
+
+    private final HealthStatusRepository statusRepository;
+
+    public HealthController(HealthStatusRepository statusRepository) {
+        this.statusRepository = statusRepository;
+    }
+
+    @GetMapping("/health")
+    public List<HealthStatusResponseDto> getHealthStatus() {
+        List<HealthStatusEntity> allStatuses = statusRepository.findAll();
+        LocalDateTime now = LocalDateTime.now();
+        final long STALE_THRESHOLD_MINUTES = 5;
+
+        return allStatuses.stream()
+            .map(entity -> {
+                HealthStatusResponseDto dto = new HealthStatusResponseDto();
+                dto.setCheckName(entity.getCheckName());
+                dto.setStatus(entity.getStatus());
+                dto.setDetails(entity.getDetails());
+                dto.setHostname(entity.getHostname());
+                dto.setLastCheckedAt(entity.getLastCheckedAt());
+                
+                long minutesSinceLastCheck = Duration.between(entity.getLastCheckedAt(), now).toMinutes();
+
+                if (minutesSinceLastCheck > STALE_THRESHOLD_MINUTES) {
+                    dto.setFreshness("STALE");
+                } else {
+                    dto.setFreshness("UP_TO_DATE");
+                }
+                
+                return dto;
+            })
+            .collect(Collectors.toList());
+    }
+}
