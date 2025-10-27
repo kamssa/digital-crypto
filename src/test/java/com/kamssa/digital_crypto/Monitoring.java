@@ -2950,3 +2950,210 @@ JSON
 }
 Cette structure est excellente. Elle est très facile à parser pour un frontend et permet d'afficher les statuts regroupés par serveur, ce qui est très pratique pour les opérations.
 Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
+ //////////////////////////// resumer ///////////////////////////////////////////////////////////
+ code
+SQL
+-- Nettoyage des objets existants (anciens et nouveaux)
+BEGIN EXECUTE IMMEDIATE 'DROP TABLE HEALTH_CHECK_RESULTS'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;
+/
+BEGIN EXECUTE IMMEDIATE 'DROP SEQUENCE SEQ_HEALTHCHECK_RESULT_ID'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -2289 THEN RAISE; END IF; END;
+/
+BEGIN EXECUTE IMMEDIATE 'DROP TABLE CURRENT_HEALTH_STATUS'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;
+/
+
+-- Création de la nouvelle table pour l'état actuel
+CREATE TABLE CURRENT_HEALTH_STATUS (
+    CHECK_NAME VARCHAR2(100 CHAR) NOT NULL PRIMARY KEY,
+    STATUS VARCHAR2(50 CHAR) NOT NULL,
+    DETAILS VARCHAR2(4000 CHAR),
+    HOSTNAME VARCHAR2(255 CHAR) NOT NULL,
+    LAST_CHECKED_AT TIMESTAMP NOT NULL
+);
+2. Classes de la Couche Données (Module api)
+.../api/healthcheck/model/HealthStatusEntity.java
+code
+Java
+package com.bnpparibas.certis.api.healthcheck.model;
+
+import lombok.Getter;
+import lombok.Setter;
+import javax.persistence.*;
+import java.time.LocalDateTime;
+
+@Getter @Setter @Entity @Table(name = "CURRENT_HEALTH_STATUS")
+public class HealthStatusEntity {
+    @Id @Column(name = "CHECK_NAME")
+    private String checkName;
+    @Column(name = "STATUS", nullable = false)
+    private String status;
+    @Column(name = "DETAILS")
+    private String details;
+    @Column(name = "HOSTNAME", nullable = false)
+    private String hostname;
+    @Column(name = "LAST_CHECKED_AT", nullable = false)
+    private LocalDateTime lastCheckedAt;
+}
+.../api/healthcheck/repository/HealthStatusRepository.java
+code
+Java
+package com.bnpparibas.certis.api.healthcheck.repository;
+
+import com.bnpparibas.certis.api.healthcheck.model.HealthStatusEntity;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+@Repository
+public interface HealthStatusRepository extends JpaRepository<HealthStatusEntity, String> {}
+3. Classes de la Couche Service (les HealthChecks dans le module api)
+.../api/healthcheck/service/HealthCheck.java (L'interface)
+code
+Java
+package com.bnpparibas.certis.api.healthcheck.service;
+
+public interface HealthCheck {
+    String getName();
+    HealthStatus check();
+}
+.../api/healthcheck/service/HealthStatus.java (Le DTO interne)
+code
+Java
+package com.bnpparibas.certis.api.healthcheck.service;
+
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+
+@Getter @AllArgsConstructor
+public class HealthStatus {
+    private final String status;
+    private final String details;
+
+    public static HealthStatus ok(String details) { return new HealthStatus("OK", details); }
+    public static HealthStatus ko(String reason) { return new HealthStatus("KO", reason); }
+}
+.../api/healthcheck/service/check/DatabaseHealthCheck.java (Pour "cmdb")
+code
+Java
+package com.bnpparibas.certis.api.healthcheck.service.check;
+
+import com.bnpparibas.certis.api.healthcheck.service.HealthCheck;
+import com.bnpparibas.certis.api.healthcheck.service.HealthStatus;
+import com.bnpparibas.certis.referential.refi.dao.OpenDataDao;
+import org.springframework.stereotype.Component;
+
+@Component
+public class DatabaseHealthCheck implements HealthCheck {
+    private final OpenDataDao openDataDao;
+    private static final String NON_EXISTENT_GROUP = "HEALTHCHECK_GROUP_DOES_NOT_EXIST";
+
+    public DatabaseHealthCheck(OpenDataDao openDataDao) { this.openDataDao = openDataDao; }
+
+    @Override public String getName() { return "cmdb"; }
+
+    @Override public HealthStatus check() {
+        try {
+            openDataDao.getSupportGroupMail(NON_EXISTENT_GROUP);
+            return HealthStatus.ok("Database connection is healthy and a test query was executed successfully.");
+        } catch (Exception e) {
+            return HealthStatus.ko("Failed to execute query on the database: " + e.getMessage());
+        }
+    }
+}
+(Note : Ce code a été simplifié pour le résumé. La version avec vérification du résultat null est aussi valide)
+Les autres HealthCheck (HorizonHealthCheck, VaultHealthCheck, etc.) restent les mêmes que ceux que nous avons définis, basés sur la réutilisation des services existants.
+4. Le HealthCheckRunner (Module api)
+.../api/healthcheck/tasks/HealthCheckRunner.java
+code
+Java
+package com.bnpparibas.certis.api.healthcheck.tasks;
+
+// ... imports ...
+
+@Service
+public class HealthCheckRunner {
+    private final List<HealthCheck> allChecks;
+    private final HealthStatusRepository statusRepository;
+    private final String hostname;
+    
+    // ... constructeur et resolveHostname() ...
+
+    @Scheduled(fixedRateString = "${monitoring.check.frequency-ms:300000}")
+    @Transactional
+    public void performAllChecks() {
+        for (HealthCheck check : allChecks) {
+            HealthStatus currentStatus = check.check();
+            HealthStatusEntity entity = statusRepository.findById(check.getName()).orElseGet(() -> {
+                HealthStatusEntity newEntity = new HealthStatusEntity();
+                newEntity.setCheckName(check.getName());
+                return newEntity;
+            });
+            entity.setStatus(currentStatus.getStatus());
+            entity.setDetails(currentStatus.getDetails());
+            entity.setHostname(hostname);
+            entity.setLastCheckedAt(LocalDateTime.now());
+            statusRepository.save(entity);
+        }
+    }
+}
+5. Les Classes de l'API (Module api)
+.../api/healthcheck/dto/HealthStatusResponseDto.java
+code
+Java
+package com.bnpparibas.certis.api.healthcheck.dto;
+
+import com.fasterxml.jackson.annotation.JsonFormat;
+import lombok.Data;
+import java.time.LocalDateTime;
+
+@Data
+public class HealthStatusResponseDto {
+    private String checkName;
+    private String status;
+    private String details;
+    private String hostname;
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd HH:mm:ss")
+    private LocalDateTime lastCheckedAt;
+    private boolean isFresh;
+    private String alertLevel;
+}
+.../api/healthcheck/controller/HealthController.java
+code
+Java
+package com.bnpparibas.certis.api.healthcheck.controller;
+
+// ... imports ...
+
+@RestController
+public class HealthController {
+    private final HealthStatusRepository statusRepository;
+
+    public HealthController(HealthStatusRepository statusRepository) { this.statusRepository = statusRepository; }
+
+    @GetMapping("/health")
+    public Map<String, List<HealthStatusResponseDto>> getGroupedHealthStatus() {
+        List<HealthStatusEntity> allStatuses = statusRepository.findAll();
+        return allStatuses.stream().collect(Collectors.groupingBy(
+            HealthStatusEntity::getHostname,
+            Collectors.mapping(entity -> {
+                HealthStatusResponseDto dto = new HealthStatusResponseDto();
+                dto.setCheckName(entity.getCheckName());
+                dto.setStatus(entity.getStatus());
+                dto.setDetails(entity.getDetails());
+                dto.setHostname(entity.getHostname());
+                dto.setLastCheckedAt(entity.getLastCheckedAt());
+
+                boolean isFresh = "OK".equals(entity.getStatus());
+                dto.setFresh(isFresh);
+
+                if ("KO".equals(entity.getStatus())) {
+                    dto.setAlertLevel("CRITICAL");
+                } else {
+                    dto.setAlertLevel("OK");
+                }
+                
+                return dto;
+            }, Collectors.toList())
+        ));
+    }
+}
+Et voilà ! C'est la synthèse de tout notre travail. Vous avez tous les éléments pour finaliser votre fonctionnalité.
+Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
