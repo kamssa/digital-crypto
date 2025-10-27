@@ -2814,3 +2814,139 @@ Il retournera le JSON.
 Dynatrace analysera le JSON. Si un seul de vos services passe en alertLevel: "CRITICAL", la règle de validation échouera, et Dynatrace déclenchera une alerte globale, notifiant les bonnes personnes.
 Vous aurez ainsi bouclé la boucle : de la détection de la panne dans votre code Java jusqu'à l'alerte envoyée à l'équipe d'astreinte. C'est un système de monitoring de production complet.
 Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
+
+/////////////////////////////
+Fichier : HealthStatusResponseDto.java (Modifié)
+code
+Java
+package com.bnpparibas.certis.api.healthcheck.dto;
+
+import com.fasterxml.jackson.annotation.JsonFormat;
+import lombok.Data;
+import java.time.LocalDateTime;
+
+@Data
+public class HealthStatusResponseDto {
+    private String checkName;
+    private String status;
+    private String details;
+    // Le hostname n'est plus nécessaire ici car il sera la clé de la Map
+    
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd HH:mm:ss")
+    private LocalDateTime lastCheckedAt;
+    
+    private boolean isFresh; // <-- CHANGEMENT : 'freshness' devient 'isFresh' de type boolean
+    private String alertLevel;
+}
+Changements :
+freshness (String) est remplacé par isFresh (boolean). C'est une convention de nommage en Java pour les getters de booléens (isFresh() au lieu de getFresh()).
+J'ai commenté hostname car il deviendra la clé principale de notre JSON.
+Étape 2 : Mettre à jour le HealthController avec la Nouvelle Logique
+Le HealthController va maintenant faire un peu plus de travail de transformation pour créer la Map finale.
+Fichier : HealthController.java (Version Modifiée)
+code
+Java
+package com.bnpparibas.certis.api.healthcheck.controller;
+
+import com.bnpparibas.certis.api.healthcheck.dto.HealthStatusResponseDto;
+import com.bnpparibas.certis.api.healthcheck.model.HealthStatusEntity;
+import com.bnpparibas.certis.api.healthcheck.repository.HealthStatusRepository;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+@RestController
+public class HealthController {
+
+    private final HealthStatusRepository statusRepository;
+    private static final long FRESHNESS_THRESHOLD_MINUTES = 5;
+
+    public HealthController(HealthStatusRepository statusRepository) {
+        this.statusRepository = statusRepository;
+    }
+
+    @GetMapping("/health")
+    // La signature de la méthode change pour retourner une Map
+    public Map<String, List<HealthStatusResponseDto>> getGroupedHealthStatus() {
+        List<HealthStatusEntity> allStatuses = statusRepository.findAll();
+        LocalDateTime now = LocalDateTime.now();
+
+        // On utilise les Streams Java pour grouper et transformer en une seule opération
+        return allStatuses.stream()
+            .collect(Collectors.groupingBy(
+                HealthStatusEntity::getHostname, // Clé de la Map : le hostname
+                Collectors.mapping(entity -> { // Transformation de chaque élément de la liste
+                    
+                    HealthStatusResponseDto dto = new HealthStatusResponseDto();
+                    dto.setCheckName(entity.getCheckName());
+                    dto.setStatus(entity.getStatus());
+                    dto.setDetails(entity.getDetails());
+                    dto.setLastCheckedAt(entity.getLastCheckedAt());
+
+                    // Calcul de la fraîcheur
+                    long minutesSinceLastCheck = Duration.between(entity.getLastCheckedAt(), now).toMinutes();
+                    
+                    // NOUVELLE LOGIQUE : Affectation du booléen
+                    boolean isFresh = minutesSinceLastCheck <= FRESHNESS_THRESHOLD_MINUTES;
+                    dto.setFresh(isFresh);
+
+                    // Calcul du niveau d'alerte
+                    if ("KO".equals(entity.getStatus())) {
+                        dto.setAlertLevel("CRITICAL");
+                    } else if (!isFresh) { // Si ce n'est pas frais
+                        dto.setAlertLevel("WARNING");
+                    } else {
+                        dto.setAlertLevel("OK");
+                    }
+                    
+                    return dto;
+
+                }, Collectors.toList()) // On collecte les DTOs transformés dans une liste
+            ));
+    }
+}
+Explication de la Logique de Transformation
+collect(Collectors.groupingBy(...)): C'est la fonction stream qui crée la Map. Elle prend deux arguments :
+Le classifieur : HealthStatusEntity::getHostname. Cela dit à Java : "Utilise la valeur du champ hostname comme clé pour la Map."
+Le collecteur "aval" : Collectors.mapping(...). C'est une opération plus complexe. Pour chaque groupe de HealthStatusEntity (tous ceux qui ont le même hostname), elle applique une transformation (notre lambda entity -> { ... }) avant de les collecter dans une liste (Collectors.toList()).
+boolean isFresh = ...: On calcule directement un booléen. Si la durée est inférieure ou égale à 5 minutes, isFresh sera true. Sinon, false.
+Résultat Final de l'API
+Avec ces modifications, la réponse de votre endpoint GET /health aura cette nouvelle structure :
+code
+JSON
+{
+  "server-A": [
+    {
+      "checkName": "cmdb",
+      "status": "OK",
+      "details": "Database connection is healthy...",
+      "lastCheckedAt": "2023-10-27 10:30:05",
+      "isFresh": true,
+      "alertLevel": "OK"
+    },
+    {
+      "checkName": "horizon",
+      "status": "OK",
+      "details": "Horizon service is up...",
+      "lastCheckedAt": "2023-10-27 10:24:00",
+      "isFresh": false,
+      "alertLevel": "WARNING"
+    }
+  ],
+  "server-B": [
+    {
+      "checkName": "cmdb",
+      "status": "KO",
+      "details": "Failed to obtain JDBC connection...",
+      "lastCheckedAt": "2023-10-27 10:30:08",
+      "isFresh": true,
+      "alertLevel": "CRITICAL"
+    }
+  ]
+}
+Cette structure est excellente. Elle est très facile à parser pour un frontend et permet d'afficher les statuts regroupés par serveur, ce qui est très pratique pour les opérations.
+Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
