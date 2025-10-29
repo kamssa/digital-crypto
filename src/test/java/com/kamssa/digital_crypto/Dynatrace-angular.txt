@@ -1,0 +1,153 @@
+Expand to view model thoughts
+
+chevron_right
+Absolument ! Configurer Dynatrace pour une application Angular (y compris la version 10) est un processus assez simple qui se concentre principalement sur l'injection de l'agent JavaScript de Dynatrace (OneAgent for JavaScript) dans votre application.
+Voici un guide détaillé, étape par étape, pour "bien" configurer Dynatrace avec Angular 10, en allant du plus simple au plus avancé.
+Étape 1 : Récupérer le Snippet JavaScript de Dynatrace
+La première chose à faire est d'obtenir le code JavaScript que Dynatrace vous fournit pour votre application.
+Connectez-vous à votre environnement Dynatrace.
+Dans le menu de gauche, allez dans "Deploy Dynatrace" (Déployer Dynatrace).
+Cliquez sur le bouton "Start installation" (Démarrer l'installation).
+Choisissez "Web".
+Donnez un nom à votre application (par exemple, "MonApp-Angular-Prod") et cliquez sur "Create token" (Créer le jeton).
+Dynatrace va vous générer un "snippet" de code JavaScript. Il ressemblera à quelque chose comme ça :
+code
+Html
+<script type="text/javascript" src="https://js-cdn.dynatrace.com/jstag/..." 
+        data-dtconfig="app=APP_ID|..."></script>
+Copiez ce morceau de code. C'est la clé de toute l'intégration.
+Étape 2 : Injecter le Snippet dans votre Application Angular
+L'endroit correct pour insérer ce snippet est dans le fichier index.html de votre projet Angular, car c'est le point d'entrée de votre application.
+Ouvrez le fichier src/index.html de votre projet Angular.
+Collez le snippet JavaScript de Dynatrace à l'intérieur de la balise <head>. Il est crucial de le placer le plus haut possible dans le <head> pour que Dynatrace puisse capturer toutes les actions dès le début du chargement de la page.
+Votre src/index.html devrait ressembler à ceci :
+code
+Html
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>MonAppAngular</title>
+  
+  <!-- DYNATRACE SCRIPT - À PLACER LE PLUS HAUT POSSIBLE -->
+  <script type="text/javascript" src="https://js-cdn.dynatrace.com/jstag/..." 
+          data-dtconfig="..."></script>
+  <!-- FIN DU SCRIPT DYNATRACE -->
+
+  <base href="/">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+</head>
+<body>
+  <app-root></app-root>
+</body>
+</html>
+Étape 3 : Déployer et Vérifier
+Recompilez votre application pour que les changements dans index.html soient pris en compte :
+code
+Bash
+ng build --prod
+Déployez votre application sur votre serveur web.
+Vérifiez que l'agent est bien chargé :
+Ouvrez votre application dans un navigateur.
+Ouvrez les outils de développement (F12 ou clic droit -> Inspecter).
+Allez dans l'onglet "Network" (Réseau).
+Filtrez par ruxit ou jstag. Vous devriez voir un ou plusieurs fichiers JavaScript se charger, comme ruxitagentjs_... .js. Si vous les voyez, c'est que l'injection a fonctionné !
+Vérifiez dans Dynatrace :
+Retournez dans l'interface de Dynatrace.
+Allez dans la section "Frontend".
+Vous devriez voir votre application apparaître et des sessions utilisateur commencer à être enregistrées après quelques minutes.
+Étape 4 : Configuration Avancée (pour "bien" configurer)
+Le simple fait d'injecter le script active la surveillance automatique (temps de chargement, erreurs JavaScript, actions sur les XHR). Pour aller plus loin et tirer le meilleur parti de Dynatrace avec une SPA comme Angular, voici quelques configurations avancées.
+1. Identification des Utilisateurs (User Tagging)
+Pour savoir quel utilisateur a rencontré une erreur ou une lenteur, vous pouvez "taguer" les sessions avec un identifiant utilisateur (comme une adresse e-mail ou un ID unique).
+Le meilleur endroit pour le faire est juste après que l'utilisateur se connecte. Dans votre service d'authentification (AuthService) ou dans le composant principal (AppComponent), appelez l'API JavaScript de Dynatrace.
+code
+TypeScript
+// Dans votre service de login, après une connexion réussie
+import { Injectable } from '@angular/core';
+
+// Déclarer dtrum pour que TypeScript ne se plaigne pas
+declare var dtrum: any;
+
+@Injectable({
+  providedIn: 'root'
+})
+export class AuthService {
+
+  login(email: string, password: string): void {
+    // ... votre logique de login
+    
+    // Une fois la connexion réussie et que vous avez les infos de l'utilisateur
+    const userEmail = 'utilisateur@exemple.com'; // Remplacez par le vrai email
+
+    // Vérifier si dtrum est disponible avant de l'appeler
+    if (typeof dtrum !== 'undefined') {
+      dtrum.identifyUser(userEmail);
+    }
+  }
+}
+2. Suivi des Actions Personnalisées
+Dynatrace détecte automatiquement les clics et les changements de route. Mais vous pouvez vouloir suivre une action métier spécifique qui ne correspond pas à un simple clic (par exemple, "Ajout au panier" après une série d'opérations).
+code
+TypeScript
+// Dans la méthode de votre composant qui ajoute un produit au panier
+addToCart(product: Product): void {
+  // ... votre logique pour ajouter au panier
+  
+  // Reporter une action personnalisée à Dynatrace
+  if (typeof dtrum !== 'undefined') {
+    dtrum.reportAction('Ajout au panier');
+  }
+}
+3. Rapporter des Erreurs Manuellement
+Dynatrace capture les erreurs JavaScript non interceptées. Mais si vous utilisez des blocs try...catch, l'erreur est "attrapée" et Dynatrace ne la verra pas. Vous pouvez la rapporter manuellement.
+La meilleure pratique dans Angular est de créer un ErrorHandler personnalisé.
+Créez un nouveau service :
+code
+Bash
+ng generate service services/global-error-handler
+Modifiez le service pour qu'il implémente ErrorHandler :
+code
+TypeScript
+// src/app/services/global-error-handler.service.ts
+import { Injectable, ErrorHandler } from '@angular/core';
+
+declare var dtrum: any;
+
+@Injectable({
+  providedIn: 'root'
+})
+export class GlobalErrorHandler implements ErrorHandler {
+  handleError(error: any): void {
+    // Logique pour envoyer l'erreur à Dynatrace
+    if (typeof dtrum !== 'undefined') {
+      dtrum.reportError(error);
+    }
+    
+    // Vous pouvez aussi la logger en console pour le développement
+    console.error('Une erreur a été interceptée par le GlobalErrorHandler:', error);
+  }
+}
+Déclarez ce service comme le ErrorHandler principal dans votre app.module.ts :
+code
+TypeScript
+// src/app/app.module.ts
+import { NgModule, ErrorHandler } from '@angular/core';
+import { GlobalErrorHandler } from './services/global-error-handler.service';
+// ... autres imports
+
+@NgModule({
+  // ... declarations, imports, etc.
+  providers: [
+    { provide: ErrorHandler, useClass: GlobalErrorHandler }
+  ],
+  bootstrap: [AppComponent]
+})
+export class AppModule { }
+Points Importants et Bonnes Pratiques
+Gestion des Environnements (Dev, Staging, Prod) : Vous ne voulez probablement pas que les données de votre environnement de développement polluent votre application de production dans Dynatrace. La meilleure approche est d'utiliser les fichiers environment.ts d'Angular pour injecter des scripts différents. Cependant, une approche plus robuste est de laisser votre pipeline CI/CD ou votre serveur web (Nginx, Apache) injecter le bon snippet dans le index.html au moment du déploiement. C'est la méthode la plus propre car elle ne mélange pas la configuration de monitoring avec le code source de l'application.
+Content Security Policy (CSP) : Si votre application utilise une CSP, assurez-vous d'autoriser les domaines de Dynatrace pour que le script puisse se charger et envoyer des données.
+Compatibilité des versions : La méthode décrite ici est valable pour Angular 10 et toutes les versions plus récentes (11, 12, 13, 14, etc.). Le principe d'injection dans index.html reste le même.
+En résumé, la configuration de base est très rapide. Les configurations avancées comme le User Tagging et la gestion personnalisée des erreurs sont ce qui transformera Dynatrace d'un simple outil de surveillance à un puissant outil de débogage et d'analyse métier pour votre application Angular.
+Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
