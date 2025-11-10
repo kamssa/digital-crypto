@@ -3157,3 +3157,126 @@ public class HealthController {
 }
 Et voilà ! C'est la synthèse de tout notre travail. Vous avez tous les éléments pour finaliser votre fonctionnalité.
 Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
+///////////////////////////////
+
+Model
+Parfait ! C'est l'étape finale logique d'un endpoint de monitoring : fournir un statut global agrégé. C'est une excellente idée.
+Ce statut global répondra rapidement à la question : "Est-ce que tout va bien, oui ou non ?".
+Nous allons modifier le HealthController pour qu'il retourne un objet JSON plus complexe. La nouvelle structure de la réponse sera :
+code
+JSON
+{
+  "globalStatus": "OK", 
+  "isOverallFresh": true,
+  "detailsByHostname": {
+    "server-A": [
+      { ... }
+    ],
+    "server-B": [
+      { ... }
+    ]
+  }
+}
+Pour faire cela, nous avons besoin d'un nouveau DTO pour encapsuler cette réponse globale.
+Étape 1 : Créer le DTO de Réponse Globale
+Fichier : GlobalHealthResponseDto.java
+code
+Java
+package com.bnpparibas.certis.api.healthcheck.dto;
+
+import lombok.Data;
+import java.util.List;
+import java.util.Map;
+
+@Data
+public class GlobalHealthResponseDto {
+    private String globalStatus; // Sera "OK", "WARNING", ou "CRITICAL"
+    private boolean isOverallFresh;
+    private Map<String, List<HealthStatusResponseDto>> detailsByHostname;
+}
+Étape 2 : Mettre à jour le HealthController avec la Logique d'Agrégation
+La méthode getHealthStatus va maintenant :
+Faire tout le travail de calcul qu'elle faisait avant pour obtenir la Map détaillée.
+Parcourir cette Map pour calculer le statut global.
+Construire l'objet GlobalHealthResponseDto final.
+Fichier : HealthController.java (Version Finale avec Statut Global)
+code
+Java
+package com.bnpparibas.certis.api.healthcheck.controller;
+
+// ... imports ...
+import com.bnpparibas.certis.api.healthcheck.dto.GlobalHealthResponseDto;
+import java.util.Collection;
+
+@RestController
+public class HealthController {
+
+    // ... constructeur et seuil ...
+
+    @GetMapping("/health")
+    // La signature de la méthode change pour retourner notre nouvel objet global
+    public GlobalHealthResponseDto getGlobalHealthStatus() {
+        
+        // --- ÉTAPE 1 : On calcule les détails comme avant ---
+        Map<String, List<HealthStatusResponseDto>> detailsByHostname = calculateDetailsByHostname();
+
+        // --- ÉTAPE 2 : On calcule les statuts globaux à partir des détails ---
+        
+        // On récupère tous les DTOs de tous les serveurs dans une seule liste
+        List<HealthStatusResponseDto> allDtos = detailsByHostname.values().stream()
+                .flatMap(Collection::stream)
+                .collect(Collectors.toList());
+
+        // Calcul du statut global (le plus grave l'emporte)
+        String globalStatus = "OK"; // On part du principe que tout va bien
+        if (allDtos.stream().anyMatch(dto -> "CRITICAL".equals(dto.getAlertLevel()))) {
+            globalStatus = "CRITICAL"; // Si un seul est CRITICAL, le global est CRITICAL
+        } else if (allDtos.stream().anyMatch(dto -> "WARNING".equals(dto.getAlertLevel()))) {
+            globalStatus = "WARNING"; // Sinon, si un seul est WARNING, le global est WARNING
+        }
+
+        // Calcul de la fraîcheur globale : tout doit être frais
+        boolean isOverallFresh = allDtos.stream().allMatch(HealthStatusResponseDto::isFresh);
+
+        // --- ÉTAPE 3 : On construit l'objet de réponse final ---
+        GlobalHealthResponseDto globalResponse = new GlobalHealthResponseDto();
+        globalResponse.setGlobalStatus(globalStatus);
+        globalResponse.setOverallFresh(isOverallFresh);
+        globalResponse.setDetailsByHostname(detailsByHostname);
+        
+        return globalResponse;
+    }
+
+    /**
+     * Méthode privée pour garder le code propre.
+     * C'est notre ancienne logique de contrôleur, maintenant dans une méthode séparée.
+     */
+    private Map<String, List<HealthStatusResponseDto>> calculateDetailsByHostname() {
+        List<HealthStatusEntity> allStatuses = statusRepository.findAll();
+        LocalDateTime now = LocalDateTime.now();
+
+        return allStatuses.stream()
+            .collect(Collectors.groupingBy(
+                HealthStatusEntity::getHostname,
+                Collectors.mapping(entity -> {
+                    HealthStatusResponseDto dto = new HealthStatusResponseDto();
+                    dto.setCheckName(entity.getCheckName());
+                    dto.setStatus(entity.getStatus());
+                    dto.setDetails(entity.getDetails());
+                    dto.setHostname(entity.getHostname());
+                    dto.setLastCheckedAt(entity.getLastCheckedAt());
+
+                    boolean isFresh = "OK".equals(entity.getStatus());
+                    dto.setFresh(isFresh);
+
+                    if ("KO".equals(entity.getStatus())) {
+                        dto.setAlertLevel("CRITICAL");
+                    } else {
+                        dto.setAlertLevel("OK");
+                    }
+                    
+                    return dto;
+                }, Collectors.toList())
+            ));
+    }
+}
