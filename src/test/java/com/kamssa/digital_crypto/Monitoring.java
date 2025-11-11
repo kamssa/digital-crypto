@@ -3445,3 +3445,73 @@ Chaque service a un alertLevel basé sur son statut ET sa fraîcheur.
 Le globalStatus reflète l'alerte la plus grave.
 Le code de statut HTTP de la réponse (200 ou 503) reflète également le globalStatus.
 Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
+///////////////////////////////////
+@RestController
+public class HealthController {
+
+    private final HealthStatusRepository statusRepository;
+
+    public HealthController(HealthStatusRepository statusRepository) {
+        this.statusRepository = statusRepository;
+    }
+
+    @GetMapping("/health")
+    public ResponseEntity<GlobalHealthResponseDto> getGlobalHealthStatus() {
+        
+        // --- ÉTAPE 1 : Calculer les détails pour chaque service ---
+        Map<String, List<HealthStatusResponseDto>> detailsByHostname = calculateDetailsByHostname();
+        
+        // --- ÉTAPE 2 : Calculer les statuts globaux ---
+        
+        List<HealthStatusResponseDto> allDtos = detailsByHostname.values().stream()
+                .flatMap(Collection::stream)
+                .collect(Collectors.toList());
+
+        // Calcul du statut global : Si un seul est "KO", le global est "KO".
+        boolean isAnyKo = allDtos.stream().anyMatch(dto -> "KO".equals(dto.getStatus()));
+        String globalStatus = isAnyKo ? "KO" : "OK";
+
+        // Calcul de la fraîcheur globale : Si un seul a 'isFresh' à false, le global est false.
+        boolean isOverallFresh = allDtos.stream().allMatch(HealthStatusResponseDto::isFresh);
+
+        // --- ÉTAPE 3 : Construire l'objet de réponse final ---
+        GlobalHealthResponseDto globalResponse = new GlobalHealthResponseDto();
+        globalResponse.setGlobalStatus(globalStatus);
+        globalResponse.setOverallFresh(isOverallFresh);
+        globalResponse.setDetailsByHostname(detailsByHostname);
+        
+        // --- ÉTAPE 4 : Déterminer le code de statut HTTP ---
+        if ("KO".equals(globalStatus)) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(globalResponse);
+        } else {
+            return ResponseEntity.ok(globalResponse);
+        }
+    }
+
+    /**
+     * Méthode privée qui transforme les entités de la base de données en DTOs de réponse,
+     * en appliquant la règle de fraîcheur basée sur le statut.
+     */
+    private Map<String, List<HealthStatusResponseDto>> calculateDetailsByHostname() {
+        List<HealthStatusEntity> allStatuses = statusRepository.findAll();
+        
+        return allStatuses.stream()
+            .collect(Collectors.groupingBy(
+                HealthStatusEntity::getHostname,
+                Collectors.mapping(entity -> {
+                    HealthStatusResponseDto dto = new HealthStatusResponseDto();
+                    dto.setCheckName(entity.getCheckName());
+                    dto.setStatus(entity.getStatus());
+                    dto.setDetails(entity.getDetails());
+                    dto.setHostname(entity.getHostname());
+                    dto.setLastCheckedAt(entity.getLastCheckedAt());
+
+                    // Votre règle pour "isFresh" : true si status='OK', false si status='KO'.
+                    boolean isFresh = "OK".equals(entity.getStatus());
+                    dto.setFresh(isFresh);
+                    
+                    return dto;
+                }, Collectors.toList())
+            ));
+    }
+}
