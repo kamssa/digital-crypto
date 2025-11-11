@@ -3280,3 +3280,168 @@ public class HealthController {
             ));
     }
 }
+/////////////////////
+
+Model
+Absolument. Voici le récapitulatif complet de tous les fichiers de code nécessaires pour implémenter la logique globale, en incluant les dernières améliorations que nous avons discutées (statut WARNING, alertLevel, etc.).
+C'est la version finale la plus complète et la plus robuste.
+1. DTO pour un Statut de Santé Individuel
+C'est l'objet qui contient toutes les informations pour un seul service, y compris le niveau d'alerte.
+Fichier : HealthStatusResponseDto.java
+code
+Java
+package com.bnpparibas.certis.api.healthcheck.dto;
+
+import com.fasterxml.jackson.annotation.JsonFormat;
+import lombok.Data;
+import java.time.LocalDateTime;
+
+@Data
+public class HealthStatusResponseDto {
+    private String checkName;
+    private String status; // "OK", "KO", "WARNING"
+    private String details;
+    private String hostname;
+    
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd HH:mm:ss")
+    private LocalDateTime lastCheckedAt;
+    
+    private boolean isFresh;
+    private String alertLevel; // "OK", "WARNING", "CRITICAL"
+}
+2. DTO pour la Réponse Globale
+C'est l'objet "conteneur" pour la réponse JSON finale.
+Fichier : GlobalHealthResponseDto.java
+code
+Java
+package com.bnpparibas.certis.api.healthcheck.dto;
+
+import lombok.Data;
+import java.util.List;
+import java.util.Map;
+
+@Data
+public class GlobalHealthResponseDto {
+    private String globalStatus; // "OK", "WARNING", ou "CRITICAL"
+    private boolean isOverallFresh;
+    private Map<String, List<HealthStatusResponseDto>> detailsByHostname;
+}
+3. Le HealthController (avec toute la logique)
+C'est le cœur de la solution. Il lit les données brutes, les transforme, calcule les indicateurs individuels, puis agrège les indicateurs globaux.
+Fichier : HealthController.java
+code
+Java
+package com.bnpparibas.certis.api.healthcheck.controller;
+
+import com.bnpparibas.certis.api.healthcheck.dto.GlobalHealthResponseDto;
+import com.bnpparibas.certis.api.healthcheck.dto.HealthStatusResponseDto;
+import com.bnpparibas.certis.api.healthcheck.model.HealthStatusEntity;
+import com.bnpparibas.certis.api.healthcheck.repository.HealthStatusRepository;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+@RestController
+public class HealthController {
+
+    private final HealthStatusRepository statusRepository;
+    private static final long FRESHNESS_THRESHOLD_MINUTES = 5;
+
+    public HealthController(HealthStatusRepository statusRepository) {
+        this.statusRepository = statusRepository;
+    }
+
+    @GetMapping("/health")
+    public ResponseEntity<GlobalHealthResponseDto> getGlobalHealthStatus() {
+        
+        // --- ÉTAPE 1 : Calculer les détails pour chaque service ---
+        Map<String, List<HealthStatusResponseDto>> detailsByHostname = calculateDetailsByHostname();
+        
+        // --- ÉTAPE 2 : Calculer les statuts globaux à partir des détails ---
+        
+        List<HealthStatusResponseDto> allDtos = detailsByHostname.values().stream()
+                .flatMap(Collection::stream)
+                .collect(Collectors.toList());
+
+        // Calcul du statut global (le plus grave l'emporte)
+        String globalStatus = "OK"; // Statut par défaut
+        if (allDtos.stream().anyMatch(dto -> "CRITICAL".equals(dto.getAlertLevel()))) {
+            globalStatus = "CRITICAL";
+        } else if (allDtos.stream().anyMatch(dto -> "WARNING".equals(dto.getAlertLevel()))) {
+            globalStatus = "WARNING";
+        }
+
+        // Calcul de la fraîcheur globale : tout doit être frais
+        boolean isOverallFresh = allDtos.stream().allMatch(HealthStatusResponseDto::isFresh);
+
+        // --- ÉTAPE 3 : Construire l'objet de réponse final ---
+        GlobalHealthResponseDto globalResponse = new GlobalHealthResponseDto();
+        globalResponse.setGlobalStatus(globalStatus);
+        globalResponse.setOverallFresh(isOverallFresh);
+        globalResponse.setDetailsByHostname(detailsByHostname);
+        
+        // --- ÉTAPE 4 : Déterminer le code de statut HTTP ---
+        if ("CRITICAL".equals(globalStatus)) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(globalResponse);
+        } else {
+            return ResponseEntity.ok(globalResponse);
+        }
+    }
+
+    /**
+     * Méthode privée qui transforme les entités de la base de données en DTOs de réponse,
+     * en calculant la fraîcheur et le niveau d'alerte pour chaque service.
+     */
+    private Map<String, List<HealthStatusResponseDto>> calculateDetailsByHostname() {
+        List<HealthStatusEntity> allStatuses = statusRepository.findAll();
+        LocalDateTime now = LocalDateTime.now();
+
+        return allStatuses.stream()
+            .collect(Collectors.groupingBy(
+                HealthStatusEntity::getHostname,
+                Collectors.mapping(entity -> {
+                    HealthStatusResponseDto dto = new HealthStatusResponseDto();
+                    dto.setCheckName(entity.getCheckName());
+                    dto.setStatus(entity.getStatus());
+                    dto.setDetails(entity.getDetails());
+                    dto.setHostname(entity.getHostname());
+                    dto.setLastCheckedAt(entity.getLastCheckedAt());
+
+                    // Calcul de la fraîcheur temporelle
+                    long minutesSinceLastCheck = Duration.between(entity.getLastCheckedAt(), now).toMinutes();
+                    boolean isFresh = minutesSinceLastCheck <= FRESHNESS_THRESHOLD_MINUTES;
+                    dto.setFresh(isFresh);
+
+                    // Calcul du niveau d'alerte ("couleur")
+                    if ("KO".equals(entity.getStatus())) {
+                        dto.setAlertLevel("CRITICAL");
+                    } else if ("WARNING".equals(entity.getStatus())) {
+                        dto.setAlertLevel("WARNING");
+                    } else if (!isFresh) {
+                        dto.setAlertLevel("WARNING"); // Un statut OK périmé est aussi un WARNING
+                    } else {
+                        dto.setAlertLevel("OK");
+
+                    }
+                    
+                    return dto;
+                }, Collectors.toList())
+            ));
+    }
+}
+Ce code est complet et intègre toutes les logiques que nous avons définies :
+Il retourne une structure globale avec un résumé.
+Il contient les détails groupés par serveur.
+Chaque service a un statut isFresh basé sur le temps.
+Chaque service a un alertLevel basé sur son statut ET sa fraîcheur.
+Le globalStatus reflète l'alerte la plus grave.
+Le code de statut HTTP de la réponse (200 ou 503) reflète également le globalStatus.
+Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
