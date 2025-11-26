@@ -3772,3 +3772,6 @@ Instruction :
 Lancez cette commande.
 Entrez un mot de passe (obligatoire) quand on vous le demande.
 Le fichier opendata_vault_staging_certis.p12 sera créé. C'est celui-ci qu'il faut mettre dans Dynatrace.
+///////// 
+Sous Linux / Git Bash : tapez ls -l
+Sous Windows (CMD/PowerShell) : tapez dir
