@@ -3598,3 +3598,126 @@ Si un serveur s'éteint, ses dernières données restent dans la base.
 Mais après 10 minutes (la valeur de freshnessThresholdMinutes), le HealthCheckService les ignorera complètement.
 L'API GET /health ne retournera donc que les informations des serveurs qui sont actuellement actifs et qui rapportent leurs statuts régulièrement. Les "fantômes" des serveurs éteints auront disparu de la réponse.
 Cette version est la plus robuste et la plus sûre. Elle garantit que l'information que vous présentez est toujours pertinente et récente.
+///////////////////////////////// certificat pour me connecter avec dyntrace /////////////////////////////////////
+
+Oui, voici le script complet prêt à l'emploi.
+Il va générer exactement les deux fichiers dont vous avez besoin :
+opendata_vault_staging_certis.key (La clé privée)
+opendata_vault_staging_certis.csr (La demande de signature)
+Copiez le code ci-dessous dans un fichier texte (par exemple nommé generate_cert.sh).
+Le Script
+code
+Bash
+#!/bin/bash
+
+# --- 1. CONFIGURATION DES SERVEURS ---
+# Ajoutez ici tous les noms de vos serveurs
+FQDNS=(
+    "opendata_vault_staging_certis"  # Nom principal
+    "S02VL9932422.fr.net.intra"      # Votre serveur 1
+    "NOM_DU_SERVEUR_2"               # <--- Remplacez ceci par le nom de votre 2ème serveur
+    "localhost"
+)
+
+# Nom des fichiers de sortie
+KEY_FILE="opendata_vault_staging_certis.key"
+CSR_FILE="opendata_vault_staging_certis.csr"
+CONFIG_FILE="openssl_config.cnf"
+
+echo "--- Début de la génération ---"
+
+# --- 2. CRÉATION DU FICHIER DE CONFIG OPENSSL ---
+# On crée un fichier temporaire pour dire à OpenSSL de gérer plusieurs domaines (SAN)
+cat > $CONFIG_FILE <<EOF
+[req]
+default_bits = 2048
+prompt = no
+default_md = sha256
+req_extensions = req_ext
+distinguished_name = dn
+
+[ dn ]
+CN = opendata_vault_staging_certis
+# Vous pouvez ajouter ici : O = VotreEntreprise, C = FR, etc. si nécessaire
+
+[ req_ext ]
+basicConstraints = CA:FALSE
+subjectAltName = @alt_names
+
+[ alt_names ]
+EOF
+
+# --- 3. AJOUT DES SERVEURS DANS LA CONFIG ---
+# Cette boucle transforme votre liste en format technique (DNS.1, DNS.2...)
+i=1
+for FQDN in "${FQDNS[@]}"; do
+    echo "DNS.$i = $FQDN" >> $CONFIG_FILE
+    ((i++))
+done
+
+# --- 4. GÉNÉRATION DES FICHIERS .KEY et .CSR ---
+echo "Génération de la clé privée et de la demande CSR..."
+openssl req -new -newkey rsa:2048 -nodes \
+    -keyout $KEY_FILE \
+    -out $CSR_FILE \
+    -config $CONFIG_FILE
+
+# --- 5. NETTOYAGE ---
+rm $CONFIG_FILE
+
+echo ""
+echo "--- SUCCÈS ! ---"
+echo "Les fichiers suivants ont été créés :"
+echo "1. Clé privée : $KEY_FILE  (A garder précieusement, nécessaire pour l'étape Dynatrace)"
+echo "2. Demande CSR : $CSR_FILE  (A envoyer à votre équipe Sécurité/PKI)"
+//////////////////////////////////// fichier exa /////////////////////////////////////////////////////
+code
+Bash
+#!/bin/bash
+
+# --- Liste des serveurs ---
+FQDNS=(
+    "opendata_vault_staging_certis"
+    "S02VL9932422.fr.net.intra"
+    "NOM_DU_DEUXIEME_SERVEUR"
+    "localhost"
+)
+
+# --- Création de la config temporaire ---
+cat > temp_openssl.cnf <<EOF
+[req]
+default_bits = 2048
+prompt = no
+default_md = sha256
+req_extensions = req_ext
+distinguished_name = dn
+
+[ dn ]
+CN = opendata_vault_staging_certis
+
+[ req_ext ]
+basicConstraints = CA:FALSE
+subjectAltName = @alt_names
+
+[ alt_names ]
+EOF
+
+# --- Ajout des serveurs dans la config ---
+i=1
+for FQDN in "${FQDNS[@]}"; do
+    echo "DNS.$i = $FQDN" >> temp_openssl.cnf
+    ((i++))
+done
+
+# --- Génération de la clé (.key) et de la demande (.csr) ---
+openssl req -new -newkey rsa:2048 -nodes \
+    -keyout opendata_vault_staging_certis.key \
+    -out opendata_vault_staging_certis.csr \
+    -config temp_openssl.cnf
+
+# --- Nettoyage ---
+rm temp_openssl.cnf
+
+echo "Fichiers générés :"
+echo "- opendata_vault_staging_certis.key"
+echo "- opendata_vault_staging_certis.csr"
