@@ -3599,7 +3599,36 @@ Mais après 10 minutes (la valeur de freshnessThresholdMinutes), le HealthCheckS
 L'API GET /health ne retournera donc que les informations des serveurs qui sont actuellement actifs et qui rapportent leurs statuts régulièrement. Les "fantômes" des serveurs éteints auront disparu de la réponse.
 Cette version est la plus robuste et la plus sûre. Elle garantit que l'information que vous présentez est toujours pertinente et récente.
 ///////////////////////////////// certificat pour me connecter avec dyntrace /////////////////////////////////////
-
+Ah, je vois ! Vous êtes dans Dynatrace, dans la configuration d'un moniteur synthétique ("Synthetic Monitor").
+L'option que vous avez activée est "Add client certificate" (Ajouter un certificat client). Cela signifie que Dynatrace va présenter ce certificat à votre serveur pour s'authentifier (c'est ce qu'on appelle souvent du mTLS ou authentification mutuelle).
+Pour que cela fonctionne avec le script que nous avons fait, il y a une étape supplémentaire importante.
+Voici la procédure complète pour passer du script à Dynatrace :
+Étape 1 : Générer les clés (avec le script)
+Exécutez le script que je vous ai donné plus haut. Vous allez obtenir deux fichiers :
+opendata_vault_staging_certis.key (La clé privée)
+opendata_vault_staging_certis.csr (La demande)
+Étape 2 : Faire signer le certificat (Indispensable)
+Dynatrace ne peut pas utiliser le fichier .csr. Vous devez envoyer ce fichier .csr à l'équipe sécurité de votre entreprise (votre autorité de certification / PKI interne).
+Ils vont valider la demande.
+Ils vont vous renvoyer un fichier de certificat public, généralement nommé .crt, .cer ou .pem (disons qu'il s'appelle mon_certificat.crt).
+Étape 3 : Convertir pour Dynatrace (Le format P12)
+Pour importer le certificat dans Dynatrace (dans la case "Create new credentials"), il faut souvent regrouper la clé privée et le certificat signé dans un seul fichier protégé par mot de passe (format PKCS#12 ou .p12).
+Une fois que vous avez reçu le .crt de votre équipe sécurité, lancez cette commande :
+code
+Bash
+openssl pkcs12 -export \
+ -out certificat_pour_dynatrace.p12 \
+ -inkey opendata_vault_staging_certis.key \
+ -in mon_certificat.crt
+On vous demandera de définir un mot de passe d'exportation. Retenez-le bien.
+Étape 4 : L'importer dans l'interface (Votre photo)
+Sur votre écran Dynatrace, cliquez sur le bouton gris "Create new credentials" (ou allez dans le "Credential Vault").
+Choisissez le type Certificate.
+Uploadez le fichier certificat_pour_dynatrace.p12 que vous venez de créer à l'étape 3.
+Entrez le mot de passe que vous avez défini.
+Une fois sauvegardé, sélectionnez ce nouveau certificat dans la liste déroulante (là où il est écrit certis-api.staging... actuellement).
+Résumé : Le script fait le début du travail. L'équipe sécurité fait le milieu. La commande pkcs12 fait la fin pour que Dynatrace accepte le fichier.
+/////////////////
 Oui, voici le script complet prêt à l'emploi.
 Il va générer exactement les deux fichiers dont vous avez besoin :
 opendata_vault_staging_certis.key (La clé privée)
