@@ -3755,3 +3755,20 @@ openssl pkcs12 -export \
  -out certificat_pour_dynatrace.p12 \
  -inkey opendata_vault_staging_certis.key \
  -in mon_certificat.crt
+ /////////////////////// fichier .p12 /////////////////
+ 
+Voici la commande exacte et concise.
+Assurez-vous que vos deux fichiers (.key généré avant et .crt de votre image) sont dans le même dossier.
+Le Script (Copier-coller)
+code
+Bash
+////////////////////////////
+openssl pkcs12 -export \
+ -out opendata_vault_staging_certis.p12 \
+ -inkey opendata_vault_staging_certis.key \
+ -in opendata_vault_staging_certis.crt
+ /////////////////////////////////
+Instruction :
+Lancez cette commande.
+Entrez un mot de passe (obligatoire) quand on vous le demande.
+Le fichier opendata_vault_staging_certis.p12 sera créé. C'est celui-ci qu'il faut mettre dans Dynatrace.
