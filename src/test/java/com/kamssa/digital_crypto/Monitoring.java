@@ -3515,3 +3515,86 @@ public class HealthController {
             ));
     }
 }
+//////////////////////////////////// 
+
+
+Model
+Absolument ! Merci beaucoup pour ces captures d'écran. C'est parfait, car cela me permet de modifier exactement votre code existant pour atteindre le résultat souhaité.
+Nous allons simplement insérer l'étape de filtrage au bon endroit dans votre méthode getLastHealthCheckResult.
+Le Code Corrigé : HealthCheckService.java
+Remplacez entièrement le contenu de votre méthode getLastHealthCheckResult() par le code ci-dessous. Les autres parties de la classe (constructeur, propriétés) ne changent pas.
+code
+Java
+// Dans votre classe HealthCheckService
+
+public GlobalHealthResponseDto getLastHealthCheckResult() {
+    
+    // --- ÉTAPE 1 : Récupérer TOUTES les données brutes de la base ---
+    List<HealthStatus> allStatusesFromDb = healthStatusDao.findAll();
+    LocalDateTime now = LocalDateTime.now();
+
+    // --- ÉTAPE 2 : FILTRER pour ne garder que les lignes récentes ---
+    // C'est la nouvelle logique que nous ajoutons.
+    List<HealthStatus> recentStatuses = allStatusesFromDb.stream()
+        .filter(entity -> {
+            long minutesSinceLastCheck = Duration.between(entity.getLastCheckedAt(), now).toMinutes();
+            // On ne garde que les entités mises à jour il y a moins de 'freshnessThresholdMinutes' minutes.
+            return minutesSinceLastCheck <= freshnessThresholdMinutes;
+        })
+        .collect(Collectors.toList());
+
+    // --- ÉTAPE 3 : Transformer et grouper la liste FILTRÉE (recentStatuses) ---
+    // Le reste de votre code original, mais appliqué à la liste filtrée.
+    Map<String, List<HealthStatusResponseDto>> detailsByHostname = recentStatuses.stream()
+        .collect(Collectors.groupingBy(
+            HealthStatus::getHostname,
+            Collectors.mapping(entity -> {
+                HealthStatusResponseDto dto = new HealthStatusResponseDto();
+                dto.setCheckName(entity.getCheckName());
+                dto.setStatus(entity.getStatus());
+                dto.setDetails(entity.getDetails());
+                dto.setHostname(entity.getHostname());
+                dto.setLastCheckedAt(entity.getLastCheckedAt());
+                
+                long minutesSinceLastCheck = Duration.between(entity.getLastCheckedAt(), now).toMinutes();
+                boolean isFresh = minutesSinceLastCheck <= freshnessThresholdMinutes;
+                dto.setFresh(isFresh);
+                
+                return dto;
+            }, Collectors.toList())
+        ));
+
+    // --- ÉTAPE 4 : Calculer les indicateurs globaux à partir des données filtrées ---
+    List<HealthStatusResponseDto> allDtos = detailsByHostname.values().stream()
+        .flatMap(list -> list.stream())
+        .collect(Collectors.toList());
+
+    boolean isAnyKo = allDtos.stream().anyMatch(dto -> String.valueOf(HealthCheckStatusEnum.KO).equals(dto.getStatus()));
+    String globalStatus = isAnyKo ? String.valueOf(HealthCheckStatusEnum.KO) : String.valueOf(HealthCheckStatusEnum.OK);
+
+    boolean isOverallFresh = allDtos.stream().allMatch(HealthStatusResponseDto::isFresh);
+
+    // --- ÉTAPE 5 : Construire la réponse finale ---
+    GlobalHealthResponseDto globalResponse = new GlobalHealthResponseDto();
+    globalResponse.setGlobalStatus(globalStatus);
+    globalResponse.setOverallFresh(isOverallFresh);
+    globalResponse.setDetailsByHostname(detailsByHostname);
+            
+    return globalResponse;
+}
+Résumé des Modifications Apportées à Votre Code
+Renommage de allStatuses : J'ai renommé votre variable allStatuses en allStatusesFromDb pour bien montrer qu'il s'agit des données brutes venant de la base.
+Ajout de l'Étape de Filtrage : Juste après avoir récupéré les données, j'ai ajouté le bloc de code stream().filter(...) qui crée une nouvelle liste recentStatuses. Cette nouvelle liste ne contient que les enregistrements dont la date lastCheckedAt est inférieure ou égale au seuil freshnessThresholdMinutes.
+Modification de la Source pour la Transformation : J'ai modifié la ligne suivante pour qu'elle travaille sur la nouvelle liste filtrée recentStatuses au lieu de la liste complète allStatusesFromDb.
+Avant : Map<...> detailsByHostname = allStatuses.stream()...
+Après : Map<...> detailsByHostname = recentStatuses.stream()...
+C'est tout ! Le reste de votre code est parfait et n'a pas besoin de changer. Il va maintenant, de manière naturelle, calculer les statuts de groupe et les statuts globaux en se basant uniquement sur les données des serveurs qui sont actifs.
+Vous avez maintenant la solution la plus robuste qui ignore automatiquement les "serveurs fantômes".
+Explication de la Correction
+Filtrage Explicite : La méthode getGlobalHealthStatus commence maintenant par une étape de filtrage claire. Elle prend toutes les données de la base et crée une nouvelle liste recentStatuses qui ne contient que les lignes mises à jour il y a moins de freshnessThresholdMinutes minutes.
+Travail sur les Données Filtrées : Toutes les étapes suivantes (calculateDetailsByHostname, calcul des statuts globaux) ne travaillent plus sur la liste complète, mais sur la liste recentStatuses.
+Le résultat est exactement ce que vous voulez :
+Si un serveur s'éteint, ses dernières données restent dans la base.
+Mais après 10 minutes (la valeur de freshnessThresholdMinutes), le HealthCheckService les ignorera complètement.
+L'API GET /health ne retournera donc que les informations des serveurs qui sont actuellement actifs et qui rapportent leurs statuts régulièrement. Les "fantômes" des serveurs éteints auront disparu de la réponse.
+Cette version est la plus robuste et la plus sûre. Elle garantit que l'information que vous présentez est toujours pertinente et récente.
