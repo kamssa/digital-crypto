@@ -3750,3 +3750,8 @@ rm temp_openssl.cnf
 echo "Fichiers générés :"
 echo "- opendata_vault_staging_certis.key"
 echo "- opendata_vault_staging_certis.csr"
+///////////////// Une fois que vous avez reçu le .crt de votre équipe sécurité, lancez cette commande ://////////////
+openssl pkcs12 -export \
+ -out certificat_pour_dynatrace.p12 \
+ -inkey opendata_vault_staging_certis.key \
+ -in mon_certificat.crt
