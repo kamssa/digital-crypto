@@ -62,3 +62,114 @@ Comment l'utiliser dans votre commande Horizon ?
 Dans la commande longue que vous construisez, à la fin, pour le paramètre script, vous mettrez simplement :
 --post-hook="/opt/horizon/scripts/reload_ihs.sh"
 (Note : parfois le paramètre s'appelle --script ou --exec, vérifiez sur votre page wiki, mais le principe reste le chemin vers ce fichier).
+/////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////
+Voici la procédure complète, moderne et automatisée, pour installer un certificat SSL sur votre serveur IBM HTTP Server (IHS) version 9 en utilisant horizon-cli.
+Cette méthode remplace la "vieille" méthode manuelle (KDB) et garantit que le certificat se renouvellera tout seul l'année prochaine.
+Phase 1 : Préparation de l'automatisation (Le Script)
+Avant de créer le certificat, on prépare le petit script qui servira à recharger le serveur automatiquement lors des futurs renouvellements.
+1. Créer le fichier du script :
+code
+Bash
+vi /opt/horizon/scripts/reload_ihs.sh
+(Si le dossier scripts n'existe pas, créez-le avec mkdir -p /opt/horizon/scripts)
+2. Coller ce contenu dedans :
+Ce script dit au serveur Web de relire sa configuration sans couper les utilisateurs connectés.
+code
+Bash
+#!/bin/bash
+# Chemin vers la commande de contrôle IHS (A vérifier sur votre serveur)
+IHS_BIN="/opt/IBM/HTTPServer/bin/apachectl"
+
+# Ecriture dans un log pour le suivi
+echo "$(date) - Horizon : Demande de rechargement..." >> /tmp/horizon_reload.log
+
+if [ -f "$IHS_BIN" ]; then
+    $IHS_BIN -k graceful
+    if [ $? -eq 0 ]; then
+        echo "$(date) - SUCCES : Serveur recharge." >> /tmp/horizon_reload.log
+    else
+        echo "$(date) - ERREUR : Echec du rechargement." >> /tmp/horizon_reload.log
+        exit 1
+    fi
+else
+    echo "$(date) - ERREUR : Binaire apachectl introuvable." >> /tmp/horizon_reload.log
+    exit 1
+fi
+3. Rendre le script exécutable (Obligatoire) :
+code
+Bash
+chmod +x /opt/horizon/scripts/reload_ihs.sh
+Phase 2 : Création du certificat avec Horizon
+Nous allons générer les fichiers .pem (certificat) et .key (clé privée).
+1. Construire la commande :
+Remplacez VOTRE_SERVEUR par le vrai nom (ex: s02v19932112.fr.net.intra).
+code
+Bash
+/opt/horizon/bin/horizon-cli automate enroll \
+  --no-interactive \
+  --automation-policy=automate-app-tls-server-365 \
+  --target=generic \
+  --auto-renew \
+  --dnsnames="VOTRE_SERVEUR" \
+  --contact-email="votre.email@echonet.net" \
+  --post-hook="/opt/horizon/scripts/reload_ihs.sh"
+Explication :
+--target=generic : Génère des fichiers simples .pem et .key (lisibles par IHS 9).
+--post-hook : Lie le script créé en Phase 1.
+--auto-renew : Active le renouvellement automatique.
+2. Noter le chemin des fichiers :
+À la fin de l'exécution, Horizon va vous dire où il a mis les fichiers. Habituellement c'est dans :
+/opt/horizon/var/generic/
+Notez bien les noms exacts (ex: cert.pem, privkey.key, chain.pem).
+Phase 3 : Configuration du Serveur Web (IHS)
+C'est l'étape où on dit à IBM HTTP Server : "Arrête de chercher un fichier KDB compliqué, et utilise ces nouveaux fichiers PEM".
+1. Ouvrir le fichier de configuration :
+code
+Bash
+vi /opt/IBM/HTTPServer/conf/httpd.conf
+(Chemin standard, sinon utilisez menu_web > config)
+2. Trouver et modifier la section SSL (<VirtualHost *:443>) :
+Vous devez commenter (mettre un # devant) l'ancienne ligne KeyFile et ajouter les 3 nouvelles lignes pointant vers vos fichiers Horizon.
+code
+Apache
+<VirtualHost *:443>
+    SSLEnable
+
+    # --- ANCIENNE CONFIG (A commenter) ---
+    # KeyFile /applis/..../quelquechose.kdb
+    
+    # --- NOUVELLE CONFIG HORIZON (A ajouter) ---
+    # 1. Le certificat public
+    SSLCertificateFile /opt/horizon/var/generic/cert.pem
+    
+    # 2. La clé privée
+    SSLCertificateKeyFile /opt/horizon/var/generic/privkey.key
+    
+    # 3. La chaîne de certification (CA)
+    SSLCertificateChainFile /opt/horizon/var/generic/chain.pem
+
+    # (Assurez-vous que les noms de fichiers correspondent exactement 
+    # à ceux générés à la Phase 2)
+    
+</VirtualHost>
+Phase 4 : Démarrage et Vérification
+Tout est prêt, il faut maintenant appliquer les changements.
+1. Redémarrer le serveur Web :
+Le plus simple pour vous est d'utiliser le menu.
+Tapez menu_web.
+Faites Stop.
+Faites Start.
+(Ceci est nécessaire la première fois car on a modifié le fichier httpd.conf. Les prochaines fois, le script s'en chargera tout seul).
+2. Vérifier que ça marche :
+Vérifiez le statut : Assurez-vous que le serveur est "RUNNING" dans le menu.
+Test local :
+code
+Bash
+curl -v -k https://localhost/
+Regardez si vous voyez une ligne Server certificate: avec les bonnes dates.
+Résumé
+Vous avez maintenant :
+✅ Généré un certificat valide.
+✅ Configuré votre serveur Web pour l'utiliser.
+✅ Mis en place un script pour que, l'année prochaine, vous n'ayez rien à faire (Horizon téléchargera le nouveau certif et lancera le script de reload tout seul).
