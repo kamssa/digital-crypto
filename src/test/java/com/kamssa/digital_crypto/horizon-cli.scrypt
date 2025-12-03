@@ -1,0 +1,64 @@
+
+Voici un exemple concret, propre et sécurisé pour votre serveur IBM HTTP Server.
+Ce script fait un peu plus que juste redémarrer : il vérifie que la commande existe et il écrit dans le journal système (logs) pour laisser une trace de son exécution.
+Étape 1 : Créer le fichier
+Ouvrez votre éditeur (en tant que root) :
+code
+Bash
+vi /opt/horizon/scripts/reload_ihs.sh
+Étape 2 : Coller le contenu suivant
+(Copiez tout le bloc ci-dessous)
+code
+Bash
+#!/bin/bash
+
+# --- CONFIGURATION ---
+# Chemin vers la commande de contrôle d'IBM HTTP Server
+# Vérifiez que ce chemin est correct sur votre machine (c'est le standard IBM)
+IHS_BIN="/opt/IBM/HTTPServer/bin/apachectl"
+
+# --- EXECUTION ---
+
+# 1. On écrit la date dans les logs pour dire qu'on commence
+echo "$(date) - Horizon-CLI : Demande de rechargement du certificat SSL..." >> /tmp/horizon_reload.log
+
+# 2. Vérification que le binaire existe
+if [ -f "$IHS_BIN" ]; then
+    
+    # 3. Lancement du rechargement "graceful" 
+    # (Cela recharge la config et les certificats sans couper les utilisateurs connectés)
+    $IHS_BIN -k graceful
+    
+    # Vérification du résultat
+    if [ $? -eq 0 ]; then
+        echo "$(date) - SUCCES : Serveur Web recharge avec succes." >> /tmp/horizon_reload.log
+    else
+        echo "$(date) - ERREUR : Echec du rechargement du serveur Web." >> /tmp/horizon_reload.log
+        exit 1
+    fi
+
+else
+    echo "$(date) - ERREUR : Le fichier $IHS_BIN est introuvable." >> /tmp/horizon_reload.log
+    exit 1
+fi
+
+exit 0
+Étape 3 : Rendre le script exécutable
+C'est obligatoire, sinon horizon-cli ne pourra pas le lancer.
+code
+Bash
+chmod +x /opt/horizon/scripts/reload_ihs.sh
+Étape 4 : Tester le script
+Avant de l'intégrer à votre commande horizon, testez-le manuellement pour voir s'il ne fait pas d'erreur :
+code
+Bash
+/opt/horizon/scripts/reload_ihs.sh
+Puis vérifiez le petit fichier de log qu'il a créé :
+code
+Bash
+cat /tmp/horizon_reload.log
+Si vous voyez "SUCCES", c'est parfait.
+Comment l'utiliser dans votre commande Horizon ?
+Dans la commande longue que vous construisez, à la fin, pour le paramètre script, vous mettrez simplement :
+--post-hook="/opt/horizon/scripts/reload_ihs.sh"
+(Note : parfois le paramètre s'appelle --script ou --exec, vérifiez sur votre page wiki, mais le principe reste le chemin vers ce fichier).
