@@ -295,3 +295,83 @@ L'an prochain, horizon-cli renouvellera le
  
  /////////////////
  cp /applis/19382-certi-00/ihs/sw-19382_certis_backjava-prez-1/conf/httpd.conf.bak /applis/19382-certi-00/ihs/sw-19382_certis_backjava-prez-1/conf/httpd.conf
+ 
+ /////////////////////// process avec .kdb ///////////////////////////////////////////////////////////////
+ 
+C'est une excellente question et la capture d'écran arrive à point nommé !
+Oui, c'est tout à fait possible. IBM HTTP Server est "né" pour utiliser des fichiers .kdb.
+Sur votre image, je vois que vous avez réussi à générer les fichiers :
+certis-api.staging.echonet.kdb (Le coffre-fort)
+certis-api.staging.echonet.sth (La clé du coffre)
+Voici la procédure exacte pour configurer votre serveur avec ces fichiers, en tenant compte de ce que je vois sur votre écran.
+Étape 1 : ⚠️ Problème de droits (CRITIQUE)
+Regardez votre capture d'écran :
+Le processus httpd tourne avec l'utilisateur was (colonnes du haut).
+Vos fichiers .kdb et .sth appartiennent à root (lignes du bas).
+Conséquence : Le serveur ne pourra pas lire le fichier et plantera au démarrage.
+Solution :
+Vous devez changer le propriétaire des fichiers. Tapez cette commande dans le dossier actuel :
+code
+Bash
+chown was:web certis-api.staging.echonet.*
+(Cela donne les droits à l'utilisateur was et au groupe web).
+Étape 2 : Trouver le "Label" (L'étiquette)
+Dans un fichier .pem, il n'y a qu'un seul certificat. Dans un .kdb, il peut y en avoir plusieurs. Le serveur a besoin de savoir quel est le "nom interne" (alias) du certificat à utiliser.
+Vous avez la chance d'avoir l'outil gskcapicmd juste sous vos yeux (dans ce dossier). Utilisez-le pour lire le contenu du KDB :
+code
+Bash
+./gskcapicmd -cert -list -db certis-api.staging.echonet.kdb -stashed
+Le résultat ressemblera à ceci :
+code
+Text
+Certificates found
+* default, - personal, ! trusted
+-   mon_certificat_alias
+!   DigiCertCA
+Notez bien le nom qui se trouve à la ligne "personal" (ex: mon_certificat_alias ou souvent le nom DNS du serveur).
+Étape 3 : Configurer le serveur (httpd.conf)
+Maintenant, on modifie le cerveau du serveur pour lui dire : "Utilise ce KDB".
+1. Ouvrez le fichier de config :
+(Utilisez le chemin trouvé précédemment)
+code
+Bash
+vi /applis/19382-certi-00/ihs/sw-19382_certis_backjava-prez-1/conf/httpd.conf
+2. Cherchez la section <VirtualHost *:443> et modifiez :
+code
+Apache
+<VirtualHost *:443>
+    SSLEnable
+
+    # --- DESACTIVEZ LES LIGNES PEM (Si vous les aviez mises) ---
+    # SSLCertificateFile ...
+    # SSLCertificateKeyFile ...
+    
+    # --- ACTIVEZ LA CONFIGURATION KDB ---
+    
+    # 1. Le chemin vers votre fichier KDB (celui de la photo)
+    KeyFile /apps/WebSphere/WebPlugins/bin/certis-api.staging.echonet.kdb
+    
+    # 2. Le nom de l'étiquette (trouvé à l'étape 2)
+    SSLServerCert VOTRE_ALIAS_ICI
+    
+</VirtualHost>
+Note sur l'emplacement : Sur la photo, vos fichiers sont dans /apps/WebSphere/WebPlugins/bin. Pour un test, c'est OK. Mais pour la "vraie vie" (Prod), il est plus propre de les déplacer dans un dossier dédié aux certificats (ex: /applis/19382-certi-00/ssl/) pour ne pas les mélanger avec les exécutables système.
+Étape 4 : Appliquer
+Vérifiez la syntaxe :
+code
+Bash
+/apps/WebSphere/WebServer/bin/apachectl -t
+Redémarrez (ou Reload) :
+Utilisez votre script ou le menu :
+code
+Bash
+/opt/horizon/scripts/reload_ihs.sh
+Résumé pour l'automatisation
+Si vous choisissez cette méthode (KDB) :
+Le serveur fonctionnera parfaitement.
+MAIS l'automatisation horizon-cli sera cassée.
+L'année prochaine, Horizon générera des .pem.
+Votre serveur, lui, attendra un .kdb.
+Il faudra donc, dans votre script reload_ihs.sh, ajouter des lignes de commandes complexes (avec gskcapicmd) pour convertir automatiquement les nouveaux PEM en KDB avant de relancer le serveur.
+C'est pourquoi, si vous avez le choix, la méthode .pem (native IHS 9) reste la plus simple.
+Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
