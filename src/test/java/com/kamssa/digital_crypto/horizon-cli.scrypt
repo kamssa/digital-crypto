@@ -290,4 +290,8 @@ Bash
 curl -v -k https://localhost/
 🎉 Félicitations ! Votre serveur est maintenant sécurisé avec une méthode moderne.
 Le serveur utilise des fichiers standards.
-L'an prochain, horizon-cli renouvellera le fichier tout seul et lancera le script de reload sans que vous n'ayez rien à faire.
+L'an prochain, horizon-cli renouvellera le
+ fichier tout seul et lancera le script de reload sans que vous n'ayez rien à faire.
+ 
+ /////////////////
+ cp /applis/19382-certi-00/ihs/sw-19382_certis_backjava-prez-1/conf/httpd.conf.bak /applis/19382-certi-00/ihs/sw-19382_certis_backjava-prez-1/conf/httpd.conf
