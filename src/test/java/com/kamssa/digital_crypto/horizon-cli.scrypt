@@ -173,3 +173,121 @@ Vous avez maintenant :
 ✅ Généré un certificat valide.
 ✅ Configuré votre serveur Web pour l'utiliser.
 ✅ Mis en place un script pour que, l'année prochaine, vous n'ayez rien à faire (Horizon téléchargera le nouveau certif et lancera le script de reload tout seul).
+/////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////
+
+C'est parti ! Voici la procédure définitive et sur-mesure pour votre serveur.
+J'ai intégré les chemins exacts que nous avons découverts grâce à vos captures d'écran (ps -ef). Vous pouvez suivre ces étapes une par une en toute confiance.
+Étape 1 : Création du script de rechargement automatique
+Ce script servira à horizon-cli pour dire au serveur : "J'ai renouvelé le certificat, prends-le en compte !" sans couper vos utilisateurs.
+Créez le dossier (s'il n'existe pas) et le fichier :
+code
+Bash
+mkdir -p /opt/horizon/scripts
+vi /opt/horizon/scripts/reload_ihs.sh
+Copiez ce contenu exact (avec le bon chemin que nous avons trouvé) :
+code
+Bash
+#!/bin/bash
+
+# --- CONFIGURATION (Chemin trouvé via votre ps -ef) ---
+IHS_BIN="/apps/WebSphere/WebServer/bin/apachectl"
+
+# --- LOGS ---
+LOG_FILE="/tmp/horizon_reload.log"
+echo "$(date) - Horizon : Demande de rechargement SSL..." >> $LOG_FILE
+
+# --- EXECUTION ---
+if [ -f "$IHS_BIN" ]; then
+    # On lance un reload "graceful" (douceur)
+    $IHS_BIN -k graceful
+    
+    if [ $? -eq 0 ]; then
+        echo "$(date) - SUCCES : Le serveur Web a rechargé la config." >> $LOG_FILE
+    else
+        echo "$(date) - ERREUR : La commande a échoué." >> $LOG_FILE
+        exit 1
+    fi
+else
+    echo "$(date) - ERREUR : Le fichier $IHS_BIN est introuvable." >> $LOG_FILE
+    exit 1
+fi
+Rendez le script exécutable (Obligatoire) :
+code
+Bash
+chmod +x /opt/horizon/scripts/reload_ihs.sh
+Testez-le tout de suite :
+code
+Bash
+/opt/horizon/scripts/reload_ihs.sh
+(Vérifiez ensuite avec cat /tmp/horizon_reload.log que vous avez bien un message de SUCCÈS).
+Étape 2 : Génération du certificat avec Horizon
+On génère les fichiers .pem (lisibles) au lieu des .kdb (compliqués).
+Remplacez VOTRE_SERVEUR par le nom DNS complet de la machine (celui utilisé dans l'URL, ex: s02v19932112.fr.net.intra ou un alias).
+code
+Bash
+/opt/horizon/bin/horizon-cli automate enroll \
+  --no-interactive \
+  --automation-policy=automate-app-tls-server-365 \
+  --target=generic \
+  --auto-renew \
+  --dnsnames="VOTRE_SERVEUR" \
+  --contact-email="votre.email@echonet.net" \
+  --post-hook="/opt/horizon/scripts/reload_ihs.sh"
+Notez le résultat : À la fin, la commande va vous dire : "Certificate enrolled successfully". Elle va lister les fichiers créés dans /opt/horizon/var/generic/.
+Certificat : cert.pem (ou le nom du serveur.pem)
+Clé : privkey.key (ou le nom du serveur.key)
+Chaîne : chain.pem
+Étape 3 : Configuration du serveur Web (Le lien)
+Nous allons modifier le fichier de configuration que nous avons identifié grâce à votre capture d'écran.
+Ouvrez le fichier :
+code
+Bash
+vi /applis/19382-certi-00/ihs/sw-19382_certis_backjava-prez-1/conf/httpd.conf
+Cherchez la section <VirtualHost *:443> (c'est souvent vers la fin du fichier).
+Modifiez comme ceci :
+Mettez un # devant la ligne KeyFile (pour la désactiver).
+Ajoutez les 3 lignes SSL qui pointent vers vos nouveaux fichiers.
+code
+Apache
+<VirtualHost *:443>
+    SSLEnable
+    
+    # --- ANCIENNE CONFIGURATION (On désactive le KDB) ---
+    # KeyFile /applis/19382-certi-00/ihs/.../quelquechose.kdb
+
+    # --- NOUVELLE CONFIGURATION HORIZON ---
+    # Adaptez les noms de fichiers selon ce que l'étape 2 a généré
+    
+    # 1. Le certificat public
+    SSLCertificateFile /opt/horizon/var/generic/cert.pem
+    
+    # 2. La clé privée
+    SSLCertificateKeyFile /opt/horizon/var/generic/privkey.key
+    
+    # 3. La chaîne de certification
+    SSLCertificateChainFile /opt/horizon/var/generic/chain.pem
+    
+    # ... le reste de la config ne change pas ...
+</VirtualHost>
+Étape 4 : Vérification et Validation
+Avant de crier victoire, on vérifie que le fichier de config ne contient pas d'erreur de frappe.
+Vérification de la syntaxe :
+code
+Bash
+/apps/WebSphere/WebServer/bin/apachectl -t
+Si ça répond Syntax OK, c'est parfait !
+Si ça répond une erreur, relisez le fichier httpd.conf (vérifiez les chemins des fichiers .pem et .key).
+Application finale :
+Lancez votre script une dernière fois pour appliquer la config :
+code
+Bash
+/opt/horizon/scripts/reload_ihs.sh
+Test Final :
+Essayez d'accéder à votre site en HTTPS ou faites un curl local :
+code
+Bash
+curl -v -k https://localhost/
+🎉 Félicitations ! Votre serveur est maintenant sécurisé avec une méthode moderne.
+Le serveur utilise des fichiers standards.
+L'an prochain, horizon-cli renouvellera le fichier tout seul et lancera le script de reload sans que vous n'ayez rien à faire.
