@@ -375,3 +375,147 @@ Votre serveur, lui, attendra un .kdb.
 Il faudra donc, dans votre script reload_ihs.sh, ajouter des lignes de commandes complexes (avec gskcapicmd) pour convertir automatiquement les nouveaux PEM en KDB avant de relancer le serveur.
 C'est pourquoi, si vous avez le choix, la méthode .pem (native IHS 9) reste la plus simple.
 Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
+/////////////////////////// nouvelle solution /////////////////////////////////////////////////////////
+
+C'est parfaitement clair. J'ai analysé vos 3 images :
+Image 1 (Terminal noir) : On voit que vos outils IBM (gskcapicmd, gskcmd) sont dans /apps/WebSphere/WebPlugins/bin/.
+Image 2 (Terminal noir avec commande échouée) : On voit que vous essayez d'exporter avec le label certis-api.staging.echonet.
+Image 3 (Notepad++) : On voit le chemin précis où vous voulez que les fichiers soient stockés : /applis/19382-certi-00/ihs/sw-19382_certis_backjava-prez-1/ssl/.
+Log : On voit que le dossier de log est /opt/horizon/var/.
+Voici le script sur-mesure qui rassemble tout cela.
+Le Script : convert_kdb_to_p12.sh
+Ce script va :
+Aller chercher le KDB dans votre dossier /ssl.
+Utiliser l'outil IBM dans /WebPlugins/bin.
+Créer le P12 dans le même dossier /ssl.
+Donner les droits à l'utilisateur was.
+Écrire tout ce qu'il fait dans /opt/horizon/var/convert_script.log.
+1. Création du fichier
+code
+Bash
+vi /opt/horizon/scripts/convert_kdb_to_p12.sh
+2. Contenu à copier (Lisez bien les commentaires pour comprendre)
+code
+Bash
+#!/bin/bash
+
+# ==============================================================================
+# 1. CONFIGURATION DES VARIABLES (C'est ici qu'on définit les chemins)
+# ==============================================================================
+
+# Le dossier où se trouvent vos certificats (pris de votre image Notepad++)
+SSL_DIR="/applis/19382-certi-00/ihs/sw-19382_certis_backjava-prez-1/ssl"
+
+# Le nom de vos fichiers
+KDB_NAME="certis-api.staging.echonet.kdb"
+P12_NAME="certis-api.staging.echonet.p12"
+
+# Le chemin complet vers l'outil IBM (pris de votre image terminal)
+GSK_TOOL="/apps/WebSphere/WebPlugins/bin/gskcapicmd"
+
+# Le nom de l'étiquette (Alias) du certificat dans le KDB
+# (D'après votre tentative de commande manuelle)
+CERT_LABEL="certis-api.staging.echonet"
+
+# Le mot de passe que vous voulez donner au fichier P12
+# ⚠️ IMPORTANT : Mettez ici le mot de passe que Liberty (server.xml) attend !
+P12_PASSWORD="passQual1" 
+
+# Le fichier de Log (dans le dossier que vous m'avez montré)
+LOG_FILE="/opt/horizon/var/convert_script.log"
+
+
+# ==============================================================================
+# 2. FONCTION DE JOURNALISATION (Pour écrire dans le log proprement)
+# ==============================================================================
+log_msg() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOG_FILE"
+    echo "$1" # Affiche aussi à l'écran
+}
+
+# ==============================================================================
+# 3. EXECUTION DU TRAITEMENT
+# ==============================================================================
+
+log_msg "[START] Démarrage du script de conversion KDB vers P12."
+
+# Vérification que l'outil IBM existe
+if [ ! -f "$GSK_TOOL" ]; then
+    log_msg "[ERREUR] L'outil gskcapicmd est introuvable ici : $GSK_TOOL"
+    exit 1
+fi
+
+# Vérification que le fichier KDB existe
+if [ ! -f "$SSL_DIR/$KDB_NAME" ]; then
+    log_msg "[ERREUR] Le fichier KDB source est introuvable ici : $SSL_DIR/$KDB_NAME"
+    exit 1
+fi
+
+log_msg "[INFO] Conversion en cours..."
+log_msg "       Source : $SSL_DIR/$KDB_NAME"
+log_msg "       Cible  : $SSL_DIR/$P12_NAME"
+
+# --- LA COMMANDE MAGIQUE ---
+# Explication des options :
+# -cert -export      : On veut sortir un certificat
+# -db ...            : Le fichier source
+# -stashed           : Utilise le fichier .sth caché pour ne pas taper le mot de passe KDB
+# -label ...         : Quel certificat prendre ? (Celui défini dans la variable)
+# -target ...        : Où le mettre
+# -target_type pkcs12: Le format voulu par Liberty
+# -target_pw ...     : Le mot de passe pour protéger le nouveau fichier
+
+"$GSK_TOOL" -cert -export \
+    -db "$SSL_DIR/$KDB_NAME" \
+    -stashed \
+    -label "$CERT_LABEL" \
+    -target "$SSL_DIR/$P12_NAME" \
+    -target_type pkcs12 \
+    -target_pw "$P12_PASSWORD"
+
+# Vérification du résultat de la commande (0 = Succès)
+if [ $? -eq 0 ]; then
+    log_msg "[SUCCES] Le fichier .p12 a été généré."
+    
+    # --- GESTION DES PERMISSIONS (TRES IMPORTANT) ---
+    # On donne le fichier à l'utilisateur 'was' et au groupe 'web'
+    # pour que le serveur d'application puisse le lire.
+    
+    chown was:web "$SSL_DIR/$P12_NAME"
+    chmod 640 "$SSL_DIR/$P12_NAME"
+    
+    log_msg "[INFO] Permissions mises à jour (chown was:web)."
+else
+    log_msg "[ERREUR] La conversion a échoué. Vérifiez le label ou le mot de passe."
+    exit 1
+fi
+
+log_msg "[END] Fin du traitement."
+exit 0
+Comment utiliser ce script ?
+Étape 1 : Rendre le script exécutable
+Pour que Linux accepte de lancer ce fichier texte comme un programme :
+code
+Bash
+chmod +x /opt/horizon/scripts/convert_kdb_to_p12.sh
+Étape 2 : Lancer le script
+code
+Bash
+/opt/horizon/scripts/convert_kdb_to_p12.sh
+Étape 3 : Vérifier que ça a marché
+Regardez si le fichier existe :
+code
+Bash
+ls -l /applis/19382-certi-00/ihs/sw-19382_certis_backjava-prez-1/ssl/
+Vous devriez voir le .p12 avec comme propriétaire was.
+Regardez le fichier de log :
+code
+Bash
+cat /opt/horizon/var/convert_script.log
+Explication détaillée pour votre compréhension
+GSK_TOOL="..." : J'ai mis le chemin /apps/WebSphere/WebPlugins/bin/gskcapicmd. C'est le programme IBM qui sait lire les KDB. On utilise le chemin complet pour être sûr que ça marche quel que soit l'endroit où on se trouve.
+SSL_DIR="..." : J'ai mis le chemin compliqué trouvé dans votre Notepad++. C'est là que le fichier KDB source doit se trouver (généré par Horizon ou manuellement) et c'est là que le script posera le P12.
+-stashed : C'est l'option la plus importante. Elle dit à la commande : "Ne me demande pas le mot de passe du KDB, va le chercher tout seul dans le fichier .sth qui est juste à côté". Sans ça, le script bloquerait en attendant que vous tapiez un mot de passe.
+chown was:web : À la fin, on force le fichier à appartenir à l'utilisateur was. C'est vital car si le fichier appartient à root (l'utilisateur qui lance le script), votre serveur Java (Liberty) ne pourra pas le lire et plantera au démarrage.
+Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
+
