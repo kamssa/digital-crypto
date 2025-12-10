@@ -950,3 +950,7 @@ Bash
   --kdb-alias="certis-api.staging.echonet" \
   --destination-folder="/opt/horizon/var/transit" \
   --post-hook="/opt/horizon/scripts/convert_and_deploy.sh"
+  /////////////////////////lire le fichier .sth //////////////////
+  ./gskcapicmd -cert -list \
+  -db /applis/19382-certi-00/wlc/sa-19382_certis_frontjava-prez-1/servers/sa-19382_certis_frontjava-prez-1/resources/security/certis.staging.echonet.kdb \
+  -pw "passQual1"
