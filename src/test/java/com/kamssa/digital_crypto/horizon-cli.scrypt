@@ -954,3 +954,91 @@ Bash
   ./gskcapicmd -cert -list \
   -db /applis/19382-certi-00/wlc/sa-19382_certis_frontjava-prez-1/servers/sa-19382_certis_frontjava-prez-1/resources/security/certis.staging.echonet.kdb \
   -pw "passQual1"
+  ///////////////////////// nettoyage //////////////////////
+  # ==============================================================================
+TRANSIT_DIR="/opt/horizon/var/transit"
+IHS_DIR="/applis/19382-certi-00/ihs/sw-19382_certis_frontjava-prez-1-ssl/ssl"
+WAS_DIR="/applis/19382-certi-00/wlc/sa-19382_certis_frontjava-prez-1/servers/sa-19382_certis_frontjava-prez-1/resources/security"
+GSK_DIR="/apps/WebSphere/WebPlugins/bin"
+
+BASE_NAME="certis.staging.echonet"
+CERT_LABEL="certis.staging.echonet"
+P12_PASSWORD="passQual1"
+
+LOG_FILE="/opt/horizon/var/convert_deploy.log"
+
+# ==============================================================================
+# 2. FONCTION LOG
+# ==============================================================================
+log_msg() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE"; }
+
+# ==============================================================================
+# 3. CONVERSION KDB -> P12 (DANS LE TRANSIT)
+# ==============================================================================
+log_msg "[START] Démarrage du script Post-Hook."
+
+# Vérification présence KDB
+if [ ! -f "$TRANSIT_DIR/${BASE_NAME}.kdb" ]; then
+    log_msg "[ERREUR] KDB absent du transit : $TRANSIT_DIR"
+    exit 1
+fi
+
+cd "$GSK_DIR" || exit 1
+if [ -f "./gskcapicmd" ]; then TOOL="./gskcapicmd"; else TOOL="./gskcmd"; fi
+
+log_msg "[CONVERT] Génération du fichier P12..."
+
+# --- CORRECTION ICI : NETTOYAGE PREVENTIF ---
+# On supprime le fichier P12 s'il existe déjà pour éviter l'erreur CTGSK3036W
+if [ -f "$TRANSIT_DIR/${BASE_NAME}.p12" ]; then
+    log_msg "[INFO] Suppression de l'ancien fichier P12 présent dans le transit."
+    rm -f "$TRANSIT_DIR/${BASE_NAME}.p12"
+fi
+# ---------------------------------------------
+
+$TOOL -cert -export \
+    -db "$TRANSIT_DIR/${BASE_NAME}.kdb" \
+    -stashed \
+    -label "$CERT_LABEL" \
+    -target "$TRANSIT_DIR/${BASE_NAME}.p12" \
+    -target_type pkcs12 \
+    -target_pw "$P12_PASSWORD"
+
+if [ $? -ne 0 ]; then
+    log_msg "[ERREUR] La conversion a échoué."
+    exit 1
+fi
+
+chmod 644 "$TRANSIT_DIR/${BASE_NAME}.p12"
+
+# ==============================================================================
+# 4. DEPLOIEMENT INTELLIGENT
+# ==============================================================================
+deploy_to() {
+    TARGET_DIR=$1
+    log_msg "[DEPLOY] Vers : $TARGET_DIR"
+    
+    if [ ! -d "$TARGET_DIR" ]; then log_msg "[ERREUR] Dossier introuvable : $TARGET_DIR"; return; fi
+
+    for EXT in kdb sth p12; do
+        NEW_FILE="$TRANSIT_DIR/${BASE_NAME}.${EXT}"
+        FINAL_FILE="$TARGET_DIR/${BASE_NAME}.${EXT}"
+        
+        if [ -f "$FINAL_FILE" ]; then
+            cp "$FINAL_FILE" "${FINAL_FILE}.bak"
+            log_msg " -> [UPDATE] $EXT (Backup fait)"
+        else
+            log_msg " -> [NEW] $EXT"
+        fi
+        
+        cp -f "$NEW_FILE" "$FINAL_FILE"
+        chown was:web "$FINAL_FILE"
+        chmod 640 "$FINAL_FILE"
+    done
+}
+
+deploy_to "$IHS_DIR"
+deploy_to "$WAS_DIR"
+
+log_msg "[SUCCES] Terminé."
+exit 0
