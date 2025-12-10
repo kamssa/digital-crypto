@@ -710,3 +710,109 @@ log_msg "[INFO] Nettoyage du dossier transit non effectué (sécurité)."
 
 log_msg "[SUCCES] Déploiement terminé partout."
 exit 0
+/////////////// derniere ligne droite /////////////////////////////
+# 1. Créer le dossier de transit
+mkdir -p /opt/horizon/var/transit
+
+# 2. Créer le script complet
+cat << 'EOF' > /opt/horizon/scripts/convert_and_deploy.sh
+#!/bin/bash
+
+# ==============================================================================
+# CONFIGURATION
+# ==============================================================================
+TRANSIT_DIR="/opt/horizon/var/transit"
+IHS_DIR="/applis/19382-certi-00/ihs/sw-19382_certis_backjava-prez-1/ssl"
+WAS_DIR="/applis/19382-certi-00/wlc/sa-19382_certis_backjava-prez-1/servers/sa-19382_certis_backjava-prez-1/resources/security"
+
+GSK_DIR="/apps/WebSphere/WebPlugins/bin"
+BASE_NAME="certis-api.staging.echonet"
+CERT_LABEL="certis-api.staging.echonet"
+P12_PASSWORD="passQual1"
+LOG_FILE="/opt/horizon/var/convert_deploy.log"
+
+# ==============================================================================
+# EXECUTION
+# ==============================================================================
+log_msg() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE"; }
+
+log_msg "[START] Démarrage du déploiement depuis TRANSIT."
+
+# A. CONVERSION KDB -> P12 (DANS LE TRANSIT)
+cd "$GSK_DIR" || exit 1
+if [ -f "./gskcapicmd" ]; then TOOL="./gskcapicmd"; else TOOL="./gskcmd"; fi
+
+log_msg "[CONVERT] Génération du P12 dans le transit..."
+$TOOL -cert -export \
+    -db "$TRANSIT_DIR/${BASE_NAME}.kdb" -stashed -label "$CERT_LABEL" \
+    -target "$TRANSIT_DIR/${BASE_NAME}.p12" -target_type pkcs12 -target_pw "$P12_PASSWORD"
+
+if [ $? -ne 0 ]; then log_msg "[ERREUR] Conversion échouée."; exit 1; fi
+chmod 644 "$TRANSIT_DIR/${BASE_NAME}.p12"
+
+# B. FONCTION DE DEPLOIEMENT SECURISE
+deploy_to() {
+    TARGET_DIR=$1
+    log_msg "[DEPLOY] Vers : $TARGET_DIR"
+    
+    # Vérification que le dossier existe
+    if [ ! -d "$TARGET_DIR" ]; then log_msg "[ERREUR] Dossier cible introuvable : $TARGET_DIR"; return; fi
+
+    for EXT in kdb sth p12; do
+        NEW_FILE="$TRANSIT_DIR/${BASE_NAME}.${EXT}"
+        FINAL_FILE="$TARGET_DIR/${BASE_NAME}.${EXT}"
+        
+        # SI LE FICHIER EXISTE DEJA -> BACKUP
+        if [ -f "$FINAL_FILE" ]; then
+            cp "$FINAL_FILE" "${FINAL_FILE}.bak"
+            log_msg " -> [UPDATE] $EXT (Backup .bak créé)"
+        else
+            log_msg " -> [NEW] $EXT (Nouvelle installation)"
+        fi
+        
+        # COPIE ET DROITS
+        cp -f "$NEW_FILE" "$FINAL_FILE"
+        chown was:web "$FINAL_FILE"
+        chmod 640 "$FINAL_FILE"
+    done
+}
+
+# C. EXECUTION DES DEPLOIEMENTS
+deploy_to "$IHS_DIR"  # Mise à jour du Front (IHS)
+deploy_to "$WAS_DIR"  # Mise à jour du Back (Liberty)
+
+log_msg "[SUCCES] Terminé."
+exit 0
+EOF
+
+# 3. Rendre exécutable
+chmod +x /opt/horizon/scripts/convert_and_deploy.sh
+Étape 2 : La Commande Horizon (Le Déclencheur)
+C'est ici que la magie opère.
+Changement 1 : --destination-folder pointe maintenant vers /transit.
+Changement 2 : --post-hook appelle le script ci-dessus.
+Copiez-collez ceci dans votre terminal :
+code
+Bash
+/opt/horizon/bin/horizon-cli automate enroll \
+  --no-interactive \
+  --automation-policy=automate-app-tls-server-365 \
+  --target=generic \
+  --auto-renew \
+  --contact-email="abdoulaye.1.traore@externe.bnpparibas.com" \
+  --dnsnames="certis-api.staging.echonet,s02v19932112.fr.net.intra" \
+  --kdb="certis-api.staging.echonet.kdb" \
+  --kdb-pwd="passQual1" \
+  --kdb-alias="certis-api.staging.echonet" \
+  --destination-folder="/opt/horizon/var/transit" \
+  --post-hook="/opt/horizon/scripts/convert_and_deploy.sh"
+Résumé de ce qui va se passer quand vous appuierez sur Entrée :
+Horizon télécharge le certificat.
+Horizon crée le .kdb et .sth dans /opt/horizon/var/transit.
+Horizon lance le script /opt/horizon/scripts/convert_and_deploy.sh.
+Le Script :
+Convertit le KDB en P12 dans le dossier transit.
+Va dans /applis/.../ssl, sauvegarde les vieux fichiers en .bak, et copie les nouveaux.
+Va dans /applis/.../security, sauvegarde les vieux fichiers en .bak, et copie les nouveaux.
+Applique les droits was:web partout.
+C'est la solution d'automatisation complète et sécurisée !
