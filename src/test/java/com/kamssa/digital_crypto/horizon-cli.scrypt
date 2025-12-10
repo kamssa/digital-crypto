@@ -1042,3 +1042,189 @@ deploy_to "$WAS_DIR"
 
 log_msg "[SUCCES] Terminé."
 exit 0
+//////////////////////// front et back /////////////////////////////////////
+
+C'est une modification très pertinente. En effet, le serveur Web (Front / IHS) n'a besoin que du KDB et du STH. Le fichier P12 ne sert que pour le serveur d'application (Back / Liberty).
+Pour adapter le script, nous allons rendre la fonction deploy_to plus intelligente : nous allons lui dire quels fichiers copier à chaque fois.
+Voici les modifications logiques :
+Pour IHS (Front), on lui dira : "Copie seulement kdb et sth".
+Pour WAS (Back), on lui dira : "Copie kdb, sth et p12".
+Voici le script FINAL MODIFIÉ (Copiez-collez tout le bloc) :
+code
+Bash
+cat << 'EOF' > /opt/horizon/var/script/convert_deploy.sh
+#!/bin/bash
+
+# ==============================================================================
+# 1. CONFIGURATION
+# ==============================================================================
+TRANSIT_DIR="/opt/horizon/var/transit"
+IHS_DIR="/applis/19382-certi-00/ihs/sw-19382_certis_frontjava-prez-1-ssl/ssl"
+WAS_DIR="/applis/19382-certi-00/wlc/sa-19382_certis_frontjava-prez-1/servers/sa-19382_certis_frontjava-prez-1/resources/security"
+GSK_DIR="/apps/WebSphere/WebPlugins/bin"
+
+BASE_NAME="certis.staging.echonet"
+CERT_LABEL="certis.staging.echonet"
+P12_PASSWORD="passQual1"
+
+LOG_FILE="/opt/horizon/var/convert_deploy.log"
+
+# ==============================================================================
+# 2. FONCTION LOG
+# ==============================================================================
+log_msg() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE"; }
+
+# ==============================================================================
+# 3. CONVERSION : KDB -> P12 (Toujours nécessaire pour le Backend)
+# ==============================================================================
+log_msg "[START] Démarrage du script."
+
+if [ ! -f "$TRANSIT_DIR/${BASE_NAME}.kdb" ]; then
+    log_msg "[ERREUR] Le fichier KDB est absent du transit."
+    exit 1
+fi
+
+cd "$GSK_DIR" || exit 1
+if [ -f "./gskcapicmd" ]; then TOOL="./gskcapicmd"; else TOOL="./gskcmd"; fi
+
+log_msg "[CONVERT] Génération du P12 à partir du KDB..."
+
+# Nettoyage préventif
+if [ -f "$TRANSIT_DIR/${BASE_NAME}.p12" ]; then rm -f "$TRANSIT_DIR/${BASE_NAME}.p12"; fi
+
+# Export KDB -> P12
+$TOOL -cert -export \
+    -db "$TRANSIT_DIR/${BASE_NAME}.kdb" \
+    -stashed \
+    -label "$CERT_LABEL" \
+    -target "$TRANSIT_DIR/${BASE_NAME}.p12" \
+    -target_type pkcs12 \
+    -target_pw "$P12_PASSWORD"
+
+if [ $? -ne 0 ]; then
+    log_msg "[ERREUR] La conversion KDB -> P12 a échoué."
+    exit 1
+fi
+
+chmod 644 "$TRANSIT_DIR/${BASE_NAME}.p12"
+log_msg "[INFO] P12 généré avec succès."
+
+# ==============================================================================
+# 4. DEPLOIEMENT FLEXIBLE (Modifié)
+# ==============================================================================
+deploy_to() {
+    TARGET_DIR=$1
+    EXTENSIONS=$2  # On récupère la liste des extensions à copier
+    
+    log_msg "[DEPLOY] Vers : $TARGET_DIR (Fichiers : $EXTENSIONS)"
+    
+    if [ ! -d "$TARGET_DIR" ]; then log_msg "[ERREUR] Dossier introuvable : $TARGET_DIR"; return; fi
+
+    # On ne boucle que sur les extensions demandées
+    for EXT in $EXTENSIONS; do
+        NEW_FILE="$TRANSIT_DIR/${BASE_NAME}.${EXT}"
+        FINAL_FILE="$TARGET_DIR/${BASE_NAME}.${EXT}"
+        
+        # Backup
+        if [ -f "$FINAL_FILE" ]; then
+            cp "$FINAL_FILE" "${FINAL_FILE}.bak"
+            log_msg " -> [UPDATE] $EXT (Backup fait)"
+        else
+            log_msg " -> [NEW] $EXT"
+        fi
+        
+        # Copie
+        cp -f "$NEW_FILE" "$FINAL_FILE"
+        chown was:web "$FINAL_FILE"
+        chmod 640 "$FINAL_FILE"
+    done
+}
+
+# ==============================================================================
+# 5. EXECUTION CIBLEE
+# ==============================================================================
+
+# A. Pour le FRONT (IHS) : On ne copie que KDB et STH
+deploy_to "$IHS_DIR" "kdb sth"
+
+# B. Pour le BACK (Liberty) : On copie TOUT (KDB, STH et P12)
+deploy_to "$WAS_DIR" "kdb sth p12"
+
+log_msg "[SUCCES] Terminé."
+exit 0
+EOF
+
+chmod +x /opt/horizon/var/script/convert_deploy.sh
+Ce qui a changé :
+La fonction deploy_to accepte maintenant un deuxième argument : la liste des extensions.
+L'appel final (Section 5) est différent :
+deploy_to "$IHS_DIR" "kdb sth" -> Le fichier P12 ne sera pas copié dans le dossier IHS.
+deploy_to "$WAS_DIR" "kdb sth p12" -> Tous les fichiers seront copiés dans le dossier Liberty.
+Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
+//////////////////////////////////////////////// front /////////////////////////
+TRANSIT_DIR="/opt/horizon/var/transit"
+IHS_DIR="/applis/19382-certi-00/ihs/sw-19382_certis_frontjava-prez-1-ssl/ssl"
+WAS_DIR="/applis/19382-certi-00/wlc/sa-19382_certis_frontjava-prez-1/servers/sa-19382_certis_frontjava-prez-1/resources/security"
+
+BASE_NAME="certis.staging.echonet"
+LOG_FILE="/opt/horizon/var/convert_deploy.log"
+
+# ==============================================================================
+# 2. FONCTION LOG
+# ==============================================================================
+log_msg() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE"; }
+
+log_msg "[START] Démarrage du déploiement (KDB/STH uniquement)."
+
+# Vérification KDB
+if [ ! -f "$TRANSIT_DIR/${BASE_NAME}.kdb" ]; then
+    log_msg "[ERREUR] Le fichier KDB est absent du transit."
+    exit 1
+fi
+
+# ==============================================================================
+# 3. (SECTION SUPPRIMÉE) : PLUS DE CONVERSION P12 ICI
+# ==============================================================================
+# Le bloc gskcapicmd a été retiré.
+# On passe directement au déploiement des fichiers existants.
+
+# ==============================================================================
+# 4. DEPLOIEMENT (KDB et STH uniquement)
+# ==============================================================================
+deploy_to() {
+    TARGET_DIR=$1
+    log_msg "[DEPLOY] Vers : $TARGET_DIR"
+    
+    if [ ! -d "$TARGET_DIR" ]; then log_msg "[ERREUR] Dossier introuvable : $TARGET_DIR"; return; fi
+
+    # On ne traite que KDB et STH (puisque le P12 n'est pas généré)
+    for EXT in kdb sth; do
+        NEW_FILE="$TRANSIT_DIR/${BASE_NAME}.${EXT}"
+        FINAL_FILE="$TARGET_DIR/${BASE_NAME}.${EXT}"
+        
+        # Backup
+        if [ -f "$FINAL_FILE" ]; then
+            cp "$FINAL_FILE" "${FINAL_FILE}.bak"
+            log_msg " -> [UPDATE] $EXT (Backup fait)"
+        else
+            log_msg " -> [NEW] $EXT"
+        fi
+        
+        # Copie
+        cp -f "$NEW_FILE" "$FINAL_FILE"
+        chown was:web "$FINAL_FILE"
+        chmod 640 "$FINAL_FILE"
+    done
+}
+
+# A. Front (IHS)
+deploy_to "$IHS_DIR"
+
+# B. Back (Liberty) - On y met aussi le KDB
+deploy_to "$WAS_DIR"
+
+log_msg "[SUCCES] KDB et STH déployés partout."
+exit 0
+EOF
+
+chmod +x /opt/horizon/var/script/convert_deploy.sh
