@@ -1378,3 +1378,72 @@ Il créera le KDB dans le dossier Transit.
 Il appellera master_deploy.sh.
 Le maître appellera deploy_front.sh (copie IHS).
 Le maître appellera deploy_back.sh (conversion + copie Liberty).
+////////////////////script du front ////////////////////////
+
+C'est noté. Voici le script dédié uniquement au Front (IHS).
+Il ne fait que prendre les fichiers .kdb et .sth générés par Horizon dans le dossier transit et les installe proprement sur le serveur Web avec backup et permissions.
+Script : deploy_front.sh
+Copiez ce bloc dans votre terminal :
+code
+Bash
+cat << 'EOF' > /opt/horizon/var/script/deploy_front.sh
+#!/bin/bash
+
+# ==============================================================================
+# CONFIGURATION DU FRONT (IHS)
+# ==============================================================================
+TRANSIT_DIR="/opt/horizon/var/transit"
+# Votre dossier cible pour le Front
+TARGET_DIR="/applis/19382-certi-00/ihs/sw-19382_certis_frontjava-prez-1-ssl/ssl"
+
+BASE_NAME="certis.staging.echonet"
+LOG_FILE="/opt/horizon/var/convert_deploy.log"
+
+# ==============================================================================
+# EXECUTION
+# ==============================================================================
+log_msg() { echo "$(date '+%Y-%m-%d %H:%M:%S') - [FRONT] $1" | tee -a "$LOG_FILE"; }
+
+log_msg "--- Démarrage déploiement FRONT (KDB/STH) ---"
+
+# 1. Vérifications de sécurité
+if [ ! -d "$TARGET_DIR" ]; then
+    log_msg "[ERREUR] Dossier cible introuvable : $TARGET_DIR"
+    exit 1
+fi
+
+if [ ! -f "$TRANSIT_DIR/${BASE_NAME}.kdb" ]; then
+    log_msg "[ERREUR] Fichier KDB absent du transit."
+    exit 1
+fi
+
+# 2. Boucle de déploiement (Seulement KDB et STH)
+for EXT in kdb sth; do
+    NEW_FILE="$TRANSIT_DIR/${BASE_NAME}.${EXT}"
+    FINAL_FILE="$TARGET_DIR/${BASE_NAME}.${EXT}"
+    
+    # A. Backup de l'existant
+    if [ -f "$FINAL_FILE" ]; then
+        cp "$FINAL_FILE" "${FINAL_FILE}.bak"
+        log_msg " -> [UPDATE] $EXT (Backup .bak créé)"
+    else
+        log_msg " -> [NEW] $EXT (Nouvelle installation)"
+    fi
+    
+    # B. Copie du nouveau fichier
+    cp -f "$NEW_FILE" "$FINAL_FILE"
+    
+    # C. Permissions (was:web + lecture)
+    chown was:web "$FINAL_FILE"
+    chmod 640 "$FINAL_FILE"
+done
+
+log_msg "--- Déploiement FRONT terminé avec succès ---"
+exit 0
+EOF
+
+# Rendre exécutable
+chmod +x /opt/horizon/var/script/deploy_front.sh
+Comment l'utiliser avec Horizon ?
+Dans votre commande d'enrôlement, pointez simplement vers ce fichier :
+--script="/opt/horizon/var/script/deploy_front.sh"
