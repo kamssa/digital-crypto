@@ -1228,3 +1228,153 @@ exit 0
 EOF
 
 chmod +x /opt/horizon/var/script/convert_deploy.sh
+//////////////////////////// master deploy ////////////////////////////////////////////////
+
+C'est une excellente idée ! "Diviser pour mieux régner". Cela rendra la maintenance beaucoup plus facile.
+Comme horizon-cli ne permet d'appeler qu'un seul script via l'option --script, nous allons procéder ainsi :
+Créer le script FRONT (IHS).
+Créer le script BACK (Liberty).
+Créer un petit script MAÎTRE (Master) qui lance les deux l'un après l'autre (c'est celui-ci qu'on donnera à Horizon).
+Voici la solution complète.
+1. Le Script FRONT (IHS)
+Il ne fait que copier le KDB et le STH.
+code
+Bash
+cat << 'EOF' > /opt/horizon/var/script/deploy_front.sh
+#!/bin/bash
+# === SCRIPT FRONT (IHS) ===
+
+TRANSIT_DIR="/opt/horizon/var/transit"
+TARGET_DIR="/applis/19382-certi-00/ihs/sw-19382_certis_frontjava-prez-1-ssl/ssl"
+BASE_NAME="certis.staging.echonet"
+LOG_FILE="/opt/horizon/var/convert_deploy.log"
+
+log_msg() { echo "$(date '+%Y-%m-%d %H:%M:%S') - [FRONT] $1" | tee -a "$LOG_FILE"; }
+
+log_msg "--- Début traitement FRONT ---"
+
+if [ ! -d "$TARGET_DIR" ]; then log_msg "[ERREUR] Dossier cible introuvable"; exit 1; fi
+
+# On ne traite que KDB et STH
+for EXT in kdb sth; do
+    NEW_FILE="$TRANSIT_DIR/${BASE_NAME}.${EXT}"
+    FINAL_FILE="$TARGET_DIR/${BASE_NAME}.${EXT}"
+    
+    if [ ! -f "$NEW_FILE" ]; then
+        log_msg "[ERREUR] Fichier manquant dans transit : $NEW_FILE"
+        exit 1
+    fi
+
+    if [ -f "$FINAL_FILE" ]; then
+        cp "$FINAL_FILE" "${FINAL_FILE}.bak"
+        log_msg " -> [UPDATE] $EXT (Backup créé)"
+    else
+        log_msg " -> [NEW] $EXT"
+    fi
+    
+    cp -f "$NEW_FILE" "$FINAL_FILE"
+    chown was:web "$FINAL_FILE"
+    chmod 640 "$FINAL_FILE"
+done
+
+log_msg "--- Fin traitement FRONT (Succès) ---"
+exit 0
+EOF
+chmod +x /opt/horizon/var/script/deploy_front.sh
+2. Le Script BACK (Liberty)
+Il convertit en P12 et copie tout (KDB, STH, P12).
+code
+Bash
+cat << 'EOF' > /opt/horizon/var/script/deploy_back.sh
+#!/bin/bash
+# === SCRIPT BACK (LIBERTY) ===
+
+TRANSIT_DIR="/opt/horizon/var/transit"
+TARGET_DIR="/applis/19382-certi-00/wlc/sa-19382_certis_frontjava-prez-1/servers/sa-19382_certis_frontjava-prez-1/resources/security"
+GSK_DIR="/apps/WebSphere/WebPlugins/bin"
+
+BASE_NAME="certis.staging.echonet"
+CERT_LABEL="certis.staging.echonet"
+P12_PASSWORD="passQual1"
+LOG_FILE="/opt/horizon/var/convert_deploy.log"
+
+log_msg() { echo "$(date '+%Y-%m-%d %H:%M:%S') - [BACK] $1" | tee -a "$LOG_FILE"; }
+
+log_msg "--- Début traitement BACK ---"
+
+# 1. CONVERSION KDB -> P12 (Dans le transit)
+cd "$GSK_DIR" || exit 1
+if [ -f "./gskcapicmd" ]; then TOOL="./gskcapicmd"; else TOOL="./gskcmd"; fi
+
+# Nettoyage préventif du P12
+if [ -f "$TRANSIT_DIR/${BASE_NAME}.p12" ]; then rm -f "$TRANSIT_DIR/${BASE_NAME}.p12"; fi
+
+log_msg "Conversion KDB vers P12..."
+$TOOL -cert -export \
+    -db "$TRANSIT_DIR/${BASE_NAME}.kdb" -stashed \
+    -label "$CERT_LABEL" \
+    -target "$TRANSIT_DIR/${BASE_NAME}.p12" -target_type pkcs12 -target_pw "$P12_PASSWORD"
+
+if [ $? -ne 0 ]; then log_msg "[ERREUR] Conversion échouée"; exit 1; fi
+chmod 644 "$TRANSIT_DIR/${BASE_NAME}.p12"
+
+# 2. DEPLOIEMENT (KDB, STH, P12)
+if [ ! -d "$TARGET_DIR" ]; then log_msg "[ERREUR] Dossier cible introuvable"; exit 1; fi
+
+for EXT in kdb sth p12; do
+    NEW_FILE="$TRANSIT_DIR/${BASE_NAME}.${EXT}"
+    FINAL_FILE="$TARGET_DIR/${BASE_NAME}.${EXT}"
+    
+    if [ -f "$FINAL_FILE" ]; then
+        cp "$FINAL_FILE" "${FINAL_FILE}.bak"
+        log_msg " -> [UPDATE] $EXT (Backup créé)"
+    else
+        log_msg " -> [NEW] $EXT"
+    fi
+    
+    cp -f "$NEW_FILE" "$FINAL_FILE"
+    chown was:web "$FINAL_FILE"
+    chmod 640 "$FINAL_FILE"
+done
+
+log_msg "--- Fin traitement BACK (Succès) ---"
+exit 0
+EOF
+chmod +x /opt/horizon/var/script/deploy_back.sh
+3. Le Script MAÎTRE (Celui qu'on donne à Horizon)
+C'est le chef d'orchestre.
+code
+Bash
+cat << 'EOF' > /opt/horizon/var/script/master_deploy.sh
+#!/bin/bash
+
+LOG_FILE="/opt/horizon/var/convert_deploy.log"
+echo "========================================================" >> $LOG_FILE
+echo "$(date) - [MASTER] Démarrage du déploiement global" >> $LOG_FILE
+
+# 1. Lancement du Front
+/opt/horizon/var/script/deploy_front.sh
+if [ $? -ne 0 ]; then
+    echo "$(date) - [MASTER] ERREUR CRITIQUE sur le FRONT. Arrêt." >> $LOG_FILE
+    exit 1
+fi
+
+# 2. Lancement du Back
+/opt/horizon/var/script/deploy_back.sh
+if [ $? -ne 0 ]; then
+    echo "$(date) - [MASTER] ERREUR CRITIQUE sur le BACK." >> $LOG_FILE
+    exit 1
+fi
+
+echo "$(date) - [MASTER] Tout est terminé avec succès." >> $LOG_FILE
+exit 0
+EOF
+chmod +x /opt/horizon/var/script/master_deploy.sh
+Comment utiliser ça ?
+Dans votre commande Horizon, vous pointez maintenant uniquement vers le script maître :
+--script="/opt/horizon/var/script/master_deploy.sh"
+Quand Horizon se lancera :
+Il créera le KDB dans le dossier Transit.
+Il appellera master_deploy.sh.
+Le maître appellera deploy_front.sh (copie IHS).
+Le maître appellera deploy_back.sh (conversion + copie Liberty).
