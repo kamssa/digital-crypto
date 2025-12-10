@@ -519,3 +519,116 @@ SSL_DIR="..." : J'ai mis le chemin compliqué trouvé dans votre Notepad++. C'es
 chown was:web : À la fin, on force le fichier à appartenir à l'utilisateur was. C'est vital car si le fichier appartient à root (l'utilisateur qui lance le script), votre serveur Java (Liberty) ne pourra pas le lire et plantera au démarrage.
 Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
 
+////////////////////////////////// salotion robuste ///////////////////////////////////////
+#!/bin/bash
+
+# ==============================================================================
+# 1. CONFIGURATION (Basée sur vos captures d'écran)
+# ==============================================================================
+
+# Dossier des outils IBM (gskcapicmd / gskcmd)
+GSK_DIR="/apps/WebSphere/WebPlugins/bin"
+
+# Dossier SOURCE (Où sont le KDB et le STH actuellement)
+SRC_DIR="/applis/19382-certi-00/ihs/sw-19382_certis_backjava-prez-1/ssl"
+
+# Dossier DESTINATION (Dossier 'security' de Liberty/WAS)
+DEST_DIR="/applis/19382-certi-00/wlc/sa-19382_certis_backjava-prez-1/servers/sa-19382_certis_backjava-prez-1/resources/security"
+
+# Nom de base des fichiers
+BASE_NAME="certis-api.staging.echonet"
+CERT_LABEL="certis-api.staging.echonet"
+
+# Mot de passe pour le fichier P12 (Attendu par Liberty)
+P12_PASSWORD="passQual1"
+
+# Fichier de Log
+LOG_FILE="/opt/horizon/var/convert_deploy.log"
+
+# ==============================================================================
+# 2. FONCTION LOG
+# ==============================================================================
+log_msg() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE"
+}
+
+# ==============================================================================
+# 3. ETAPE 1 : CONVERSION KDB -> P12 (DANS LA SOURCE)
+# ==============================================================================
+log_msg "[START] Démarrage du script de déploiement SSL."
+
+# Vérification présence KDB Source
+if [ ! -f "$SRC_DIR/${BASE_NAME}.kdb" ]; then
+    log_msg "[ERREUR] Fichier KDB introuvable dans la source : $SRC_DIR"
+    exit 1
+fi
+
+# Déplacement dans le dossier des outils IBM
+cd "$GSK_DIR" || exit 1
+
+# Détection automatique de l'outil (C ou Java)
+if [ -f "./gskcapicmd" ]; then TOOL="./gskcapicmd"; else TOOL="./gskcmd"; fi
+
+log_msg "[CONVERT] Génération du fichier P12..."
+$TOOL -cert -export \
+    -db "$SRC_DIR/${BASE_NAME}.kdb" \
+    -stashed \
+    -label "$CERT_LABEL" \
+    -target "$SRC_DIR/${BASE_NAME}.p12" \
+    -target_type pkcs12 \
+    -target_pw "$P12_PASSWORD"
+
+if [ $? -ne 0 ]; then
+    log_msg "[ERREUR] Echec de la conversion P12."
+    exit 1
+fi
+
+# Correction droits du nouveau P12 source
+chown was:web "$SRC_DIR/${BASE_NAME}.p12"
+log_msg "[INFO] P12 généré avec succès dans le dossier source."
+
+# ==============================================================================
+# 4. ETAPE 2 : DEPLOIEMENT INTELLIGENT VERS DESTINATION
+# ==============================================================================
+log_msg "[DEPLOY] Traitement des fichiers vers : $DEST_DIR"
+
+if [ ! -d "$DEST_DIR" ]; then
+    log_msg "[ERREUR] Le dossier de destination n'existe pas."
+    exit 1
+fi
+
+# Boucle sur les 3 types de fichiers à copier
+for EXT in kdb sth p12; do
+    
+    FILE_NAME="${BASE_NAME}.${EXT}"
+    SRC_FILE="$SRC_DIR/$FILE_NAME"
+    DEST_FILE="$DEST_DIR/$FILE_NAME"
+    
+    # Vérification si le fichier source existe bien
+    if [ -f "$SRC_FILE" ]; then
+        
+        # LOGIQUE INTELLIGENTE : UPDATE OU NEW
+        if [ -f "$DEST_FILE" ]; then
+            # Le fichier existe déjà -> On fait un backup
+            cp "$DEST_FILE" "${DEST_FILE}.bak"
+            log_msg " -> [UPDATE] $FILE_NAME : Sauvegarde .bak créée, fichier écrasé."
+        else
+            # Le fichier n'existe pas -> C'est une nouvelle installation
+            log_msg " -> [NEW] $FILE_NAME : Fichier inexistant, création."
+        fi
+        
+        # Copie du fichier (écrase si existant)
+        cp -f "$SRC_FILE" "$DEST_FILE"
+        
+        # Application des droits was:web
+        chown was:web "$DEST_FILE"
+        chmod 640 "$DEST_FILE"
+        
+    else
+        log_msg "[WARNING] Fichier source $FILE_NAME manquant, ignoré."
+    fi
+
+done
+
+log_msg "[SUCCES] Opération terminée. Les fichiers sont à jour dans Security."
+exit 0
