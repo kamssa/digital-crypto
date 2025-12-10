@@ -632,3 +632,81 @@ done
 
 log_msg "[SUCCES] Opération terminée. Les fichiers sont à jour dans Security."
 exit 0
+////////////////////// nouvelle solution avec transit /////////////////////////////////
+#!/bin/bash
+
+# ==============================================================================
+# CONFIGURATION
+# ==============================================================================
+
+# 1. Dossier TEMPORAIRE (Là où Horizon dépose les nouveaux fichiers)
+TRANSIT_DIR="/opt/horizon/var/transit"
+
+# 2. Dossier FINAL IHS (Front)
+IHS_DIR="/applis/19382-certi-00/ihs/sw-19382_certis_backjava-prez-1/ssl"
+
+# 3. Dossier FINAL WAS/LIBERTY (Back)
+WAS_DIR="/applis/19382-certi-00/wlc/sa-19382_certis_backjava-prez-1/servers/sa-19382_certis_backjava-prez-1/resources/security"
+
+# Outils et Noms
+GSK_DIR="/apps/WebSphere/WebPlugins/bin"
+BASE_NAME="certis-api.staging.echonet"
+CERT_LABEL="certis-api.staging.echonet"
+P12_PASSWORD="passQual1"
+LOG_FILE="/opt/horizon/var/convert_deploy.log"
+
+# ==============================================================================
+# EXECUTION
+# ==============================================================================
+log_msg() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE"; }
+
+log_msg "[START] Démarrage du déploiement depuis TRANSIT."
+
+# A. CONVERSION KDB -> P12 (Dans le dossier Transit)
+cd "$GSK_DIR" || exit 1
+if [ -f "./gskcapicmd" ]; then TOOL="./gskcapicmd"; else TOOL="./gskcmd"; fi
+
+log_msg "[CONVERT] Génération du P12 dans le transit..."
+$TOOL -cert -export \
+    -db "$TRANSIT_DIR/${BASE_NAME}.kdb" -stashed -label "$CERT_LABEL" \
+    -target "$TRANSIT_DIR/${BASE_NAME}.p12" -target_type pkcs12 -target_pw "$P12_PASSWORD"
+
+if [ $? -ne 0 ]; then log_msg "[ERREUR] Conversion échouée."; exit 1; fi
+chmod 644 "$TRANSIT_DIR/${BASE_NAME}.p12" # Droits temporaires
+
+# B. FONCTION DE DEPLOIEMENT SECURISE
+deploy_to() {
+    TARGET_DIR=$1
+    log_msg "[DEPLOY] Traitement vers : $TARGET_DIR"
+    
+    for EXT in kdb sth p12; do
+        NEW_FILE="$TRANSIT_DIR/${BASE_NAME}.${EXT}"
+        FINAL_FILE="$TARGET_DIR/${BASE_NAME}.${EXT}"
+        
+        if [ -f "$FINAL_FILE" ]; then
+            # LE VRAI BACKUP EST ICI : On sauvegarde l'existant avant d'écraser
+            cp "$FINAL_FILE" "${FINAL_FILE}.bak"
+            log_msg " -> [UPDATE] Backup créé pour $EXT"
+        else
+            log_msg " -> [NEW] Nouvelle installation pour $EXT"
+        fi
+        
+        # Copie du nouveau fichier
+        cp -f "$NEW_FILE" "$FINAL_FILE"
+        
+        # Droits
+        chown was:web "$FINAL_FILE"
+        chmod 640 "$FINAL_FILE"
+    done
+}
+
+# C. LANCEMENT DES DEPLOIEMENTS
+deploy_to "$IHS_DIR"  # Mise à jour du Front (IHS) avec backup !
+deploy_to "$WAS_DIR"  # Mise à jour du Back (Liberty) avec backup !
+
+# D. NETTOYAGE (Optionnel)
+# rm -f "$TRANSIT_DIR"/*
+log_msg "[INFO] Nettoyage du dossier transit non effectué (sécurité)."
+
+log_msg "[SUCCES] Déploiement terminé partout."
+exit 0
