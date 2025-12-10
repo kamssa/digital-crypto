@@ -816,3 +816,137 @@ Va dans /applis/.../ssl, sauvegarde les vieux fichiers en .bak, et copie les nou
 Va dans /applis/.../security, sauvegarde les vieux fichiers en .bak, et copie les nouveaux.
 Applique les droits was:web partout.
 C'est la solution d'automatisation complète et sécurisée !
+//////////////////// solution cle en main /////////////////////////////
+. Création du script convert_and_deploy.sh
+code
+Bash
+# 1. Création des dossiers nécessaires
+mkdir -p /opt/horizon/var/transit
+mkdir -p /opt/horizon/scripts
+
+# 2. Création du fichier script via la commande cat
+cat << 'EOF' > /opt/horizon/scripts/convert_and_deploy.sh
+#!/bin/bash
+
+# ==============================================================================
+# 1. CONFIGURATION
+# ==============================================================================
+
+# Dossiers
+TRANSIT_DIR="/opt/horizon/var/transit"
+IHS_DIR="/applis/19382-certi-00/ihs/sw-19382_certis_backjava-prez-1/ssl"
+WAS_DIR="/applis/19382-certi-00/wlc/sa-19382_certis_backjava-prez-1/servers/sa-19382_certis_backjava-prez-1/resources/security"
+GSK_DIR="/apps/WebSphere/WebPlugins/bin"
+
+# Noms des fichiers et certificats
+BASE_NAME="certis-api.staging.echonet"
+CERT_LABEL="certis-api.staging.echonet"
+P12_PASSWORD="passQual1"
+
+# Log
+LOG_FILE="/opt/horizon/var/convert_deploy.log"
+
+# ==============================================================================
+# 2. FONCTION DE JOURNALISATION
+# ==============================================================================
+log_msg() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE"; }
+
+# ==============================================================================
+# 3. CONVERSION KDB -> P12 (DANS LE TRANSIT)
+# ==============================================================================
+log_msg "[START] Démarrage du script Post-Hook."
+
+# Vérification que Horizon a bien déposé le KDB
+if [ ! -f "$TRANSIT_DIR/${BASE_NAME}.kdb" ]; then
+    log_msg "[ERREUR] Le fichier KDB est absent du dossier Transit : $TRANSIT_DIR"
+    exit 1
+fi
+
+# Déplacement dans le dossier des outils IBM
+cd "$GSK_DIR" || exit 1
+if [ -f "./gskcapicmd" ]; then TOOL="./gskcapicmd"; else TOOL="./gskcmd"; fi
+
+log_msg "[CONVERT] Génération du fichier P12 dans le Transit..."
+$TOOL -cert -export \
+    -db "$TRANSIT_DIR/${BASE_NAME}.kdb" \
+    -stashed \
+    -label "$CERT_LABEL" \
+    -target "$TRANSIT_DIR/${BASE_NAME}.p12" \
+    -target_type pkcs12 \
+    -target_pw "$P12_PASSWORD"
+
+if [ $? -ne 0 ]; then
+    log_msg "[ERREUR] La conversion P12 a échoué."
+    exit 1
+fi
+
+# Droits temporaires pour lecture
+chmod 644 "$TRANSIT_DIR/${BASE_NAME}.p12"
+
+# ==============================================================================
+# 4. FONCTION DE DEPLOIEMENT INTELLIGENT
+# ==============================================================================
+deploy_to() {
+    TARGET_DIR=$1
+    log_msg "[DEPLOY] Traitement vers : $TARGET_DIR"
+    
+    # Vérification dossier cible
+    if [ ! -d "$TARGET_DIR" ]; then
+        log_msg "[ERREUR] Dossier cible introuvable : $TARGET_DIR"
+        return
+    fi
+
+    # Boucle sur les 3 extensions
+    for EXT in kdb sth p12; do
+        NEW_FILE="$TRANSIT_DIR/${BASE_NAME}.${EXT}"
+        FINAL_FILE="$TARGET_DIR/${BASE_NAME}.${EXT}"
+        
+        # LOGIQUE DE BACKUP
+        if [ -f "$FINAL_FILE" ]; then
+            cp "$FINAL_FILE" "${FINAL_FILE}.bak"
+            log_msg " -> [UPDATE] ${BASE_NAME}.${EXT} (Backup .bak créé)"
+        else
+            log_msg " -> [NEW] ${BASE_NAME}.${EXT} (Nouvelle installation)"
+        fi
+        
+        # COPIE FORCEE
+        cp -f "$NEW_FILE" "$FINAL_FILE"
+        
+        # APPLICATION DES DROITS (was:web)
+        chown was:web "$FINAL_FILE"
+        chmod 640 "$FINAL_FILE"
+    done
+}
+
+# ==============================================================================
+# 5. EXECUTION DES DEPLOIEMENTS
+# ==============================================================================
+
+# A. Mise à jour du Front (IHS)
+deploy_to "$IHS_DIR"
+
+# B. Mise à jour du Back (Liberty/WAS)
+deploy_to "$WAS_DIR"
+
+log_msg "[SUCCES] Opération terminée."
+exit 0
+EOF
+
+# 3. Rendre le script exécutable
+chmod +x /opt/horizon/scripts/convert_and_deploy.sh
+2. Rappel de la commande Horizon à lancer ensuite
+Une fois le bloc ci-dessus collé et validé, lancez cette commande pour activer l'automatisation :
+code
+Bash
+/opt/horizon/bin/horizon-cli automate enroll \
+  --no-interactive \
+  --automation-policy=automate-app-tls-server-365 \
+  --target=generic \
+  --auto-renew \
+  --contact-email="abdoulaye.1.traore@externe.bnpparibas.com" \
+  --dnsnames="certis-api.staging.echonet,s02v19932112.fr.net.intra" \
+  --kdb="certis-api.staging.echonet.kdb" \
+  --kdb-pwd="passQual1" \
+  --kdb-alias="certis-api.staging.echonet" \
+  --destination-folder="/opt/horizon/var/transit" \
+  --post-hook="/opt/horizon/scripts/convert_and_deploy.sh"
