@@ -1566,3 +1566,100 @@ fi
 
 log_msg "--- Opération terminée ---"
 exit 0
+
+//////////////////////////// script websso ////////////////////////////////////////
+cat << 'EOF' > /opt/horizon/var/script/deploy_websso_jks.sh
+#!/bin/bash
+
+# ==============================================================================
+# CONFIGURATION WEBSSO (JKS)
+# ==============================================================================
+TRANSIT_DIR="/opt/horizon/var/transit"
+# Dossier de configuration du serveur
+TARGET_DIR="/applis/19382-certi-00/config"
+
+# Fichier de configuration Liberty (Pour le Reload)
+# (Chemin déduit de vos captures précédentes)
+SERVER_XML="/applis/19382-certi-00/wlc/sa-19382_certis_frontjava-prez-1/servers/sa-19382_certis_frontjava-prez-1/server.xml"
+
+BASE_NAME="certis.staging.websso"
+P12_FILE="${BASE_NAME}.p12"
+JKS_FILE="${BASE_NAME}.jks"
+
+ALIAS="certis.staging.websso"
+JKS_PASSWORD="passQual1" 
+
+# Recherche de Keytool
+if [ -f "/apps/WebSphere/WebPlugins/java/8.0/jre/bin/keytool" ]; then
+    KEYTOOL="/apps/WebSphere/WebPlugins/java/8.0/jre/bin/keytool"
+else
+    KEYTOOL="keytool"
+fi
+
+LOG_FILE="/opt/horizon/var/deploy_websso.log"
+
+# ==============================================================================
+# EXECUTION
+# ==============================================================================
+log_msg() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE"; }
+
+log_msg "--- Démarrage déploiement WEBSSO (JKS) ---"
+
+# 1. Conversion P12 -> JKS
+if [ ! -f "$TRANSIT_DIR/$P12_FILE" ]; then
+    log_msg "[ERREUR] P12 absent du transit."
+    exit 1
+fi
+
+log_msg "[CONVERT] Création du JKS..."
+if [ -f "$TRANSIT_DIR/$JKS_FILE" ]; then rm -f "$TRANSIT_DIR/$JKS_FILE"; fi
+
+$KEYTOOL -importkeystore \
+    -srckeystore "$TRANSIT_DIR/$P12_FILE" -srcstoretype pkcs12 -srcstorepass "$JKS_PASSWORD" \
+    -destkeystore "$TRANSIT_DIR/$JKS_FILE" -deststoretype JKS -deststorepass "$JKS_PASSWORD" \
+    -destalias "$ALIAS" -noprompt
+
+if [ $? -ne 0 ]; then
+    log_msg "[ERREUR] La conversion keytool a échoué."
+    exit 1
+fi
+
+# 2. Déploiement
+log_msg "[DEPLOY] Vers : $TARGET_DIR"
+
+if [ ! -d "$TARGET_DIR" ]; then log_msg "[ERREUR] Dossier cible introuvable"; exit 1; fi
+
+FINAL_FILE="$TARGET_DIR/$JKS_FILE"
+NEW_FILE="$TRANSIT_DIR/$JKS_FILE"
+
+# Backup
+if [ -f "$FINAL_FILE" ]; then
+    cp "$FINAL_FILE" "${FINAL_FILE}.bak"
+    log_msg " -> [UPDATE] Backup réalisé (.bak)"
+else
+    log_msg " -> [NEW] Nouvelle installation"
+fi
+
+# Copie & Droits
+cp -f "$NEW_FILE" "$FINAL_FILE"
+chown was:web "$FINAL_FILE"
+chmod 644 "$FINAL_FILE"
+
+# ==============================================================================
+# 3. RECHARGEMENT (RELOAD) LIBERTY
+# ==============================================================================
+log_msg "[RELOAD] Rafraîchissement de la configuration Liberty..."
+
+if [ -f "$SERVER_XML" ]; then
+    # La commande 'touch' met à jour la date du fichier.
+    # Liberty surveille ce fichier et va recharger la config automatiquement.
+    touch "$SERVER_XML"
+    log_msg "[SUCCES] Fichier server.xml 'touché'. Liberty va recharger le certificat."
+else
+    log_msg "[WARNING] Impossible de trouver server.xml pour le reload."
+    log_msg "Chemin cherché : $SERVER_XML"
+    # On ne met pas exit 1 car le certificat est quand même copié
+fi
+
+log_msg "[SUCCES] Opération terminée."
+exit 0
