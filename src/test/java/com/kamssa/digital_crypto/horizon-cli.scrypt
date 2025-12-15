@@ -1663,3 +1663,5 @@ fi
 
 log_msg "[SUCCES] Opération terminée."
 exit 0
+//////////////////////////// mdp ////////////////////////////
+grep -i "storePass" /applis/19382-certi-00/config/application-jafar-package.properties
