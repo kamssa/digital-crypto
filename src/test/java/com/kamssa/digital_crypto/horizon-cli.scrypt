@@ -1447,3 +1447,122 @@ chmod +x /opt/horizon/var/script/deploy_front.sh
 Comment l'utiliser avec Horizon ?
 Dans votre commande d'enrôlement, pointez simplement vers ce fichier :
 --script="/opt/horizon/var/script/deploy_front.sh"
+////////////////////////////////////////////////////complemenent //////////////////
+TRANSIT_DIR="/opt/horizon/var/transit"
+
+# Dossiers Cibles
+IHS_DIR="/applis/19382-certi-00/ihs/sw-19382_certis_frontjava-prez-1-ssl/ssl"
+WAS_DIR="/applis/19382-certi-00/wlc/sa-19382_certis_frontjava-prez-1/servers/sa-19382_certis_frontjava-prez-1/resources/security"
+
+# Outils
+GSK_DIR="/apps/WebSphere/WebPlugins/bin"
+IHS_BIN="/apps/WebSphere/WebServer/bin/apachectl"
+
+# Noms et Mots de passe
+BASE_NAME="certis.staging.echonet"
+CERT_LABEL="certis.staging.echonet"
+P12_PASSWORD="passQual1"
+
+LOG_FILE="/opt/horizon/var/convert_deploy.log"
+
+# ==============================================================================
+# 2. FONCTION LOG
+# ==============================================================================
+log_msg() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE"; }
+
+log_msg "--- Démarrage du script (Mode 644) ---"
+
+# ==============================================================================
+# 3. CONVERSION : KDB -> P12
+# ==============================================================================
+if [ ! -f "$TRANSIT_DIR/${BASE_NAME}.kdb" ]; then
+    log_msg "[ERREUR] KDB absent du transit."
+    exit 1
+fi
+
+cd "$GSK_DIR" || exit 1
+if [ -f "./gskcapicmd" ]; then TOOL="./gskcapicmd"; else TOOL="./gskcmd"; fi
+
+log_msg "[CONVERT] Génération du P12..."
+
+# Nettoyage préventif
+if [ -f "$TRANSIT_DIR/${BASE_NAME}.p12" ]; then rm -f "$TRANSIT_DIR/${BASE_NAME}.p12"; fi
+
+# Export
+$TOOL -cert -export \
+    -db "$TRANSIT_DIR/${BASE_NAME}.kdb" \
+    -stashed \
+    -label "$CERT_LABEL" \
+    -target "$TRANSIT_DIR/${BASE_NAME}.p12" \
+    -target_type pkcs12 \
+    -target_pw "$P12_PASSWORD"
+
+if [ $? -ne 0 ]; then
+    log_msg "[ERREUR] La conversion a échoué."
+    exit 1
+fi
+
+# Droit large sur le fichier de transit aussi
+chmod 644 "$TRANSIT_DIR/${BASE_NAME}.p12"
+log_msg "[OK] Fichier P12 créé."
+
+# ==============================================================================
+# 4. FONCTION DE DEPLOIEMENT (AVEC CHMOD 644)
+# ==============================================================================
+deploy_to() {
+    TARGET_DIR=$1
+    EXTENSIONS=$2 
+    
+    log_msg "[DEPLOY] Vers : $TARGET_DIR"
+    
+    if [ ! -d "$TARGET_DIR" ]; then log_msg "[ERREUR] Dossier introuvable : $TARGET_DIR"; return; fi
+
+    for EXT in $EXTENSIONS; do
+        NEW_FILE="$TRANSIT_DIR/${BASE_NAME}.${EXT}"
+        FINAL_FILE="$TARGET_DIR/${BASE_NAME}.${EXT}"
+        
+        # Backup
+        if [ -f "$FINAL_FILE" ]; then
+            cp "$FINAL_FILE" "${FINAL_FILE}.bak"
+            log_msg " -> [UPDATE] $EXT (Backup fait)"
+        else
+            log_msg " -> [NEW] $EXT"
+        fi
+        
+        # Copie
+        cp -f "$NEW_FILE" "$FINAL_FILE"
+        
+        # --- PERMISSIONS DEMANDEES ---
+        chown was:web "$FINAL_FILE"
+        chmod 644 "$FINAL_FILE"    # <--- C'est ici que ça change (avant c'était 640)
+        # -----------------------------
+    done
+}
+
+# ==============================================================================
+# 5. EXECUTION DES DEPLOIEMENTS
+# ==============================================================================
+
+# A. FRONT (IHS/SSL) : kdb, sth, p12
+deploy_to "$IHS_DIR" "kdb sth p12"
+
+# B. BACK (WAS/Security) : kdb, sth, p12
+deploy_to "$WAS_DIR" "kdb sth p12"
+
+# ==============================================================================
+# 6. RELOAD DU SERVEUR FRONT
+# ==============================================================================
+log_msg "[RELOAD] Rechargement du serveur IHS..."
+
+if [ -f "$IHS_BIN" ]; then
+    $IHS_BIN -k graceful
+    if [ $? -eq 0 ]; then
+        log_msg "[SUCCES] Serveur rechargé."
+    else
+        log_msg "[ERREUR] Echec du reload."
+        exit 1
+    fi
+fi
+
+log_msg "--- Opération terminée ---"
+exit 0
