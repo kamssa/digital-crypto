@@ -1665,3 +1665,101 @@ log_msg "[SUCCES] Opération terminée."
 exit 0
 //////////////////////////// mdp ////////////////////////////
 grep -i "storePass" /applis/19382-certi-00/config/application-jafar-package.properties
+/////////////////////// sulution du 17/12/2025 ///////////
+
+C'est très clair. Vous voulez un script simple et autonome qui fait uniquement le travail de mise en place d'un fichier .jks (déjà existant) avec une sauvegarde de sécurité.
+Ce script suppose que le fichier .jks est déjà présent dans le dossier transit (soit généré par Horizon s'il le supporte, soit déposé manuellement). Il ne fait aucune conversion.
+Il fait 3 choses :
+Backup : Sauvegarde l'ancien JKS du serveur.
+Copie : Installe le nouveau JKS depuis le transit.
+Reload : "Touch" le fichier server.xml pour que Liberty prenne en compte le changement.
+Script : deploy_jks_only.sh
+Copiez ce bloc dans votre terminal :
+code
+Bash
+cat << 'EOF' > /opt/horizon/var/script/deploy_jks_only.sh
+#!/bin/bash
+
+# ==============================================================================
+# CONFIGURATION
+# ==============================================================================
+# Où se trouve le nouveau fichier JKS ?
+TRANSIT_DIR="/opt/horizon/var/transit"
+
+# Où doit-il aller ? (Dossier de config du WebSSO)
+TARGET_DIR="/applis/19382-certi-00/config"
+
+# Fichier pour recharger le serveur (Liberty)
+SERVER_XML="/applis/19382-certi-00/wlc/sa-19382_certis_frontjava-prez-1/servers/sa-19382_certis_frontjava-prez-1/server.xml"
+
+# Nom du fichier
+JKS_NAME="certis.staging.websso.jks"
+
+LOG_FILE="/opt/horizon/var/deploy_websso.log"
+
+# ==============================================================================
+# EXECUTION
+# ==============================================================================
+log_msg() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE"; }
+
+log_msg "--- Démarrage déploiement JKS (Sans conversion) ---"
+
+# 1. Vérification que le nouveau fichier est bien là
+if [ ! -f "$TRANSIT_DIR/$JKS_NAME" ]; then
+    log_msg "[ERREUR] Le fichier JKS est introuvable dans : $TRANSIT_DIR"
+    exit 1
+fi
+
+# 2. Vérification du dossier cible
+if [ ! -d "$TARGET_DIR" ]; then
+    log_msg "[ERREUR] Le dossier de destination n'existe pas : $TARGET_DIR"
+    exit 1
+fi
+
+SOURCE_FILE="$TRANSIT_DIR/$JKS_NAME"
+FINAL_FILE="$TARGET_DIR/$JKS_NAME"
+
+# 3. GESTION DU BACKUP (Sauvegarde de l'ancien)
+if [ -f "$FINAL_FILE" ]; then
+    # On copie l'existant en .bak
+    cp "$FINAL_FILE" "${FINAL_FILE}.bak"
+    log_msg "[UPDATE] Ancien fichier sauvegardé sous : ${JKS_NAME}.bak"
+else
+    log_msg "[NEW] Aucun ancien fichier trouvé. Nouvelle installation."
+fi
+
+# 4. COPIE DU NOUVEAU FICHIER
+cp -f "$SOURCE_FILE" "$FINAL_FILE"
+
+if [ $? -eq 0 ]; then
+    log_msg "[OK] Nouveau fichier JKS copié avec succès."
+else
+    log_msg "[ERREUR] La copie a échoué."
+    exit 1
+fi
+
+# 5. PERMISSIONS
+chown was:web "$FINAL_FILE"
+chmod 644 "$FINAL_FILE"
+log_msg "[INFO] Droits (was:web) appliqués."
+
+# 6. RECHARGEMENT DU SERVEUR (Touch)
+if [ -f "$SERVER_XML" ]; then
+    touch "$SERVER_XML"
+    log_msg "[RELOAD] Server.xml touché. Liberty recharge la configuration."
+else
+    log_msg "[WARNING] Impossible de trouver server.xml pour le reload."
+fi
+
+log_msg "--- Opération terminée ---"
+exit 0
+EOF
+
+# Rendre le script exécutable
+chmod +x /opt/horizon/var/script/deploy_jks_only.sh
+Comment l'utiliser ?
+Dans votre commande Horizon, pointez simplement vers ce script :
+code
+Bash
+--script="/opt/horizon/var/script/deploy_jks_only.sh"
+(Cela suppose que votre commande Horizon précédente a généré ou téléchargé directement un fichier .jks dans le dossier transit).
