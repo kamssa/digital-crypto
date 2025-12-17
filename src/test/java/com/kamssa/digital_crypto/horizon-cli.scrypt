@@ -1998,3 +1998,14 @@ Extraire la clé dans un fichier .key.
 Extraire le certificat dans un fichier .crt.
 Copier les 3 fichiers (.p12, .key, .crt) dans le dossier config.
 Comme ça, votre dossier sera exactement identique à ce qu'il était avant, et vous êtes sûr de ne rien casser !
+//////////////////
+/opt/horizon/bin/horizon-cli automate enroll \
+  --no-interactive \
+  --automation-policy=automate-app-tls-client-server-365 \
+  --auto-renew \
+  --contact-email="abdoulaye.1.traore@externe.bnpparibas.com" \
+  --dnsnames="opendata_vault_staging_certis,s02v19932426.fr.net.intra" \
+  --pfx="opendata_vault_staging_certis.p12" \
+  --pfx-pwd="opendataVault" \
+  --destination-folder="/opt/horizon/var/transit" \
+  --script="/opt/horizon/var/script/deploy_vault.sh opendata_vault_staging_certis.p12 opendataVault"
