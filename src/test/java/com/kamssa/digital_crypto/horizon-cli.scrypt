@@ -1878,3 +1878,23 @@ Il prend le JKS fourni par Horizon.
 Il utilise keytool -exportcert pour créer le fichier CRT à partir du JKS.
 Il copie le JKS ET le CRT dans votre dossier de configuration.
 Il recharge le serveur.
+/////////////////////////////////////////////
+
+C'est exactement ça. Vous avez tout compris.
+Pour utiliser une image simple :
+Le fichier JKS est comme un cartable. À l'intérieur, il y a plusieurs choses :
+Votre Clé Privée (Le stylo qui permet de signer).
+Votre Certificat Public / CRT (Votre carte d'identité).
+Les certificats de confiance (La signature du directeur).
+Donc, avec la commande keytool, on peut très facilement dire : "Ouvre le cartable (JKS) et sors-moi une copie de la carte d'identité (CRT)".
+La commande technique
+C'est cette ligne dans le script qui fait la magie :
+code
+Bash
+keytool -exportcert -alias "websso" -keystore "fichier.jks" -file "fichier.crt" -rfc
+-exportcert : L'action (Extraire le certificat).
+-alias : Lequel on veut ? (Celui qui s'appelle "websso").
+-rfc : Très important. Cela dit à l'outil de créer un fichier texte lisible (format PEM qui commence par -----BEGIN CERTIFICATE-----). Sans cette option, il crée un fichier binaire illisible.
+À quoi ça sert d'extraire le CRT ?
+Le JKS reste sur votre serveur pour le faire fonctionner.
+Le CRT extrait est souvent envoyé aux partenaires (ou à l'équipe SSO) pour leur dire : "Voici ma nouvelle carte d'identité, mettez-la à jour chez vous pour qu'on puisse continuer à se parler".
