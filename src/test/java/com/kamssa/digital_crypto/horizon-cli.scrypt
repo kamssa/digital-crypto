@@ -2009,3 +2009,169 @@ Comme ça, votre dossier sera exactement identique à ce qu'il était avant, et 
   --pfx-pwd="opendataVault" \
   --destination-folder="/opt/horizon/var/transit" \
   --script="/opt/horizon/var/script/deploy_vault.sh opendata_vault_staging_certis.p12 opendataVault"
+  ////////////////// script uniform //////////////////////////////
+  
+C'est une excellente initiative. Avoir un Script Universel (Master Script) est la meilleure pratique pour maintenir proprement une infrastructure.
+Ce script unique sera capable de gérer vos 3 cas (Front, WebSSO, Vault) simplement en changeant les arguments que vous lui donnez.
+Il est conçu pour être lisible, modulaire et sécurisé.
+Le Script Universel : /opt/horizon/var/script/deploy_master.sh
+Copiez ce bloc entier pour créer le fichier :
+code
+Bash
+cat << 'EOF' > /opt/horizon/var/script/deploy_master.sh
+#!/bin/bash
+
+# ==============================================================================
+# 1. CONFIGURATION GENERALE
+# ==============================================================================
+# Dossiers
+TRANSIT_DIR="/opt/horizon/var/transit"
+IHS_DIR="/applis/19382-certi-00/ihs/sw-19382_certis_frontjava-prez-1-ssl/ssl"
+CONFIG_DIR="/applis/19382-certi-00/config"
+SECURITY_DIR="/applis/19382-certi-00/wlc/sa-19382_certis_frontjava-prez-1/servers/sa-19382_certis_frontjava-prez-1/resources/security"
+
+# Fichiers de contrôle
+SERVER_XML="/applis/19382-certi-00/wlc/sa-19382_certis_frontjava-prez-1/servers/sa-19382_certis_frontjava-prez-1/server.xml"
+IHS_BIN="/apps/WebSphere/WebServer/bin/apachectl"
+
+# Outils
+GSK_TOOL="/apps/WebSphere/WebPlugins/bin/gskcmd"
+JAVA_TOOL="/apps/WebSphere/WebPlugins/java/8.0/jre/bin/keytool" # Ou juste "keytool"
+
+# Logs
+LOG_FILE="/opt/horizon/var/deploy_master.log"
+
+# ==============================================================================
+# 2. FONCTIONS UTILITAIRES (La "Boîte à outils")
+# ==============================================================================
+log_msg() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE"; }
+
+# Fonction générique pour copier avec Backup et Droits
+deploy_file() {
+    SRC="$1"
+    DEST_DIR="$2"
+    PERMS="$3" # Ex: 644 ou 640
+    
+    FILENAME=$(basename "$SRC")
+    FINAL_DEST="$DEST_DIR/$FILENAME"
+
+    if [ ! -f "$SRC" ]; then log_msg "[ERREUR] Source manquante : $FILENAME"; return 1; fi
+    if [ ! -d "$DEST_DIR" ]; then log_msg "[ERREUR] Dossier cible manquant : $DEST_DIR"; return 1; fi
+
+    # Backup de l'ancien
+    if [ -f "$FINAL_DEST" ]; then
+        cp "$FINAL_DEST" "${FINAL_DEST}.bak"
+        log_msg " -> [UPDATE] $FILENAME (Backup .bak créé)"
+    else
+        log_msg " -> [NEW] $FILENAME (Nouvelle installation)"
+    fi
+
+    # Copie et Permissions
+    cp -f "$SRC" "$FINAL_DEST"
+    chown was:web "$FINAL_DEST"
+    chmod "$PERMS" "$FINAL_DEST"
+}
+
+# ==============================================================================
+# 3. LECTURE DES ARGUMENTS
+# ==============================================================================
+MODE="$1"          # Ex: FRONT, WEBSSO, VAULT
+CERT_NAME="$2"     # Ex: certis.staging.echonet
+PASSWORD="$3"      # Mot de passe du certificat
+
+if [ -z "$MODE" ] || [ -z "$CERT_NAME" ]; then
+    echo "Usage: $0 [MODE] [CERT_NAME] [PASSWORD]"
+    exit 1
+fi
+
+log_msg "=== DÉMARRAGE MODE: $MODE | CERT: $CERT_NAME ==="
+
+# ==============================================================================
+# 4. LOGIQUE PAR SCÉNARIO
+# ==============================================================================
+
+case "$MODE" in
+
+    # --------------------------------------------------------------------------
+    # CAS 1 : FRONT (IHS)
+    # Entrée : KDB (via Horizon)
+    # Action : Copie KDB/STH -> Reload Apache
+    # --------------------------------------------------------------------------
+    "FRONT")
+        log_msg "[FRONT] Déploiement des certificats IHS..."
+        
+        # Déploiement
+        deploy_file "$TRANSIT_DIR/${CERT_NAME}.kdb" "$IHS_DIR" "640"
+        deploy_file "$TRANSIT_DIR/${CERT_NAME}.sth" "$IHS_DIR" "640"
+        
+        # Reload
+        if [ -f "$IHS_BIN" ]; then
+            $IHS_BIN -k graceful
+            log_msg "[RELOAD] IHS rechargé (Graceful)."
+        fi
+        ;;
+
+    # --------------------------------------------------------------------------
+    # CAS 2 : WEBSSO
+    # Entrée : P12 (via Horizon)
+    # Action : Convertit P12->JKS -> Extrait CRT -> Copie JKS/CRT -> Touch Liberty
+    # --------------------------------------------------------------------------
+    "WEBSSO")
+        log_msg "[WEBSSO] Traitement JKS et CRT..."
+        
+        # Nettoyage préventif
+        rm -f "$TRANSIT_DIR/${CERT_NAME}.jks" "$TRANSIT_DIR/${CERT_NAME}.crt"
+
+        # 1. Conversion P12 -> JKS
+        $JAVA_TOOL -importkeystore \
+            -srckeystore "$TRANSIT_DIR/${CERT_NAME}.p12" -srcstoretype pkcs12 -srcstorepass "$PASSWORD" \
+            -destkeystore "$TRANSIT_DIR/${CERT_NAME}.jks" -deststoretype JKS -deststorepass "$PASSWORD" \
+            -destalias "$CERT_NAME" -noprompt
+            
+        # 2. Extraction du CRT
+        $JAVA_TOOL -exportcert \
+            -alias "$CERT_NAME" -keystore "$TRANSIT_DIR/${CERT_NAME}.jks" -storepass "$PASSWORD" \
+            -file "$TRANSIT_DIR/${CERT_NAME}.crt" -rfc
+
+        # 3. Déploiement vers CONFIG
+        deploy_file "$TRANSIT_DIR/${CERT_NAME}.jks" "$CONFIG_DIR" "644"
+        deploy_file "$TRANSIT_DIR/${CERT_NAME}.crt" "$CONFIG_DIR" "644"
+
+        # 4. Reload
+        touch "$SERVER_XML"
+        log_msg "[RELOAD] Liberty touché."
+        ;;
+
+    # --------------------------------------------------------------------------
+    # CAS 3 : VAULT
+    # Entrée : P12 (via Horizon)
+    # Action : Extrait KEY/CRT -> Copie P12/KEY/CRT -> Touch Liberty
+    # --------------------------------------------------------------------------
+    "VAULT")
+        log_msg "[VAULT] Extraction et Déploiement..."
+        
+        KEY_NAME="${CERT_NAME%.p12}.key" # Enlève .p12 et ajoute .key
+        CRT_NAME="${CERT_NAME%.p12}.crt"
+
+        # 1. Extraction via OpenSSL
+        openssl pkcs12 -in "$TRANSIT_DIR/${CERT_NAME}" -nocerts -out "$TRANSIT_DIR/$KEY_NAME" -nodes -passin pass:"$PASSWORD"
+        openssl pkcs12 -in "$TRANSIT_DIR/${CERT_NAME}" -clcerts -nokeys -out "$TRANSIT_DIR/$CRT_NAME" -passin pass:"$PASSWORD"
+
+        # 2. Déploiement vers CONFIG
+        deploy_file "$TRANSIT_DIR/${CERT_NAME}" "$CONFIG_DIR" "644" # Le P12
+        deploy_file "$TRANSIT_DIR/$KEY_NAME"    "$CONFIG_DIR" "644" # La Key
+        deploy_file "$TRANSIT_DIR/$CRT_NAME"    "$CONFIG_DIR" "644" # Le Crt
+
+        # 3. Reload
+        touch "$SERVER_XML"
+        log_msg "[RELOAD] Liberty touché."
+        ;;
+
+    *)
+        log_msg "[ERREUR] Mode inconnu : $MODE"
+        exit 1
+        ;;
+esac
+
+log_msg "[SUCCES] Opération terminée."
+exit 0
