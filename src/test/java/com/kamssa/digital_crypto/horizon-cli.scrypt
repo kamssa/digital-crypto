@@ -1900,3 +1900,101 @@ Le JKS reste sur votre serveur pour le faire fonctionner.
 Le CRT extrait est souvent envoyé aux partenaires (ou à l'équipe SSO) pour leur dire : "Voici ma nouvelle carte d'identité, mettez-la à jour chez vous pour qu'on puisse continuer à se parler".
 ///////////////////
 keytool -exportcert -alias "websso" -keystore "fichier.jks" -file "fichier.crt" -rfc
+/////////////////////////////vault ////////////////////
+TRANSIT_DIR="/opt/horizon/var/transit"
+TARGET_DIR="/applis/19382-certi-00/config"
+SERVER_XML="/applis/19382-certi-00/wlc/sa-19382_certis_frontjava-prez-1/servers/sa-19382_certis_frontjava-prez-1/server.xml"
+
+# Paramètres
+P12_NAME="$1"
+P12_PASS="$2"
+
+LOG_FILE="/opt/horizon/var/deploy_vault.log"
+
+# ==============================================================================
+# EXECUTION
+# ==============================================================================
+log_msg() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE"; }
+
+if [ -z "$P12_NAME" ] || [ -z "$P12_PASS" ]; then
+    log_msg "[ERREUR] Usage: $0 [NOM_FICHIER_P12] [MOT_DE_PASSE]"
+    exit 1
+fi
+
+log_msg "--- Démarrage VAULT : $P12_NAME ---"
+
+# 1. Vérification Source
+if [ ! -f "$TRANSIT_DIR/$P12_NAME" ]; then
+    log_msg "[ERREUR] P12 absent du transit."
+    exit 1
+fi
+
+# ==============================================================================
+# 2. EXTRACTION DU .KEY et du .CRT (Pour imiter l'ancien dossier)
+# ==============================================================================
+BASE_NO_EXT="${P12_NAME%.p12}"
+KEY_NAME="${BASE_NO_EXT}.key"
+CRT_NAME="${BASE_NO_EXT}.crt"
+
+log_msg "[EXTRACT] Extraction de la clé (.key) et du certificat (.crt)..."
+
+# Extraction de la clé privée (-nocerts)
+openssl pkcs12 -in "$TRANSIT_DIR/$P12_NAME" -nocerts -out "$TRANSIT_DIR/$KEY_NAME" -nodes -passin pass:"$P12_PASS"
+
+# Extraction du certificat public (-clcerts -nokeys)
+openssl pkcs12 -in "$TRANSIT_DIR/$P12_NAME" -clcerts -nokeys -out "$TRANSIT_DIR/$CRT_NAME" -passin pass:"$P12_PASS"
+
+if [ -f "$TRANSIT_DIR/$KEY_NAME" ] && [ -f "$TRANSIT_DIR/$CRT_NAME" ]; then
+    log_msg "[OK] Extraction réussie."
+else
+    log_msg "[WARNING] Echec de l'extraction (OpenSSL a peut-être échoué)."
+fi
+
+# ==============================================================================
+# 3. DEPLOIEMENT (P12 + KEY + CRT)
+# ==============================================================================
+if [ ! -d "$TARGET_DIR" ]; then log_msg "[ERREUR] Dossier cible introuvable"; exit 1; fi
+
+# On boucle sur les 3 fichiers
+for FILE in "$P12_NAME" "$KEY_NAME" "$CRT_NAME"; do
+    NEW_FILE="$TRANSIT_DIR/$FILE"
+    FINAL_FILE="$TARGET_DIR/$FILE"
+    
+    if [ -f "$NEW_FILE" ]; then
+        # Backup
+        if [ -f "$FINAL_FILE" ]; then
+            cp "$FINAL_FILE" "${FINAL_FILE}.bak"
+            log_msg " -> [UPDATE] $FILE (Backup réalisé)"
+        else
+            log_msg " -> [NEW] $FILE"
+        fi
+        
+        # Copie
+        cp -f "$NEW_FILE" "$FINAL_FILE"
+        
+        # Permissions (was:web)
+        chown was:web "$FINAL_FILE"
+        chmod 644 "$FINAL_FILE"
+    fi
+done
+
+# ==============================================================================
+# 4. RELOAD
+# ==============================================================================
+if [ -f "$SERVER_XML" ]; then
+    touch "$SERVER_XML"
+    log_msg "[RELOAD] Server.xml touché."
+fi
+
+log_msg "--- Terminé ---"
+exit 0
+EOF
+
+chmod +x /opt/horizon/var/script/deploy_vault.sh
+Ce que fait ce script en plus :
+Il utilise OpenSSL (qui est installé partout sur Linux) pour :
+Ouvrir le P12 généré par Horizon.
+Extraire la clé dans un fichier .key.
+Extraire le certificat dans un fichier .crt.
+Copier les 3 fichiers (.p12, .key, .crt) dans le dossier config.
+Comme ça, votre dossier sera exactement identique à ce qu'il était avant, et vous êtes sûr de ne rien casser !
