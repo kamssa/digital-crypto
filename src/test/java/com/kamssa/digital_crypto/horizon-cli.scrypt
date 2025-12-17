@@ -1763,3 +1763,118 @@ code
 Bash
 --script="/opt/horizon/var/script/deploy_jks_only.sh"
 (Cela suppose que votre commande Horizon précédente a généré ou téléchargé directement un fichier .jks dans le dossier transit).
+///////////////////////////// jks et crt ///////////////////
+cat << 'EOF' > /opt/horizon/var/script/deploy_jks_only.sh
+#!/bin/bash
+
+# ==============================================================================
+# CONFIGURATION
+# ==============================================================================
+TRANSIT_DIR="/opt/horizon/var/transit"
+TARGET_DIR="/applis/19382-certi-00/config"
+SERVER_XML="/applis/19382-certi-00/wlc/sa-19382_certis_frontjava-prez-1/servers/sa-19382_certis_frontjava-prez-1/server.xml"
+
+# Noms des fichiers
+JKS_NAME="certis.staging.websso.jks"
+CRT_NAME="certis.staging.websso.crt"  # <--- NOUVEAU
+
+# Infos du certificat
+ALIAS="certis.staging.websso"
+PASSWORD="passQual1"
+
+# Recherche Keytool
+if [ -f "/apps/WebSphere/WebPlugins/java/8.0/jre/bin/keytool" ]; then
+    KEYTOOL="/apps/WebSphere/WebPlugins/java/8.0/jre/bin/keytool"
+else
+    KEYTOOL="keytool"
+fi
+
+LOG_FILE="/opt/horizon/var/deploy_websso.log"
+
+# ==============================================================================
+# EXECUTION
+# ==============================================================================
+log_msg() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE"; }
+
+log_msg "--- Démarrage déploiement JKS + Extraction CRT ---"
+
+# 1. Vérification JKS Source
+if [ ! -f "$TRANSIT_DIR/$JKS_NAME" ]; then
+    log_msg "[ERREUR] JKS introuvable dans transit."
+    exit 1
+fi
+
+# ==============================================================================
+# 2. EXTRACTION DU CRT (NOUVELLE ETAPE)
+# ==============================================================================
+log_msg "[EXTRACT] Extraction du certificat public (.crt) depuis le JKS..."
+
+# Nettoyage préventif
+if [ -f "$TRANSIT_DIR/$CRT_NAME" ]; then rm "$TRANSIT_DIR/$CRT_NAME"; fi
+
+# Commande d'extraction
+# -rfc permet d'avoir un format texte lisible (BEGIN CERTIFICATE)
+$KEYTOOL -exportcert \
+    -alias "$ALIAS" \
+    -keystore "$TRANSIT_DIR/$JKS_NAME" \
+    -storepass "$PASSWORD" \
+    -file "$TRANSIT_DIR/$CRT_NAME" \
+    -rfc
+
+if [ $? -eq 0 ]; then
+    log_msg "[OK] Fichier CRT généré : $CRT_NAME"
+    chmod 644 "$TRANSIT_DIR/$CRT_NAME"
+else
+    log_msg "[ERREUR] Impossible d'extraire le CRT du JKS."
+    # On ne quitte pas forcément, on continue le déploiement du JKS
+fi
+
+# ==============================================================================
+# 3. DEPLOIEMENT (JKS + CRT)
+# ==============================================================================
+log_msg "[DEPLOY] Vers : $TARGET_DIR"
+
+if [ ! -d "$TARGET_DIR" ]; then log_msg "[ERREUR] Dossier cible introuvable"; exit 1; fi
+
+# On boucle sur les deux fichiers
+for FILE in "$JKS_NAME" "$CRT_NAME"; do
+    
+    SRC_FILE="$TRANSIT_DIR/$FILE"
+    DEST_FILE="$TARGET_DIR/$FILE"
+    
+    # On ne traite que si le fichier source existe (au cas où l'extraction CRT a échoué)
+    if [ -f "$SRC_FILE" ]; then
+        
+        # Backup
+        if [ -f "$DEST_FILE" ]; then
+            cp "$DEST_FILE" "${DEST_FILE}.bak"
+            log_msg " -> [UPDATE] $FILE (Backup ok)"
+        else
+            log_msg " -> [NEW] $FILE"
+        fi
+        
+        # Copie & Droits
+        cp -f "$SRC_FILE" "$DEST_FILE"
+        chown was:web "$DEST_FILE"
+        chmod 644 "$DEST_FILE"
+    fi
+done
+
+# ==============================================================================
+# 4. RELOAD
+# ==============================================================================
+if [ -f "$SERVER_XML" ]; then
+    touch "$SERVER_XML"
+    log_msg "[RELOAD] Server.xml touché."
+fi
+
+log_msg "--- Opération terminée ---"
+exit 0
+EOF
+
+chmod +x /opt/horizon/var/script/deploy_jks_only.sh
+Ce que fait ce script maintenant :
+Il prend le JKS fourni par Horizon.
+Il utilise keytool -exportcert pour créer le fichier CRT à partir du JKS.
+Il copie le JKS ET le CRT dans votre dossier de configuration.
+Il recharge le serveur.
