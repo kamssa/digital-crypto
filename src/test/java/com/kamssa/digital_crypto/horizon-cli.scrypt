@@ -1898,3 +1898,5 @@ keytool -exportcert -alias "websso" -keystore "fichier.jks" -file "fichier.crt" 
 À quoi ça sert d'extraire le CRT ?
 Le JKS reste sur votre serveur pour le faire fonctionner.
 Le CRT extrait est souvent envoyé aux partenaires (ou à l'équipe SSO) pour leur dire : "Voici ma nouvelle carte d'identité, mettez-la à jour chez vous pour qu'on puisse continuer à se parler".
+///////////////////
+keytool -exportcert -alias "websso" -keystore "fichier.jks" -file "fichier.crt" -rfc
