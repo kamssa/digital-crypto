@@ -2186,3 +2186,40 @@ Regardez ce qu'il y a dans votre JKS actuel :
 code
 Bash
 keytool -list -keystore /applis/19382-certi-00/config/certis.staging.websso.jks -storepass passQual1
+/////////////////////////////////////////////
+code
+Bash
+# 1. Aller dans le dossier transit
+cd /opt/horizon/var/transit
+
+# 2. Copier le JKS vers le dossier de config (en écrasant l'ancien)
+cp certis.staging.websso.jks /applis/19382-certi-00/config/
+
+# 3. Mettre les droits (Très important)
+chown was:web /applis/19382-certi-00/config/certis.staging.websso.jks
+chmod 644 /applis/19382-certi-00/config/certis.staging.websso.jks
+Étape 2 : Extraire le CRT (Le bon !)
+Puisque vous avez généré un nouveau JKS, les clés ont changé. Le certificat (CRT) que vous aviez mis dans l'IAM tout à l'heure ne marche plus. Il faut extraire le nouveau.
+code
+Bash
+# Extraire le CRT du JKS que vous venez de copier
+/apps/WebSphere/WebPlugins/java/8.0/jre/bin/keytool -exportcert \
+  -alias "certis.staging.websso" \
+  -keystore "/applis/19382-certi-00/config/certis.staging.websso.jks" \
+  -storepass "certis.staging.websso" \
+  -file "/applis/19382-certi-00/config/certis.staging.websso.crt" \
+  -rfc
+Ensuite :
+Faites cat /applis/19382-certi-00/config/certis.staging.websso.crt
+Copiez le texte (-----BEGIN...).
+Allez dans l'interface IAM (WebSSO).
+Remplacez le certificat actuel par celui-ci.
+Étape 3 : Redémarrer le serveur (Impératif)
+Comme vous avez eu des crashs disque, le "reload" automatique ne suffit pas. Le serveur est peut-être dans un état instable.
+code
+Bash
+cd /apps/certis/Tools
+./stop_certis.sh  (ou stop_was.sh)
+# Attendre 10 secondes
+./start_certis.sh (ou start_was.sh)
+Une fois le serveur redémarré avec le bon fichier JKS (bon mot de passe/alias) et l'IAM mis à jour avec le bon CRT, l'erreur 500 disparaîtra.
