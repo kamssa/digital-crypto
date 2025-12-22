@@ -2223,3 +2223,5 @@ cd /apps/certis/Tools
 # Attendre 10 secondes
 ./start_certis.sh (ou start_was.sh)
 Une fois le serveur redémarré avec le bon fichier JKS (bon mot de passe/alias) et l'IAM mis à jour avec le bon CRT, l'erreur 500 disparaîtra.
+///////////////////
+tail -f /applis/logs/19382-certi-00/wlc/sa-19382_certis_frontjava-prez-1/messages.log
