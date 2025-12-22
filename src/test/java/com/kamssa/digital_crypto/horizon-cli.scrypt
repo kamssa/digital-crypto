@@ -2358,3 +2358,9 @@ Bash
   --chain-file="trustChain_websso.pem" \
   --destination-folder="/opt/horizon/var/transit" \
   --script="/opt/horizon/var/script/deploy_websso_jks.sh"
+  // verifier le password jks ////////////////////////
+  cd /apps/WebSphere/WebPlugins/java/8.0/jre/bin/
+
+./keytool -list \
+  -keystore /applis/19382-certi-00/config/certis.staging.websso.jks \
+  -storepass certis.dev.websso
