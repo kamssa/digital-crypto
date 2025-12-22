@@ -2225,3 +2225,136 @@ cd /apps/certis/Tools
 Une fois le serveur redémarré avec le bon fichier JKS (bon mot de passe/alias) et l'IAM mis à jour avec le bon CRT, l'erreur 500 disparaîtra.
 ///////////////////
 tail -f /applis/logs/19382-certi-00/wlc/sa-19382_certis_frontjava-prez-1/messages.log
+////////////////////////////////////
+/opt/horizon/bin/horizon-cli automate enroll \
+  --no-interactive \
+  --automation-policy=automate-app-tls-client-server-365 \
+  --auto-renew \
+  --contact-email="abdoulaye.1.traore@externe.bnpparibas.com" \
+  --dnsnames="certis.staging.websso" \
+  --jks="certis.staging.websso.jks" \
+  --jks-pwd="certis.staging.websso" \
+  --jks-alias="certis.staging.websso" \
+  --chain-file="trustChain_websso.pem" \
+  --destination-folder="/opt/horizon/var/transit" \
+  --script="/opt/horizon/var/script/deploy_websso_jks.sh certis.staging.websso certis.staging.websso"
+  ///////////////////////////// script  et horizon cli//////////////////////////
+  cat << 'EOF' > /opt/horizon/var/script/deploy_websso_jks.sh
+#!/bin/bash
+
+# ==============================================================================
+# CONFIGURATION
+# ==============================================================================
+TRANSIT_DIR="/opt/horizon/var/transit"
+TARGET_DIR="/applis/19382-certi-00/config"
+SERVER_XML="/applis/19382-certi-00/wlc/sa-19382_certis_frontjava-prez-1/servers/sa-19382_certis_frontjava-prez-1/server.xml"
+
+# Noms des fichiers
+BASE_NAME="certis.staging.websso"
+JKS_NAME="${BASE_NAME}.jks"
+CRT_NAME="${BASE_NAME}.crt"
+
+# --- VALEURS CORRIGEES SELON VOS LOGS D'ERREUR ---
+# L'erreur 500 disait : unable to retrieve ... alias: certis.staging.websso
+ALIAS="certis.staging.websso"
+
+# Le mot de passe doit correspondre au storePass du fichier de config
+JKS_PASSWORD="certis.staging.websso" 
+
+LOG_FILE="/opt/horizon/var/deploy_websso.log"
+
+# Recherche de Keytool (Java)
+if [ -f "/apps/WebSphere/WebPlugins/java/8.0/jre/bin/keytool" ]; then
+    KEYTOOL="/apps/WebSphere/WebPlugins/java/8.0/jre/bin/keytool"
+else
+    KEYTOOL="keytool"
+fi
+
+# ==============================================================================
+# EXECUTION
+# ==============================================================================
+log_msg() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE"; }
+
+log_msg "--- Démarrage déploiement WEBSSO (JKS + CRT) ---"
+
+# 1. Vérification que Horizon a bien fait le travail
+if [ ! -f "$TRANSIT_DIR/$JKS_NAME" ]; then
+    log_msg "[ERREUR] Le fichier JKS est introuvable dans : $TRANSIT_DIR"
+    exit 1
+fi
+
+# 2. Extraction du CRT (Pour l'IAM)
+log_msg "[EXTRACT] Extraction du certificat public (.crt)..."
+
+# Nettoyage préventif
+if [ -f "$TRANSIT_DIR/$CRT_NAME" ]; then rm "$TRANSIT_DIR/$CRT_NAME"; fi
+
+$KEYTOOL -exportcert \
+    -alias "$ALIAS" \
+    -keystore "$TRANSIT_DIR/$JKS_NAME" \
+    -storepass "$JKS_PASSWORD" \
+    -file "$TRANSIT_DIR/$CRT_NAME" \
+    -rfc
+
+if [ $? -eq 0 ]; then
+    log_msg "[OK] CRT généré : $CRT_NAME"
+else
+    log_msg "[ERREUR] Impossible d'extraire le CRT (Vérifiez le mot de passe ou l'alias)."
+    # On continue quand même le déploiement du JKS
+fi
+
+# 3. Déploiement (Backup + Copie + Droits)
+log_msg "[DEPLOY] Vers : $TARGET_DIR"
+
+if [ ! -d "$TARGET_DIR" ]; then log_msg "[ERREUR] Dossier cible introuvable"; exit 1; fi
+
+for FILE in "$JKS_NAME" "$CRT_NAME"; do
+    SRC="$TRANSIT_DIR/$FILE"
+    DEST="$TARGET_DIR/$FILE"
+    
+    if [ -f "$SRC" ]; then
+        # Backup
+        if [ -f "$DEST" ]; then
+            cp "$DEST" "${DEST}.bak"
+            log_msg " -> [UPDATE] $FILE (Backup réalisé)"
+        else
+            log_msg " -> [NEW] $FILE (Nouveau)"
+        fi
+        
+        # Copie
+        cp -f "$SRC" "$DEST"
+        
+        # Droits
+        chown was:web "$DEST"
+        chmod 644 "$DEST"
+    fi
+done
+
+# 4. Reload
+if [ -f "$SERVER_XML" ]; then
+    touch "$SERVER_XML"
+    log_msg "[RELOAD] Server.xml touché."
+fi
+
+log_msg "--- Terminé ---"
+exit 0
+EOF
+
+# Rendre exécutable
+chmod +x /opt/horizon/var/script/deploy_websso_jks.sh
+Ensuite, lancez la commande Horizon correspondante
+Elle utilise les mêmes valeurs que le script (Alias = certis.staging.websso et MDP = certis.staging.websso).
+code
+Bash
+/opt/horizon/bin/horizon-cli automate enroll \
+  --no-interactive \
+  --automation-policy=automate-app-tls-client-server-365 \
+  --auto-renew \
+  --contact-email="abdoulaye.1.traore@externe.bnpparibas.com" \
+  --dnsnames="certis.staging.websso" \
+  --jks="certis.staging.websso.jks" \
+  --jks-pwd="certis.staging.websso" \
+  --jks-alias="certis.staging.websso" \
+  --chain-file="trustChain_websso.pem" \
+  --destination-folder="/opt/horizon/var/transit" \
+  --script="/opt/horizon/var/script/deploy_websso_jks.sh"
