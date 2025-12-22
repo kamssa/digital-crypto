@@ -2364,3 +2364,125 @@ Bash
 ./keytool -list \
   -keystore /applis/19382-certi-00/config/certis.staging.websso.jks \
   -storepass certis.dev.websso
+  //////////// solution final apres comparaison des deux serveur  ///////////////////////////////////
+  cat << 'EOF' > /opt/horizon/var/script/deploy_websso_jks.sh
+#!/bin/bash
+
+# ==============================================================================
+# CONFIGURATION DEFINITIVE (Alignée sur Serveur 13)
+# ==============================================================================
+TRANSIT_DIR="/opt/horizon/var/transit"
+TARGET_DIR="/applis/19382-certi-00/config"
+SERVER_XML="/applis/19382-certi-00/wlc/sa-19382_certis_frontjava-prez-1/servers/sa-19382_certis_frontjava-prez-1/server.xml"
+
+# Noms des fichiers
+BASE_NAME="certis.staging.websso"
+P12_FILE="${BASE_NAME}.p12"
+JKS_FILE="${BASE_NAME}.jks"
+CRT_NAME="${BASE_NAME}.crt"
+
+# --- PARAMETRES CRITIQUES ---
+# Alias forcé (ce que les logs réclament)
+ALIAS="certis.staging.websso"
+
+# Mot de passe final du JKS (ce qui fonctionne sur le srv 13)
+JKS_PASSWORD="certis.staging.websso"
+
+# Mot de passe temporaire du P12 (venant de Horizon)
+P12_PASSWORD_SOURCE="passQual1"
+
+# Outils
+if [ -f "/apps/WebSphere/WebPlugins/java/8.0/jre/bin/keytool" ]; then
+    KEYTOOL="/apps/WebSphere/WebPlugins/java/8.0/jre/bin/keytool"
+else
+    KEYTOOL="keytool"
+fi
+
+LOG_FILE="/opt/horizon/var/deploy_websso.log"
+
+# ==============================================================================
+# EXECUTION
+# ==============================================================================
+log_msg() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE"; }
+
+log_msg "--- Démarrage WEBSSO (Correction Finale) ---"
+
+# 1. Conversion P12 -> JKS avec les bons paramètres
+if [ ! -f "$TRANSIT_DIR/$P12_FILE" ]; then
+    log_msg "[ERREUR] P12 absent. Relancez Horizon."
+    exit 1
+fi
+
+if [ -f "$TRANSIT_DIR/$JKS_FILE" ]; then rm "$TRANSIT_DIR/$JKS_FILE"; fi
+
+$KEYTOOL -importkeystore \
+    -srckeystore "$TRANSIT_DIR/$P12_FILE" -srcstoretype pkcs12 -srcstorepass "$P12_PASSWORD_SOURCE" \
+    -destkeystore "$TRANSIT_DIR/$JKS_FILE" -deststoretype JKS -deststorepass "$JKS_PASSWORD" \
+    -destalias "$ALIAS" -noprompt
+
+if [ $? -ne 0 ]; then
+    log_msg "[ERREUR] Conversion échouée. Vérifiez les mots de passe."
+    exit 1
+fi
+
+# 2. Extraction du CRT (Pour l'IAM)
+if [ -f "$TRANSIT_DIR/$CRT_NAME" ]; then rm "$TRANSIT_DIR/$CRT_NAME"; fi
+
+$KEYTOOL -exportcert \
+    -alias "$ALIAS" \
+    -keystore "$TRANSIT_DIR/$JKS_FILE" \
+    -storepass "$JKS_PASSWORD" \
+    -file "$TRANSIT_DIR/$CRT_NAME" \
+    -rfc
+
+# 3. Déploiement
+if [ ! -d "$TARGET_DIR" ]; then log_msg "[ERREUR] Dossier cible introuvable"; exit 1; fi
+
+for FILE in "$JKS_FILE" "$CRT_FILE"; do
+    SRC="$TRANSIT_DIR/$FILE"
+    DEST="$TARGET_DIR/$FILE"
+    
+    if [ -f "$SRC" ]; then
+        if [ -f "$DEST" ]; then cp "$DEST" "${DEST}.bak"; fi
+        cp -f "$SRC" "$DEST"
+        chown was:web "$DEST"
+        chmod 644 "$DEST"
+    fi
+done
+
+# 4. Reload
+if [ -f "$SERVER_XML" ]; then touch "$SERVER_XML"; fi
+
+log_msg "[SUCCES] Terminé."
+exit 0
+EOF
+
+chmod +x /opt/horizon/var/script/deploy_websso_jks.sh
+Étape 2 : La Commande Horizon (À lancer)
+Lancez cette commande pour exécuter le tout :
+code
+Bash
+/opt/horizon/bin/horizon-cli automate enroll \
+  --no-interactive \
+  --automation-policy=automate-app-tls-client-server-365 \
+  --auto-renew \
+  --contact-email="abdoulaye.1.traore@externe.bnpparibas.com" \
+  --dnsnames="certis.staging.websso" \
+  --pfx="certis.staging.websso.p12" \
+  --pfx-pwd="passQual1" \
+  --chain-file="trustChain_websso.pem" \
+  --destination-folder="/opt/horizon/var/transit" \
+  --script="/opt/horizon/var/script/deploy_websso_jks.sh"
+Étape 3 : Actions finales manuelles
+Une fois la commande terminée avec succès :
+Mise à jour IAM :
+Affichez le nouveau CRT : cat /applis/19382-certi-00/config/certis.staging.websso.crt
+Copiez-le et mettez-le dans l'interface IAM (WebSSO).
+Redémarrage Serveur :
+Comme vous avez eu des crashs disque, faites un redémarrage propre pour être sûr que la nouvelle config est chargée.
+code
+Bash
+cd /apps/certis/Tools
+./stop_certis.sh
+# Attendre 10s
+./start_certis.sh
