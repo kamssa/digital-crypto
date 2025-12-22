@@ -2486,3 +2486,120 @@ cd /apps/certis/Tools
 ./stop_certis.sh
 # Attendre 10s
 ./start_certis.sh
+////////////////////////////// solution final jks ///////////////////
+cript : deploy_websso_jks.sh (Version JKS Direct)
+Copiez ce bloc pour remplacer votre ancien script :
+code
+Bash
+cat << 'EOF' > /opt/horizon/var/script/deploy_websso_jks.sh
+#!/bin/bash
+
+# ==============================================================================
+# CONFIGURATION (Mode JKS Direct)
+# ==============================================================================
+TRANSIT_DIR="/opt/horizon/var/transit"
+TARGET_DIR="/applis/19382-certi-00/config"
+SERVER_XML="/applis/19382-certi-00/wlc/sa-19382_certis_frontjava-prez-1/servers/sa-19382_certis_frontjava-prez-1/server.xml"
+
+# Noms des fichiers
+BASE_NAME="certis.staging.websso"
+JKS_NAME="${BASE_NAME}.jks"
+CRT_NAME="${BASE_NAME}.crt"
+
+# --- PARAMETRES IDENTIQUES AU SERVEUR 13 ---
+# Ces valeurs doivent correspondre à ce que vous avez mis dans la commande Horizon
+ALIAS="certis.staging.websso"
+JKS_PASSWORD="certis.staging.websso" 
+
+LOG_FILE="/opt/horizon/var/deploy_websso.log"
+
+# Recherche Keytool
+if [ -f "/apps/WebSphere/WebPlugins/java/8.0/jre/bin/keytool" ]; then
+    KEYTOOL="/apps/WebSphere/WebPlugins/java/8.0/jre/bin/keytool"
+else
+    KEYTOOL="keytool"
+fi
+
+# ==============================================================================
+# EXECUTION
+# ==============================================================================
+log_msg() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE"; }
+
+log_msg "--- Démarrage WEBSSO (JKS Direct depuis Horizon) ---"
+
+# 1. Vérification que le JKS est bien là
+if [ ! -f "$TRANSIT_DIR/$JKS_NAME" ]; then
+    log_msg "[ERREUR] Le fichier JKS est introuvable dans transit : $TRANSIT_DIR"
+    exit 1
+fi
+
+# 2. Extraction du CRT (Depuis le JKS généré par Horizon)
+log_msg "[EXTRACT] Génération du fichier CRT pour l'IAM..."
+
+if [ -f "$TRANSIT_DIR/$CRT_NAME" ]; then rm "$TRANSIT_DIR/$CRT_NAME"; fi
+
+$KEYTOOL -exportcert \
+    -alias "$ALIAS" \
+    -keystore "$TRANSIT_DIR/$JKS_NAME" \
+    -storepass "$JKS_PASSWORD" \
+    -file "$TRANSIT_DIR/$CRT_NAME" \
+    -rfc
+
+if [ $? -eq 0 ]; then
+    log_msg "[OK] CRT extrait avec succès."
+else
+    log_msg "[ERREUR] Impossible d'extraire le CRT. Vérifiez que l'alias '$ALIAS' et le mot de passe correspondent à la commande Horizon."
+    # On continue quand même la copie du JKS
+fi
+
+# 3. Déploiement (Backup + Copie + Droits)
+log_msg "[DEPLOY] Vers : $TARGET_DIR"
+
+if [ ! -d "$TARGET_DIR" ]; then log_msg "[ERREUR] Dossier cible introuvable"; exit 1; fi
+
+for FILE in "$JKS_NAME" "$CRT_NAME"; do
+    SRC="$TRANSIT_DIR/$FILE"
+    DEST="$TARGET_DIR/$FILE"
+    
+    if [ -f "$SRC" ]; then
+        if [ -f "$DEST" ]; then
+            cp "$DEST" "${DEST}.bak"
+            log_msg " -> [UPDATE] $FILE (Backup réalisé)"
+        else
+            log_msg " -> [NEW] $FILE (Nouveau)"
+        fi
+        
+        cp -f "$SRC" "$DEST"
+        chown was:web "$DEST"
+        chmod 644 "$DEST"
+    fi
+done
+
+# 4. Reload
+if [ -f "$SERVER_XML" ]; then
+    touch "$SERVER_XML"
+    log_msg "[RELOAD] Server.xml touché."
+fi
+
+log_msg "[SUCCES] Terminé."
+exit 0
+EOF
+
+chmod +x /opt/horizon/var/script/deploy_websso_jks.sh
+La Commande Horizon à lancer
+Comme Horizon fait le travail de création du JKS, assurez-vous que vos paramètres --jks-... sont bien ceux attendus par le script et le serveur (ceux du serveur 13) :
+code
+Bash
+/opt/horizon/bin/horizon-cli automate enroll \
+  --no-interactive \
+  --automation-policy=automate-app-tls-client-server-365 \
+  --auto-renew \
+  --contact-email="abdoulaye.1.traore@externe.bnpparibas.com" \
+  --dnsnames="certis.staging.websso" \
+  --jks="certis.staging.websso.jks" \
+  --jks-pwd="certis.staging.websso" \
+  --jks-alias="certis.staging.websso" \
+  --chain-file="trustChain_websso.pem" \
+  --destination-folder="/opt/horizon/var/transit" \
+  --script="/opt/horizon/var/script/deploy_websso_jks.sh"
+Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
