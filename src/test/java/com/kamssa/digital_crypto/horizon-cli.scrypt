@@ -2603,3 +2603,151 @@ Bash
   --destination-folder="/opt/horizon/var/transit" \
   --script="/opt/horizon/var/script/deploy_websso_jks.sh"
 Use Arrow Up and Arrow Down to select a turn, Enter to jump to it, and Escape to return to the chat.
+///////////////////////horizon cli websso //////////////////////////////////
+Étape 1 : Créer le script de déploiement (deploy_websso.sh)
+Ce script va :
+Convertir le P12 (Horizon) en JKS.
+Renommer l'alias en certis.dev.websso.
+Changer le mot de passe de la clé pour Certis01.
+Extraire le CRT pour l'IAM.
+Installer et recharger le serveur.
+Copiez ce bloc dans /opt/horizon/var/script/deploy_websso.sh :
+code
+Bash
+#!/bin/bash
+
+# ==============================================================================
+# CONFIGURATION ROBUSTE (Basée sur l'image de config properties)
+# ==============================================================================
+TRANSIT_DIR="/opt/horizon/var/transit"
+TARGET_DIR="/applis/19382-certi-00/config"
+SERVER_XML="/applis/19382-certi-00/wlc/sa-19382_certis_frontjava-prez-1/servers/sa-19382_certis_frontjava-prez-1/server.xml"
+
+# Noms des fichiers
+BASE_NAME="certis.staging.websso"
+P12_NAME="${BASE_NAME}.p12"
+JKS_NAME="${BASE_NAME}.jks"
+CRT_NAME="${BASE_NAME}.crt"
+
+# --- PARAMETRES CRITIQUES (Issus de votre config application.properties) ---
+# 1. Alias attendu par l'appli (keyName)
+FINAL_ALIAS="certis.dev.websso"
+
+# 2. Mot de passe du fichier JKS (storePass)
+STORE_PASS="certis.staging.websso"
+
+# 3. Mot de passe de la clé privée (keyPass - différent du storePass !)
+KEY_PASS="Certis01"
+
+# Mot de passe temporaire du P12 venant d'Horizon
+P12_PASS="passQual1"
+
+# Outils Java
+if [ -f "/apps/WebSphere/WebPlugins/java/8.0/jre/bin/keytool" ]; then
+    KEYTOOL="/apps/WebSphere/WebPlugins/java/8.0/jre/bin/keytool"
+else
+    KEYTOOL="keytool"
+fi
+
+LOG_FILE="/opt/horizon/var/deploy_websso.log"
+log_msg() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE"; }
+
+# ==============================================================================
+# EXECUTION
+# ==============================================================================
+log_msg "--- Démarrage Automatisation WebSSO ---"
+
+# 1. Vérification source
+if [ ! -f "$TRANSIT_DIR/$P12_NAME" ]; then
+    log_msg "[ERREUR] Fichier P12 absent du transit."
+    exit 1
+fi
+
+# Nettoyage avant travail
+rm -f "$TRANSIT_DIR/$JKS_NAME" "$TRANSIT_DIR/$CRT_NAME"
+
+# 2. Conversion P12 -> JKS (Avec changement d'alias)
+log_msg "[CONVERT] Création du JKS et adaptation de l'Alias..."
+
+# On importe le P12 dans le JKS en forçant le nouvel alias
+$KEYTOOL -importkeystore \
+    -srckeystore "$TRANSIT_DIR/$P12_NAME" -srcstoretype pkcs12 -srcstorepass "$P12_PASS" \
+    -destkeystore "$TRANSIT_DIR/$JKS_NAME" -deststoretype JKS -deststorepass "$STORE_PASS" \
+    -srcalias "$BASE_NAME" -destalias "$FINAL_ALIAS" \
+    -noprompt
+
+if [ $? -ne 0 ]; then
+    # Fallback : Si l'alias source n'est pas le nom du fichier, on essaie avec "1" (défaut Horizon)
+    $KEYTOOL -importkeystore \
+        -srckeystore "$TRANSIT_DIR/$P12_NAME" -srcstoretype pkcs12 -srcstorepass "$P12_PASS" \
+        -destkeystore "$TRANSIT_DIR/$JKS_NAME" -deststoretype JKS -deststorepass "$STORE_PASS" \
+        -srcalias "1" -destalias "$FINAL_ALIAS" \
+        -noprompt
+fi
+
+if [ ! -f "$TRANSIT_DIR/$JKS_NAME" ]; then
+    log_msg "[ERREUR] Echec de création du JKS."
+    exit 1
+fi
+
+# 3. Ajustement du KeyPass (Pour matcher Certis01)
+log_msg "[SECURE] Ajustement du mot de passe de la clé privée..."
+$KEYTOOL -keypasswd \
+    -alias "$FINAL_ALIAS" \
+    -keystore "$TRANSIT_DIR/$JKS_NAME" \
+    -storepass "$STORE_PASS" \
+    -keypass "$STORE_PASS" \
+    -new "$KEY_PASS"
+
+# 4. Extraction du CRT (Pour l'IAM)
+log_msg "[EXTRACT] Génération du CRT pour IAM..."
+$KEYTOOL -exportcert \
+    -alias "$FINAL_ALIAS" \
+    -keystore "$TRANSIT_DIR/$JKS_NAME" \
+    -storepass "$STORE_PASS" \
+    -file "$TRANSIT_DIR/$CRT_NAME" \
+    -rfc
+
+# 5. Déploiement sécurisé
+log_msg "[DEPLOY] Installation vers $TARGET_DIR"
+
+if [ ! -d "$TARGET_DIR" ]; then log_msg "[ERREUR] Dossier cible introuvable"; exit 1; fi
+
+for FILE in "$JKS_NAME" "$CRT_NAME"; do
+    SRC="$TRANSIT_DIR/$FILE"
+    DEST="$TARGET_DIR/$FILE"
+    
+    if [ -f "$SRC" ]; then
+        if [ -f "$DEST" ]; then cp "$DEST" "${DEST}.bak"; fi
+        cp -f "$SRC" "$DEST"
+        chown was:web "$DEST"
+        chmod 644 "$DEST"
+    fi
+done
+
+# 6. Reload
+if [ -f "$SERVER_XML" ]; then
+    touch "$SERVER_XML"
+    log_msg "[RELOAD] Server.xml touché. Liberty se met à jour."
+else
+    log_msg "[WARNING] Impossible de recharger Liberty (server.xml introuvable)."
+fi
+
+log_msg "[SUCCES] Opération terminée."
+exit 0
+N'oubliez pas de le rendre exécutable : chmod +x /opt/horizon/var/script/deploy_websso.sh
+Étape 2 : La Commande Horizon-CLI
+On demande à Horizon de générer un P12 (plus simple à manipuler pour le script).
+code
+Bash
+/opt/horizon/bin/horizon-cli automate enroll \
+  --no-interactive \
+  --automation-policy=automate-app-tls-client-server-365 \
+  --auto-renew \
+  --contact-email="abdoulaye.1.traore@externe.bnpparibas.com" \
+  --dnsnames="certis.staging.websso" \
+  --pfx="certis.staging.websso.p12" \
+  --pfx-pwd="passQual1" \
+  --chain-file="trustChain_websso.pem" \
+  --destination-folder="/opt/horizon/var/transit" \
+  --script="/opt/horizon/var/script/deploy_websso.sh"
