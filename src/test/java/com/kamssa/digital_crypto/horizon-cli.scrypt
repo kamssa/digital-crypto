@@ -3303,3 +3303,92 @@ Bash
   --pfx-pwd="opendataVault" \
   --destination-folder="/opt/horizon/var/transit" \
   --script="/opt/horizon/var/script/deploy_vault.sh opendata_vault_staging_certis.p12 opendataVault"
+  ///////////////// vault //////////////////////
+  cat << 'EOF' > /opt/horizon/var/script/deploy_vault.sh
+#!/bin/bash
+
+# ==============================================================================
+# CONFIGURATION VAULT (Valeurs en dur)
+# ==============================================================================
+TRANSIT_DIR="/opt/horizon/var/transit"
+TARGET_DIR="/applis/19382-certi-00/config"
+SERVER_XML="/applis/19382-certi-00/wlc/sa-19382_certis_frontjava-prez-1/servers/sa-19382_certis_frontjava-prez-1/server.xml"
+
+# --- ICI ON MET LES VALEURS DIRECTEMENT ---
+# Nom du fichier P12 généré par Horizon
+P12_NAME="opendata_vault_staging_certis.p12"
+
+# Mot de passe (celui de la config application.properties)
+P12_PASS="opendataVault"
+
+LOG_FILE="/opt/horizon/var/deploy_vault.log"
+
+# ==============================================================================
+# EXECUTION
+# ==============================================================================
+log_msg() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE"; }
+
+log_msg "--- Démarrage VAULT : $P12_NAME ---"
+
+# 1. Vérification Source
+if [ ! -f "$TRANSIT_DIR/$P12_NAME" ]; then
+    log_msg "[ERREUR] P12 absent du transit."
+    exit 1
+fi
+
+# 2. Extraction des clés (Pour imiter l'ancien format)
+BASE_NO_EXT="${P12_NAME%.p12}"
+KEY_NAME="${BASE_NO_EXT}.key"
+CRT_NAME="${BASE_NO_EXT}.crt"
+
+log_msg "[EXTRACT] Génération .key et .crt..."
+
+openssl pkcs12 -in "$TRANSIT_DIR/$P12_NAME" -nocerts -out "$TRANSIT_DIR/$KEY_NAME" -nodes -passin pass:"$P12_PASS"
+openssl pkcs12 -in "$TRANSIT_DIR/$P12_NAME" -clcerts -nokeys -out "$TRANSIT_DIR/$CRT_NAME" -passin pass:"$P12_PASS"
+
+# 3. Déploiement
+if [ ! -d "$TARGET_DIR" ]; then log_msg "[ERREUR] Dossier cible introuvable"; exit 1; fi
+
+for FILE in "$P12_NAME" "$KEY_NAME" "$CRT_NAME"; do
+    NEW_FILE="$TRANSIT_DIR/$FILE"
+    FINAL_FILE="$TARGET_DIR/$FILE"
+    
+    if [ -f "$NEW_FILE" ]; then
+        if [ -f "$FINAL_FILE" ]; then
+            cp "$FINAL_FILE" "${FINAL_FILE}.bak"
+            log_msg " -> [UPDATE] $FILE (Backup réalisé)"
+        else
+            log_msg " -> [NEW] $FILE"
+        fi
+        
+        cp -f "$NEW_FILE" "$FINAL_FILE"
+        chown was:web "$FINAL_FILE"
+        chmod 644 "$FINAL_FILE"
+    fi
+done
+
+# 4. Reload
+if [ -f "$SERVER_XML" ]; then
+    touch "$SERVER_XML"
+    log_msg "[RELOAD] Server.xml touché."
+fi
+
+log_msg "--- Terminé ---"
+exit 0
+EOF
+
+chmod +x /opt/horizon/var/script/deploy_vault.sh
+Étape 2 : La Commande Horizon (Simplifiée)
+Maintenant, vous appelez juste le script, sans rien derrière.
+code
+Bash
+/opt/horizon/bin/horizon-cli automate enroll \
+  --no-interactive \
+  --automation-policy=automate-app-tls-client-server-365 \
+  --auto-renew \
+  --contact-email="abdoulaye.1.traore@externe.bnpparibas.com" \
+  --dnsnames="opendata_vault_staging_certis,s02v19932426.fr.net.intra" \
+  --pfx="opendata_vault_staging_certis.p12" \
+  --pfx-pwd="opendataVault" \
+  --destination-folder="/opt/horizon/var/transit" \
+  --script="/opt/horizon/var/script/deploy_vault.sh"
