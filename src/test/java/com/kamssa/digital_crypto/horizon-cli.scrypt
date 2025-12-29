@@ -3511,3 +3511,18 @@ ou
 code
 Bash
 /opt/horizon/bin/horizon-cli automate remove "certis.staging.websso.jks"
+///////////////
+rm /opt/horizon/var/transit/certis.staging.websso.jks
+Étape 2 : Créer le JKS avec le BON Alias
+Cette fois, on met -alias "certis.staging.websso" (au lieu de "dummy").
+code
+Bash
+cd /apps/WebSphere/WebPlugins/java/8.0/jre/bin/
+
+./keytool -genkeypair \
+  -alias "certis.staging.websso" \
+  -keystore /opt/horizon/var/transit/certis.staging.websso.jks \
+  -storepass "certis.staging.websso" \
+  -keypass "certis.staging.websso" \
+  -dname "CN=dummy" \
+  -keyalg RSA
