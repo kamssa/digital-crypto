@@ -2751,3 +2751,16 @@ Bash
   --chain-file="trustChain_websso.pem" \
   --destination-folder="/opt/horizon/var/transit" \
   --script="/opt/horizon/var/script/deploy_websso.sh"
+  ///////////////////
+  # 1. Dossier Transit
+if [ ! -d "$TRANSIT_DIR" ]; then
+    mkdir -p "$TRANSIT_DIR"
+    log_msg "[INFO] Dossier Transit créé : $TRANSIT_DIR"
+fi
+
+# 2. Dossier des Logs (on récupère le parent du fichier log)
+LOG_DIR=$(dirname "$LOG_FILE")
+if [ ! -d "$LOG_DIR" ]; then
+    mkdir -p "$LOG_DIR"
+    # On ne peut pas logger ici car le dossier n'existait pas avant !
+fi
