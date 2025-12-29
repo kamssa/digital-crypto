@@ -3204,3 +3204,102 @@ Bash
 Points de vérification :
 --pfx-pwd="opendataVault" : C'est indispensable pour que l'application puisse lire le fichier avec le mot de passe écrit dans sa config.
 --dnsnames : J'ai mis le nom du certificat (opendata...) + le nom du serveur (s02v...). C'est la bonne pratique pour que le certificat soit valide pour les deux.
+///////////////// vault /////////////////////////////////////
+ ==============================================================================
+# CONFIGURATION VAULT (Basée sur vos captures d'écran)
+# ==============================================================================
+TRANSIT_DIR="/opt/horizon/var/transit"
+TARGET_DIR="/applis/19382-certi-00/config"
+SERVER_XML="/applis/19382-certi-00/wlc/sa-19382_certis_frontjava-prez-1/servers/sa-19382_certis_frontjava-prez-1/server.xml"
+
+# RECUPERATION DES ARGUMENTS
+# $1 = Nom du fichier (ex: opendata_vault_staging_certis.p12)
+# $2 = Mot de passe (ex: opendataVault)
+P12_NAME="$1"
+P12_PASS="$2"
+
+LOG_FILE="/opt/horizon/var/deploy_vault.log"
+
+# ==============================================================================
+# EXECUTION
+# ==============================================================================
+log_msg() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE"; }
+
+if [ -z "$P12_NAME" ] || [ -z "$P12_PASS" ]; then
+    log_msg "[ERREUR] Arguments manquants. Usage: $0 [NOM_P12] [PASSWORD]"
+    exit 1
+fi
+
+log_msg "--- Démarrage déploiement VAULT : $P12_NAME ---"
+
+# 1. Vérification Source
+if [ ! -f "$TRANSIT_DIR/$P12_NAME" ]; then
+    log_msg "[ERREUR] Fichier P12 introuvable dans transit."
+    exit 1
+fi
+
+# 2. Extraction de sécurité (Pour recréer les fichiers .key et .crt)
+BASE_NO_EXT="${P12_NAME%.p12}"
+KEY_NAME="${BASE_NO_EXT}.key"
+CRT_NAME="${BASE_NO_EXT}.crt"
+
+log_msg "[EXTRACT] Génération des fichiers .key et .crt..."
+
+# Extraction Clé
+openssl pkcs12 -in "$TRANSIT_DIR/$P12_NAME" -nocerts -out "$TRANSIT_DIR/$KEY_NAME" -nodes -passin pass:"$P12_PASS"
+# Extraction Certificat
+openssl pkcs12 -in "$TRANSIT_DIR/$P12_NAME" -clcerts -nokeys -out "$TRANSIT_DIR/$CRT_NAME" -passin pass:"$P12_PASS"
+
+# 3. Déploiement des 3 fichiers
+log_msg "[DEPLOY] Vers $TARGET_DIR..."
+
+if [ ! -d "$TARGET_DIR" ]; then log_msg "[ERREUR] Dossier cible introuvable"; exit 1; fi
+
+for FILE in "$P12_NAME" "$KEY_NAME" "$CRT_NAME"; do
+    NEW_FILE="$TRANSIT_DIR/$FILE"
+    FINAL_FILE="$TARGET_DIR/$FILE"
+    
+    if [ -f "$NEW_FILE" ]; then
+        # Backup
+        if [ -f "$FINAL_FILE" ]; then
+            cp "$FINAL_FILE" "${FINAL_FILE}.bak"
+            log_msg " -> [UPDATE] $FILE (Backup réalisé)"
+        else
+            log_msg " -> [NEW] $FILE"
+        fi
+        
+        # Copie
+        cp -f "$NEW_FILE" "$FINAL_FILE"
+        
+        # Permissions (was:web)
+        chown was:web "$FINAL_FILE"
+        chmod 644 "$FINAL_FILE"
+    fi
+done
+
+# 4. Reload Liberty
+if [ -f "$SERVER_XML" ]; then
+    touch "$SERVER_XML"
+    log_msg "[RELOAD] Server.xml touché."
+fi
+
+log_msg "[SUCCES] Terminé."
+exit 0
+EOF
+
+# 3. Rendre exécutable
+chmod +x /opt/horizon/var/script/deploy_vault.sh
+Étape 2 : Lancement de la Commande Horizon
+Utilisez cette commande exacte. Elle utilise le mot de passe opendataVault que nous avons trouvé dans votre fichier de configuration.
+code
+Bash
+/opt/horizon/bin/horizon-cli automate enroll \
+  --no-interactive \
+  --automation-policy=automate-app-tls-client-server-365 \
+  --auto-renew \
+  --contact-email="abdoulaye.1.traore@externe.bnpparibas.com" \
+  --dnsnames="opendata_vault_staging_certis,s02v19932426.fr.net.intra" \
+  --pfx="opendata_vault_staging_certis.p12" \
+  --pfx-pwd="opendataVault" \
+  --destination-folder="/opt/horizon/var/transit" \
+  --script="/opt/horizon/var/script/deploy_vault.sh opendata_vault_staging_certis.p12 opendataVault"
