@@ -3409,3 +3409,47 @@ Bash
 
 # 3. Nettoyer le dossier transit
 rm -f /opt/horizon/var/transit/certis.staging.websso.*
+/////////////////////////////
+code
+Bash
+rm -f /opt/horizon/var/transit/certis.staging.echonet.*
+rm -f /opt/horizon/var/transit/certis.staging.websso.*
+Étape 2 : Créer un vrai KDB temporaire (Pour débloquer Echonet)
+On utilise l'outil IBM pour créer un KDB valide.
+code
+Bash
+cd /apps/WebSphere/WebPlugins/bin
+
+./gskcmd -keydb -create \
+  -db /opt/horizon/var/transit/certis.staging.echonet.kdb \
+  -pw "temp1234" \
+  -type cms \
+  -stash
+Étape 3 : Créer un vrai JKS temporaire (Pour débloquer WebSSO)
+On utilise l'outil Java pour créer un JKS valide (avec une clé bidon dedans pour qu'il existe).
+code
+Bash
+cd /apps/WebSphere/WebPlugins/java/8.0/jre/bin/
+
+./keytool -genkeypair -alias "dummy" \
+  -keystore /opt/horizon/var/transit/certis.staging.websso.jks \
+  -storepass "temp1234" \
+  -keypass "temp1234" \
+  -dname "CN=dummy" \
+  -keyalg RSA
+Étape 4 : Lister et Supprimer (Enfin !)
+Maintenant que les fichiers sont valides techniquement, Horizon va réussir à les lire sans planter.
+Affichez la liste :
+code
+Bash
+/opt/horizon/bin/horizon-cli automate list
+Copiez les IDs (Service ID) pour echonet et websso.
+Supprimez-les :
+code
+Bash
+/opt/horizon/bin/horizon-cli automate remove "L_ID_QUE_VOUS_AVEZ_TROUVE"
+Étape 5 : Grand nettoyage final
+Une fois les services supprimés de Horizon, supprimez vos fichiers temporaires :
+code
+Bash
+rm -f /opt/horizon/var/transit/*
