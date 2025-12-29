@@ -3111,3 +3111,96 @@ Bash
   --chain-file="trustChain_websso.pem" \
   --destination-folder="/opt/horizon/var/transit" \
   --script="/opt/horizon/var/script/deploy_websso.sh"
+  ////////////////vault ///////////////////////////////
+  code
+Bash
+cat << 'EOF' > /opt/horizon/var/script/deploy_vault.sh
+#!/bin/bash
+
+# ==============================================================================
+# CONFIGURATION VAULT (Basée sur vos images)
+# ==============================================================================
+TRANSIT_DIR="/opt/horizon/var/transit"
+TARGET_DIR="/applis/19382-certi-00/config"
+SERVER_XML="/applis/19382-certi-00/wlc/sa-19382_certis_frontjava-prez-1/servers/sa-19382_certis_frontjava-prez-1/server.xml"
+
+# On récupère le nom du fichier en argument pour être flexible
+P12_NAME="$1"
+
+LOG_FILE="/opt/horizon/var/deploy_vault.log"
+
+# ==============================================================================
+# EXECUTION
+# ==============================================================================
+log_msg() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE"; }
+
+if [ -z "$P12_NAME" ]; then
+    log_msg "[ERREUR] Usage: $0 [NOM_DU_FICHIER_P12]"
+    exit 1
+fi
+
+log_msg "--- Démarrage déploiement VAULT : $P12_NAME ---"
+
+# 1. Vérification Source
+if [ ! -f "$TRANSIT_DIR/$P12_NAME" ]; then
+    log_msg "[ERREUR] Fichier P12 introuvable dans transit : $TRANSIT_DIR/$P12_NAME"
+    exit 1
+fi
+
+# 2. Déploiement sécurisé
+log_msg "[DEPLOY] Vers $TARGET_DIR..."
+
+if [ ! -d "$TARGET_DIR" ]; then 
+    log_msg "[ERREUR] Dossier cible introuvable."
+    exit 1
+fi
+
+FINAL_FILE="$TARGET_DIR/$P12_NAME"
+NEW_FILE="$TRANSIT_DIR/$P12_NAME"
+
+# Backup de l'ancien
+if [ -f "$FINAL_FILE" ]; then
+    cp "$FINAL_FILE" "${FINAL_FILE}.bak"
+    log_msg " -> [UPDATE] Backup réalisé (.bak)"
+else
+    log_msg " -> [NEW] Nouvelle installation"
+fi
+
+# Copie
+cp -f "$NEW_FILE" "$FINAL_FILE"
+
+# Permissions (Important : was:web)
+chown was:web "$FINAL_FILE"
+chmod 644 "$FINAL_FILE"
+log_msg "[OK] Droits appliqués."
+
+# 3. Reload
+if [ -f "$SERVER_XML" ]; then
+    touch "$SERVER_XML"
+    log_msg "[RELOAD] Server.xml touché."
+fi
+
+log_msg "[SUCCES] Terminé."
+exit 0
+EOF
+
+# Rendre exécutable
+chmod +x /opt/horizon/var/script/deploy_vault.sh
+Étape 2 : La Commande Horizon-CLI (Le point clé)
+Voici la commande exacte.
+⚠️ ATTENTION : J'ai mis le mot de passe opendataVault que j'ai lu sur votre image.
+code
+Bash
+/opt/horizon/bin/horizon-cli automate enroll \
+  --no-interactive \
+  --automation-policy=automate-app-tls-client-server-365 \
+  --auto-renew \
+  --contact-email="abdoulaye.1.traore@externe.bnpparibas.com" \
+  --dnsnames="opendata_vault_staging_certis,s02v19932426.fr.net.intra" \
+  --pfx="opendata_vault_staging_certis.p12" \
+  --pfx-pwd="opendataVault" \
+  --destination-folder="/opt/horizon/var/transit" \
+  --script="/opt/horizon/var/script/deploy_vault.sh opendata_vault_staging_certis.p12"
+Points de vérification :
+--pfx-pwd="opendataVault" : C'est indispensable pour que l'application puisse lire le fichier avec le mot de passe écrit dans sa config.
+--dnsnames : J'ai mis le nom du certificat (opendata...) + le nom du serveur (s02v...). C'est la bonne pratique pour que le certificat soit valide pour les deux.
