@@ -3392,3 +3392,10 @@ Bash
   --pfx-pwd="opendataVault" \
   --destination-folder="/opt/horizon/var/transit" \
   --script="/opt/horizon/var/script/deploy_vault.sh"
+  /////////////verifier ////////////////////////////////////
+  /apps/WebSphere/WebPlugins/java/8.0/jre/bin/keytool -list \
+  -keystore /applis/19382-certi-00/config/opendata_vault_staging_certis.p12 \
+  -storetype PKCS12 \
+  -storepass opendataVault
+  //////
+  tail -f /applis/logs/19382-certi-00/wlc/sa-19382_certis_frontjava-prez-1/messages.log
