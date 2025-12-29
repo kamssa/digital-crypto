@@ -3399,3 +3399,13 @@ Bash
   -storepass opendataVault
   //////
   tail -f /applis/logs/19382-certi-00/wlc/sa-19382_certis_frontjava-prez-1/messages.log
+  /////////////// resolve websso ////////////
+  # 1. Supprimer de l'inventaire
+/opt/horizon/bin/horizon-cli manage delete --alias "certis.staging.websso"
+
+# 2. Supprimer de l'automatisation (si présent)
+# (Essayez de trouver l'ID avec 'automate list' si besoin, sinon essayez juste ça)
+/opt/horizon/bin/horizon-cli automate remove "certis.staging.websso"
+
+# 3. Nettoyer le dossier transit
+rm -f /opt/horizon/var/transit/certis.staging.websso.*
