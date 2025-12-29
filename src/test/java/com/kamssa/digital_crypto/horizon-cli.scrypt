@@ -3453,3 +3453,61 @@ Une fois les services supprimés de Horizon, supprimez vos fichiers temporaires 
 code
 Bash
 rm -f /opt/horizon/var/transit/*
+////////////////////////////////
+
+Bien vu ! L'erreur CTGSK2016W An invalid database password confirme ce que je craignais :
+Horizon essaie d'ouvrir votre "faux" fichier avec le mot de passe qu'il a en mémoire (celui de votre tentative d'enrôlement précédente).
+Comme j'ai mis temp1234 dans la commande précédente, ça ne matche pas.
+Heureusement, le message d'erreur en bas de votre écran nous donne la solution !
+Regardez la toute dernière ligne blanche, on devine :
+... with password 'certis.staging.websso': invalid digest
+👉 Horizon attend le mot de passe : certis.staging.websso pour le fichier JKS.
+Voici la procédure corrigée pour créer les fichiers avec les BONS mots de passe pour qu'Horizon accepte de les ouvrir.
+Étape 1 : Supprimer les faux fichiers actuels (qui ont le mauvais mdp)
+code
+Bash
+rm -f /opt/horizon/var/transit/certis.staging.echonet.*
+rm -f /opt/horizon/var/transit/certis.staging.websso.*
+Étape 2 : Créer le JKS (WebSSO) avec le BON mot de passe
+On utilise le mot de passe que Horizon attend (vu dans votre erreur).
+code
+Bash
+cd /apps/WebSphere/WebPlugins/java/8.0/jre/bin/
+
+./keytool -genkeypair -alias "dummy" \
+  -keystore /opt/horizon/var/transit/certis.staging.websso.jks \
+  -storepass "certis.staging.websso" \
+  -keypass "certis.staging.websso" \
+  -dname "CN=dummy" \
+  -keyalg RSA
+Étape 3 : Créer le KDB (Echonet) avec le mot de passe standard
+Pour celui-ci, Horizon attend probablement passQual1 (votre standard).
+code
+Bash
+cd /apps/WebSphere/WebPlugins/bin
+
+./gskcmd -keydb -create \
+  -db /opt/horizon/var/transit/certis.staging.echonet.kdb \
+  -pw "passQual1" \
+  -type cms \
+  -stash
+Étape 4 : Lister et Supprimer
+Maintenant que les fichiers existent et ont le bon mot de passe, Horizon va réussir à les lire.
+Affichez la liste :
+code
+Bash
+/opt/horizon/bin/horizon-cli automate list
+Si ça marche : Copiez l'ID du service websso (generic-xxxx) et supprimez-le :
+code
+Bash
+/opt/horizon/bin/horizon-cli automate remove "L_ID_DU_SERVICE"
+🚨 SOLUTION DE DERNIER RECOURS (Si ça bloque toujours)
+Si malgré ça, Horizon refuse de vous afficher la liste, vous pouvez tenter de supprimer "à l'aveugle" en utilisant le nom du fichier (parfois ça marche sur les vieilles versions).
+Essayez ces commandes une par une :
+code
+Bash
+/opt/horizon/bin/horizon-cli automate remove "certis.staging.websso"
+ou
+code
+Bash
+/opt/horizon/bin/horizon-cli automate remove "certis.staging.websso.jks"
