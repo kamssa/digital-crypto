@@ -2764,3 +2764,188 @@ if [ ! -d "$LOG_DIR" ]; then
     mkdir -p "$LOG_DIR"
     # On ne peut pas logger ici car le dossier n'existait pas avant !
 fi
+//////////////////////// websso corrigé //////////////////
+cat << 'EOF' > /opt/horizon/var/script/deploy_websso.sh
+#!/bin/bash
+
+# ==============================================================================
+# 1. CONFIGURATION (Alignée sur votre capture d'écran)
+# ==============================================================================
+
+# Dossiers
+TRANSIT_DIR="/opt/horizon/var/transit"
+TARGET_DIR="/applis/19382-certi-00/config"
+SERVER_XML="/applis/19382-certi-00/wlc/sa-19382_certis_frontjava-prez-1/servers/sa-19382_certis_frontjava-prez-1/server.xml"
+
+# Noms des fichiers
+BASE_NAME="certis.staging.websso"
+P12_FILE="${BASE_NAME}.p12"
+JKS_FILE="${BASE_NAME}.jks"
+CRT_NAME="${BASE_NAME}.crt"
+
+# --- PARAMETRES DE SECURITE CRITIQUES ---
+# Alias attendu par l'application (keyName)
+FINAL_ALIAS="certis.staging.websso"
+
+# Mot de passe du fichier JKS (storePass)
+STORE_PASS="certis.staging.websso"
+
+# Mot de passe de la clé privée (keyPass) -> DIFFERENT DU STORE !
+KEY_PASS="Certis01"
+
+# Mot de passe de transport (Venant de la commande Horizon)
+P12_PASS="passQual1"
+
+# Fichier de Log
+LOG_FILE="/opt/horizon/var/deploy_websso.log"
+
+# ==============================================================================
+# 2. INITIALISATION (Création dossiers & Logs)
+# ==============================================================================
+
+# Création du dossier Transit s'il n'existe pas
+if [ ! -d "$TRANSIT_DIR" ]; then
+    mkdir -p "$TRANSIT_DIR"
+fi
+
+# Création du dossier des Logs s'il n'existe pas
+LOG_DIR=$(dirname "$LOG_FILE")
+if [ ! -d "$LOG_DIR" ]; then
+    mkdir -p "$LOG_DIR"
+fi
+
+# Fonction pour écrire dans le log et à l'écran
+log_msg() { echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE"; }
+
+# Détection de l'outil Keytool (Priorité à celui de WebSphere)
+if [ -f "/apps/WebSphere/WebPlugins/java/8.0/jre/bin/keytool" ]; then
+    KEYTOOL="/apps/WebSphere/WebPlugins/java/8.0/jre/bin/keytool"
+else
+    KEYTOOL="keytool"
+fi
+
+log_msg "--- Démarrage du script WEBSSO ---"
+
+# ==============================================================================
+# 3. VERIFICATIONS
+# ==============================================================================
+if [ ! -f "$TRANSIT_DIR/$P12_FILE" ]; then
+    log_msg "[ERREUR] Le fichier P12 est absent : $TRANSIT_DIR/$P12_FILE"
+    exit 1
+fi
+
+# Nettoyage des vieux fichiers temporaires
+rm -f "$TRANSIT_DIR/$JKS_FILE" "$TRANSIT_DIR/$CRT_NAME"
+
+# ==============================================================================
+# 4. CONVERSION ET SECURITE (Le cœur du problème)
+# ==============================================================================
+log_msg "[CONVERT] Création du JKS..."
+
+# A. Import du P12 vers JKS (Le mot de passe de la clé sera égal au StorePass ici)
+$KEYTOOL -importkeystore \
+    -srckeystore "$TRANSIT_DIR/$P12_FILE" -srcstoretype pkcs12 -srcstorepass "$P12_PASS" \
+    -destkeystore "$TRANSIT_DIR/$JKS_FILE" -deststoretype JKS -deststorepass "$STORE_PASS" \
+    -srcalias "$BASE_NAME" -destalias "$FINAL_ALIAS" \
+    -noprompt
+
+if [ $? -ne 0 ]; then
+    # Essai de secours si l'alias source est générique (1)
+    $KEYTOOL -importkeystore \
+        -srckeystore "$TRANSIT_DIR/$P12_FILE" -srcstoretype pkcs12 -srcstorepass "$P12_PASS" \
+        -destkeystore "$TRANSIT_DIR/$JKS_FILE" -deststoretype JKS -deststorepass "$STORE_PASS" \
+        -srcalias "1" -destalias "$FINAL_ALIAS" \
+        -noprompt
+fi
+
+if [ ! -f "$TRANSIT_DIR/$JKS_FILE" ]; then
+    log_msg "[ERREUR] Echec de la création du JKS."
+    exit 1
+fi
+
+# B. Changement du mot de passe de la clé (KeyPass = Certis01)
+log_msg "[SECURE] Application du mot de passe spécifique pour la clé ($KEY_PASS)..."
+
+$KEYTOOL -keypasswd \
+    -alias "$FINAL_ALIAS" \
+    -keystore "$TRANSIT_DIR/$JKS_FILE" \
+    -storepass "$STORE_PASS" \
+    -keypass "$STORE_PASS" \
+    -new "$KEY_PASS"
+
+if [ $? -ne 0 ]; then
+    log_msg "[ERREUR] Impossible de changer le mot de passe de la clé."
+    exit 1
+fi
+
+# ==============================================================================
+# 5. EXTRACTION DU CRT (Pour IAM)
+# ==============================================================================
+log_msg "[EXTRACT] Génération du certificat public (.crt)..."
+
+$KEYTOOL -exportcert \
+    -alias "$FINAL_ALIAS" \
+    -keystore "$TRANSIT_DIR/$JKS_FILE" \
+    -storepass "$STORE_PASS" \
+    -file "$TRANSIT_DIR/$CRT_NAME" \
+    -rfc
+
+# ==============================================================================
+# 6. DEPLOIEMENT SECURISE
+# ==============================================================================
+log_msg "[DEPLOY] Installation vers $TARGET_DIR..."
+
+if [ ! -d "$TARGET_DIR" ]; then mkdir -p "$TARGET_DIR"; fi
+
+for FILE in "$JKS_FILE" "$CRT_NAME"; do
+    SRC="$TRANSIT_DIR/$FILE"
+    DEST="$TARGET_DIR/$FILE"
+    
+    if [ -f "$SRC" ]; then
+        # Backup si existe déjà
+        if [ -f "$DEST" ]; then
+            cp "$DEST" "${DEST}.bak"
+            log_msg " -> [UPDATE] $FILE (Backup réalisé)"
+        else
+            log_msg " -> [NEW] $FILE (Nouveau)"
+        fi
+        
+        # Copie
+        cp -f "$SRC" "$DEST"
+        
+        # Permissions
+        chown was:web "$DEST"
+        chmod 644 "$DEST"
+    fi
+done
+
+# ==============================================================================
+# 7. RELOAD SERVEUR
+# ==============================================================================
+if [ -f "$SERVER_XML" ]; then
+    touch "$SERVER_XML"
+    log_msg "[RELOAD] Server.xml touché. Liberty va recharger la configuration."
+else
+    log_msg "[WARNING] Server.xml introuvable, pas de reload automatique."
+fi
+
+log_msg "[SUCCES] Opération terminée."
+exit 0
+EOF
+
+# Rendre exécutable
+chmod +x /opt/horizon/var/script/deploy_websso.sh
+La Commande Horizon à lancer ensuite
+code
+Bash
+/opt/horizon/bin/horizon-cli automate enroll \
+  --no-interactive \
+  --automation-policy=automate-app-tls-client-server-365 \
+  --auto-renew \
+  --contact-email="abdoulaye.1.traore@externe.bnpparibas.com" \
+  --dnsnames="certis.staging.websso" \
+  --pfx="certis.staging.websso.p12" \
+  --pfx-pwd="passQual1" \
+  --chain-file="trustChain_websso.pem" \
+  --destination-folder="/opt/horizon/var/transit" \
+  --script="/opt/horizon/var/script/deploy_websso.sh"
