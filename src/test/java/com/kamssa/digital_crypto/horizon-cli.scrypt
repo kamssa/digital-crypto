@@ -3526,3 +3526,240 @@ cd /apps/WebSphere/WebPlugins/java/8.0/jre/bin/
   -keypass "certis.staging.websso" \
   -dname "CN=dummy" \
   -keyalg RSA
+  /////////////////////////////// master ///////////////////////////
+  
+C'est une excellente approche d'architecture. Vous passez du "bricolage unitaire" à une industrialisation professionnelle.
+Pour répondre à votre besoin d'avoir une solution robuste, centralisée et pilotée par la configuration, je vous propose une architecture en 3 Composants :
+📄 Le Fichier de Configuration (certs.conf) : C'est le "Cerveau". Il contient la liste de vos certificats et leurs spécificités (mots de passe, type, alias).
+🚀 Le Script Lanceur (launcher.sh) : C'est le "Chef". Il lit la configuration et lance les commandes horizon-cli une par une.
+🛠️ Le Script de Déploiement (universal_deploy.sh) : C'est "l'Ouvrier". C'est le script --script appelé par Horizon pour faire le travail technique (conversion, copie, reload).
+Voici la solution complète à copier-coller.
+Étape 1 : Le Fichier de Configuration (certs.conf)
+Créez ce fichier. Il centralise tout. Plus besoin de toucher aux scripts si un mot de passe change.
+Le format est : DOMAINE|TYPE|PASS_TRANSPORT|PASS_STORE|PASS_KEY|ALIAS_FINAL
+code
+Bash
+cat << 'EOF' > /opt/horizon/var/script/certs.conf
+# ==============================================================================
+# CONFIGURATION DES CERTIFICATS
+# Format : DNS_NAME | TYPE | PFX_PASS | STORE_PASS | KEY_PASS | FINAL_ALIAS
+# Types dispo : FRONT, VAULT, WEBSSO
+# ==============================================================================
+
+# 1. FRONT (IHS) - Utilise KDB
+# Pas de password spécifique (utilise passQual1 par défaut), pas d'alias complexe
+certis-api.staging.echonet|FRONT|passQual1|-|-|-
+certis.staging.echonet|FRONT|passQual1|-|-|-
+
+# 2. VAULT (Backend) - Utilise P12
+# Le mot de passe est 'opendataVault' (vu dans votre config)
+opendata_vault_staging_certis|VAULT|opendataVault|-|-|-
+
+# 3. WEBSSO (Backend) - Utilise JKS complexe
+# P12_PASS=passQual1 | STORE_PASS=certis.staging.websso | KEY_PASS=Certis01 | ALIAS=certis.staging.websso
+certis.staging.websso|WEBSSO|passQual1|certis.staging.websso|Certis01|certis.staging.websso
+EOF
+Étape 2 : Le Script "Ouvrier" (universal_deploy.sh)
+C'est le script qui sera appelé par Horizon via l'option --script. Il sait gérer les 3 cas (Front, Vault, WebSSO).
+code
+Bash
+cat << 'EOF' > /opt/horizon/var/script/universal_deploy.sh
+#!/bin/bash
+
+# ==============================================================================
+# SCRIPT DE DEPLOIEMENT UNIVERSEL
+# ==============================================================================
+# ARGUMENTS RECUS DU LAUNCHER :
+MODE="$1"          # FRONT, VAULT, WEBSSO
+CERT_NAME="$2"     # Nom du fichier (ex: certis.staging.websso)
+P12_PASS="$3"      # Mot de passe transport
+STORE_PASS="$4"    # Mot de passe final (JKS)
+KEY_PASS="$5"      # Mot de passe clé privée
+FINAL_ALIAS="$6"   # Alias final attendu
+
+# DOSSIERS & OUTILS
+TRANSIT_DIR="/opt/horizon/var/transit"
+IHS_DIR="/applis/19382-certi-00/ihs/sw-19382_certis_frontjava-prez-1-ssl/ssl"
+CONFIG_DIR="/applis/19382-certi-00/config"
+WAS_SECURITY="/applis/19382-certi-00/wlc/sa-19382_certis_frontjava-prez-1/servers/sa-19382_certis_frontjava-prez-1/resources/security"
+
+SERVER_XML="/applis/19382-certi-00/wlc/sa-19382_certis_frontjava-prez-1/servers/sa-19382_certis_frontjava-prez-1/server.xml"
+IHS_BIN="/apps/WebSphere/WebServer/bin/apachectl"
+
+# Détection outils
+if [ -f "/apps/WebSphere/WebPlugins/java/8.0/jre/bin/keytool" ]; then KEYTOOL="/apps/WebSphere/WebPlugins/java/8.0/jre/bin/keytool"; else KEYTOOL="keytool"; fi
+
+LOG_FILE="/opt/horizon/var/deploy_master.log"
+log_msg() { echo "$(date '+%Y-%m-%d %H:%M:%S') - [$MODE] $1" | tee -a "$LOG_FILE"; }
+
+log_msg "--- Début traitement : $CERT_NAME ---"
+
+# ------------------------------------------------------------------------------
+# FONCTION DE COPIE SECURISEE
+# ------------------------------------------------------------------------------
+deploy_file() {
+    SRC="$1"; DEST="$2"; PERMS="$3"
+    FILENAME=$(basename "$SRC")
+    TARGET="$DEST/$FILENAME"
+    
+    if [ ! -f "$SRC" ]; then log_msg "[ERREUR] Source absente: $FILENAME"; return 1; fi
+    if [ ! -d "$DEST" ]; then mkdir -p "$DEST"; fi
+
+    if [ -f "$TARGET" ]; then cp "$TARGET" "${TARGET}.bak"; fi # Backup
+    cp -f "$SRC" "$TARGET"
+    chown was:web "$TARGET"
+    chmod "$PERMS" "$TARGET"
+    log_msg " -> Installé : $FILENAME ($PERMS)"
+}
+
+# ------------------------------------------------------------------------------
+# LOGIQUE MÉTIER
+# ------------------------------------------------------------------------------
+case "$MODE" in
+
+    "FRONT")
+        # CAS FRONT : On attend un KDB généré par Horizon
+        # Action : Copier KDB+STH vers IHS
+        deploy_file "$TRANSIT_DIR/${CERT_NAME}.kdb" "$IHS_DIR" "640"
+        deploy_file "$TRANSIT_DIR/${CERT_NAME}.sth" "$IHS_DIR" "640"
+        
+        # Reload Apache
+        if [ -f "$IHS_BIN" ]; then $IHS_BIN -k graceful; log_msg "Apache rechargé."; fi
+        ;;
+
+    "VAULT")
+        # CAS VAULT : On attend un P12 généré par Horizon
+        # Action : Extraire Key/Crt + Copier P12/Key/Crt vers Config
+        BASE="${TRANSIT_DIR}/${CERT_NAME}"
+        
+        # Extraction (-legacy pour compatibilité)
+        openssl pkcs12 -legacy -in "${BASE}.p12" -nocerts -out "${BASE}.key" -nodes -passin pass:"$P12_PASS"
+        openssl pkcs12 -legacy -in "${BASE}.p12" -clcerts -nokeys -out "${BASE}.crt" -passin pass:"$P12_PASS"
+        
+        deploy_file "${BASE}.p12" "$CONFIG_DIR" "644"
+        deploy_file "${BASE}.key" "$CONFIG_DIR" "640"
+        deploy_file "${BASE}.crt" "$CONFIG_DIR" "644"
+        
+        # Reload Liberty
+        if [ -f "$SERVER_XML" ]; then touch "$SERVER_XML"; log_msg "Liberty touché."; fi
+        ;;
+
+    "WEBSSO")
+        # CAS WEBSSO : Le plus complexe (P12 -> JKS avec Alias/Mdp spécifique)
+        BASE="${TRANSIT_DIR}/${CERT_NAME}"
+        rm -f "${BASE}.jks" "${BASE}.crt"
+        
+        log_msg "Conversion P12 vers JKS (Alias: $FINAL_ALIAS)..."
+        
+        # 1. Conversion
+        $KEYTOOL -importkeystore \
+            -srckeystore "${BASE}.p12" -srcstoretype pkcs12 -srcstorepass "$P12_PASS" \
+            -destkeystore "${BASE}.jks" -deststoretype JKS -deststorepass "$STORE_PASS" \
+            -srcalias "$CERT_NAME" -destalias "$FINAL_ALIAS" -noprompt
+            
+        if [ $? -ne 0 ]; then
+             # Fallback alias "1"
+             $KEYTOOL -importkeystore \
+                -srckeystore "${BASE}.p12" -srcstoretype pkcs12 -srcstorepass "$P12_PASS" \
+                -destkeystore "${BASE}.jks" -deststoretype JKS -deststorepass "$STORE_PASS" \
+                -srcalias "1" -destalias "$FINAL_ALIAS" -noprompt
+        fi
+        
+        # 2. Changement MDP Clé (KeyPass)
+        if [ "$STORE_PASS" != "$KEY_PASS" ]; then
+            log_msg "Changement mot de passe clé..."
+            $KEYTOOL -keypasswd -alias "$FINAL_ALIAS" -keystore "${BASE}.jks" \
+                -storepass "$STORE_PASS" -keypass "$STORE_PASS" -new "$KEY_PASS"
+        fi
+        
+        # 3. Extraction CRT
+        $KEYTOOL -exportcert -alias "$FINAL_ALIAS" -keystore "${BASE}.jks" \
+            -storepass "$STORE_PASS" -file "${BASE}.crt" -rfc
+            
+        # 4. Déploiement
+        deploy_file "${BASE}.jks" "$CONFIG_DIR" "644"
+        deploy_file "${BASE}.crt" "$CONFIG_DIR" "644"
+        
+        # Reload Liberty
+        if [ -f "$SERVER_XML" ]; then touch "$SERVER_XML"; log_msg "Liberty touché."; fi
+        ;;
+esac
+
+log_msg "--- Fin Succès ---"
+exit 0
+EOF
+chmod +x /opt/horizon/var/script/universal_deploy.sh
+Étape 3 : Le Script "Chef" (launcher.sh)
+C'est celui que vous exécuterez à la main. Il lit la config ligne par ligne et lance Horizon.
+code
+Bash
+cat << 'EOF' > /opt/horizon/var/script/launcher.sh
+#!/bin/bash
+
+CONFIG_FILE="/opt/horizon/var/script/certs.conf"
+TRANSIT_DIR="/opt/horizon/var/transit"
+SCRIPT_PATH="/opt/horizon/var/script/universal_deploy.sh"
+EMAIL="abdoulaye.1.traore@externe.bnpparibas.com"
+SERVER_DNS="s02v19932426.fr.net.intra" # Nom de votre serveur
+
+# Création transit
+mkdir -p "$TRANSIT_DIR"
+
+echo "=== DEMARRAGE DU TRAITEMENT DES CERTIFICATS ==="
+
+# Lecture du fichier de config (saute les lignes commençant par #)
+grep -v '^#' "$CONFIG_FILE" | while IFS='|' read -r DNS TYPE PFX_PASS STORE_PASS KEY_PASS ALIAS_FINAL; do
+    
+    # Sauter les lignes vides
+    [ -z "$DNS" ] && continue
+
+    echo "----------------------------------------------------------------"
+    echo "Traitement : $DNS (Type: $TYPE)"
+    echo "----------------------------------------------------------------"
+
+    # Nettoyage préventif
+    rm -f "$TRANSIT_DIR/$DNS"*
+
+    # Construction de la commande selon le type
+    case "$TYPE" in
+        "FRONT")
+            # FRONT = Demande KDB
+            CMD="/opt/horizon/bin/horizon-cli automate enroll \
+            --no-interactive --automation-policy=automate-app-tls-client-server-365 --auto-renew \
+            --contact-email=$EMAIL \
+            --dnsnames=\"$DNS\" \
+            --kdb=\"${DNS}.kdb\" --kdb-pwd=\"$PFX_PASS\" \
+            --destination-folder=\"$TRANSIT_DIR\" \
+            --chain-file=\"trustChain_${DNS}.pem\" \
+            --script=\"$SCRIPT_PATH $TYPE $DNS $PFX_PASS - - -\""
+            ;;
+            
+        "VAULT"|"WEBSSO")
+            # VAULT/WEBSSO = Demande P12 (PFX)
+            CMD="/opt/horizon/bin/horizon-cli automate enroll \
+            --no-interactive --automation-policy=automate-app-tls-client-server-365 --auto-renew \
+            --contact-email=$EMAIL \
+            --dnsnames=\"$DNS,$SERVER_DNS\" \
+            --pfx=\"${DNS}.p12\" --pfx-pwd=\"$PFX_PASS\" \
+            --destination-folder=\"$TRANSIT_DIR\" \
+            --chain-file=\"trustChain_${DNS}.pem\" \
+            --script=\"$SCRIPT_PATH $TYPE $DNS $PFX_PASS $STORE_PASS $KEY_PASS $ALIAS_FINAL\""
+            ;;
+    esac
+
+    # Exécution de la commande
+    echo "Lancement Horizon..."
+    eval $CMD
+    
+    if [ $? -eq 0 ]; then
+        echo "✅ Succès pour $DNS"
+    else
+        echo "❌ Erreur pour $DNS"
+    fi
+    echo ""
+
+done
+
+echo "=== TRAITEMENT TERMINE ==="
+EOF
+chmod +x /opt/horizon/var/script/launcher.sh
