@@ -3763,3 +3763,138 @@ done
 echo "=== TRAITEMENT TERMINE ==="
 EOF
 chmod +x /opt/horizon/var/script/launcher.sh
+/////////////////////// 
+cat << 'EOF' > /opt/horizon/var/script/universal_deploy.sh
+#!/bin/bash
+
+# ==============================================================================
+# SCRIPT DE DEPLOIEMENT UNIVERSEL (V2 - Avec CRT partout)
+# ==============================================================================
+MODE="$1"          # FRONT, VAULT, WEBSSO
+CERT_NAME="$2"     # Nom du fichier
+P12_PASS="$3"      # Mot de passe transport
+STORE_PASS="$4"    # Mot de passe final (JKS)
+KEY_PASS="$5"      # Mot de passe clé privée
+FINAL_ALIAS="$6"   # Alias final attendu
+
+# DOSSIERS
+TRANSIT_DIR="/opt/horizon/var/transit"
+IHS_DIR="/applis/19382-certi-00/ihs/sw-19382_certis_frontjava-prez-1-ssl/ssl"
+CONFIG_DIR="/applis/19382-certi-00/config"
+WAS_SECURITY="/applis/19382-certi-00/wlc/sa-19382_certis_frontjava-prez-1/servers/sa-19382_certis_frontjava-prez-1/resources/security"
+
+# FICHIERS DE CONTROLE
+SERVER_XML="/applis/19382-certi-00/wlc/sa-19382_certis_frontjava-prez-1/servers/sa-19382_certis_frontjava-prez-1/server.xml"
+IHS_BIN="/apps/WebSphere/WebServer/bin/apachectl"
+
+# OUTILS
+if [ -f "/apps/WebSphere/WebPlugins/java/8.0/jre/bin/keytool" ]; then KEYTOOL="/apps/WebSphere/WebPlugins/java/8.0/jre/bin/keytool"; else KEYTOOL="keytool"; fi
+IBM_TOOL="/apps/WebSphere/WebPlugins/bin/gskcmd"
+
+LOG_FILE="/opt/horizon/var/deploy_master.log"
+log_msg() { echo "$(date '+%Y-%m-%d %H:%M:%S') - [$MODE] $1" | tee -a "$LOG_FILE"; }
+
+log_msg "--- Début traitement : $CERT_NAME ---"
+
+# ------------------------------------------------------------------------------
+# FONCTION DE COPIE
+# ------------------------------------------------------------------------------
+deploy_file() {
+    SRC="$1"; DEST="$2"; PERMS="$3"
+    FILENAME=$(basename "$SRC")
+    TARGET="$DEST/$FILENAME"
+    
+    if [ ! -f "$SRC" ]; then log_msg "[ERREUR] Source absente: $FILENAME"; return 1; fi
+    if [ ! -d "$DEST" ]; then mkdir -p "$DEST"; fi
+
+    if [ -f "$TARGET" ]; then cp "$TARGET" "${TARGET}.bak"; fi
+    cp -f "$SRC" "$TARGET"
+    chown was:web "$TARGET"
+    chmod "$PERMS" "$TARGET"
+    log_msg " -> Installé : $FILENAME ($PERMS)"
+}
+
+cd "$(dirname "$IBM_TOOL")" || exit 1
+
+# ------------------------------------------------------------------------------
+# LOGIQUE MÉTIER
+# ------------------------------------------------------------------------------
+case "$MODE" in
+
+    "FRONT")
+        # 1. Déploiement KDB/STH
+        deploy_file "$TRANSIT_DIR/${CERT_NAME}.kdb" "$IHS_DIR" "640"
+        deploy_file "$TRANSIT_DIR/${CERT_NAME}.sth" "$IHS_DIR" "640"
+        
+        # 2. Extraction du CRT (NOUVEAU !)
+        # On utilise l'outil IBM pour sortir le CRT du KDB
+        log_msg "Extraction du CRT depuis le KDB..."
+        rm -f "$TRANSIT_DIR/${CERT_NAME}.crt"
+        
+        $IBM_TOOL -cert -extract -db "$TRANSIT_DIR/${CERT_NAME}.kdb" -stashed \
+            -label "$CERT_NAME" -target "$TRANSIT_DIR/${CERT_NAME}.crt" -format ascii
+            
+        if [ $? -eq 0 ]; then
+            deploy_file "$TRANSIT_DIR/${CERT_NAME}.crt" "$IHS_DIR" "644"
+        else
+            log_msg "[WARNING] Impossible d'extraire le CRT du KDB (Label incorrect ?)"
+        fi
+        
+        # 3. Reload Apache
+        if [ -f "$IHS_BIN" ]; then $IHS_BIN -k graceful; log_msg "Apache rechargé."; fi
+        ;;
+
+    "VAULT")
+        BASE="${TRANSIT_DIR}/${CERT_NAME}"
+        
+        # Extraction
+        openssl pkcs12 -legacy -in "${BASE}.p12" -nocerts -out "${BASE}.key" -nodes -passin pass:"$P12_PASS"
+        openssl pkcs12 -legacy -in "${BASE}.p12" -clcerts -nokeys -out "${BASE}.crt" -passin pass:"$P12_PASS"
+        
+        # Déploiement
+        deploy_file "${BASE}.p12" "$CONFIG_DIR" "644"
+        deploy_file "${BASE}.key" "$CONFIG_DIR" "640"
+        deploy_file "${BASE}.crt" "$CONFIG_DIR" "644" # Le CRT est bien là
+        
+        # Reload
+        if [ -f "$SERVER_XML" ]; then touch "$SERVER_XML"; log_msg "Liberty touché."; fi
+        ;;
+
+    "WEBSSO")
+        BASE="${TRANSIT_DIR}/${CERT_NAME}"
+        rm -f "${BASE}.jks" "${BASE}.crt"
+        
+        # Conversion JKS
+        $KEYTOOL -importkeystore \
+            -srckeystore "${BASE}.p12" -srcstoretype pkcs12 -srcstorepass "$P12_PASS" \
+            -destkeystore "${BASE}.jks" -deststoretype JKS -deststorepass "$STORE_PASS" \
+            -srcalias "$CERT_NAME" -destalias "$FINAL_ALIAS" -noprompt
+            
+        if [ $? -ne 0 ]; then
+             $KEYTOOL -importkeystore \
+                -srckeystore "${BASE}.p12" -srcstoretype pkcs12 -srcstorepass "$P12_PASS" \
+                -destkeystore "${BASE}.jks" -deststoretype JKS -deststorepass "$STORE_PASS" \
+                -srcalias "1" -destalias "$FINAL_ALIAS" -noprompt
+        fi
+        
+        # Changement MDP Clé
+        if [ "$STORE_PASS" != "$KEY_PASS" ]; then
+            $KEYTOOL -keypasswd -alias "$FINAL_ALIAS" -keystore "${BASE}.jks" \
+                -storepass "$STORE_PASS" -keypass "$STORE_PASS" -new "$KEY_PASS"
+        fi
+        
+        # Extraction CRT
+        $KEYTOOL -exportcert -alias "$FINAL_ALIAS" -keystore "${BASE}.jks" \
+            -storepass "$STORE_PASS" -file "${BASE}.crt" -rfc
+            
+        # Déploiement
+        deploy_file "${BASE}.jks" "$CONFIG_DIR" "644"
+        deploy_file "${BASE}.crt" "$CONFIG_DIR" "644" # Le CRT est bien là
+        
+        # Reload
+        if [ -f "$SERVER_XML" ]; then touch "$SERVER_XML"; log_msg "Liberty touché."; fi
+        ;;
+esac
+
+log_msg "--- Fin Succès ---"
+exit 0
