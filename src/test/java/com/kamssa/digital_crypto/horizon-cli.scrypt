@@ -3898,3 +3898,6 @@ esac
 
 log_msg "--- Fin Succès ---"
 exit 0
+/opt/horizon/var/script/universal_deploy.sh
+/opt/horizon/var/script/launcher.sh
+/opt/horizon/var/script/certs.conf
