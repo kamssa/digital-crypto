@@ -3901,3 +3901,26 @@ exit 0
 /opt/horizon/var/script/universal_deploy.sh
 /opt/horizon/var/script/launcher.sh
 /opt/horizon/var/script/certs.conf
+//////////////////////////////////////
+BEGIN
+   EXECUTE IMMEDIATE 'CREATE TABLE "ACTION" 
+   (	"ID" NUMBER(19,0), 
+	"CREATION_DATE_TIME" TIMESTAMP (6), 
+	"TYPE" VARCHAR2(255 BYTE), 
+	"REQUEST_ID" NUMBER(19,0), 
+	"DEFAULT_USER_ID" VARCHAR2(255 BYTE), 
+	"GETAWAY" VARCHAR2(255 CHAR)
+   )';
+   DBMS_OUTPUT.PUT_LINE('Table ACTION créée.');
+EXCEPTION
+   WHEN OTHERS THEN
+      IF SQLCODE = -955 THEN
+         DBMS_OUTPUT.PUT_LINE('La table ACTION existe déjà.');
+      ELSE
+         RAISE;
+      END IF;
+END;
+/
+
+-- Le GRANT peut rester en dehors ou être mis dans un bloc similaire
+GRANT SELECT ON "ACTION" TO "ROLE_OWN_19382_COP_READ";
