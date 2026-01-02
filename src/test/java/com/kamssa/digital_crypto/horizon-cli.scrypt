@@ -3924,3 +3924,5 @@ END;
 
 -- Le GRANT peut rester en dehors ou être mis dans un bloc similaire
 GRANT SELECT ON "ACTION" TO "ROLE_OWN_19382_COP_READ";
+////////////////////////
+En résumé : Votre code essaie de mettre un "trop gros chiffre" (ou un mauvais type de donnée transformé en chiffre) dans une colonne Oracle trop petite. Vérifiez en priorité la correspondance entre vos IDs envoyés par Angular et la taille des colonnes NUMBER dans Oracle.
